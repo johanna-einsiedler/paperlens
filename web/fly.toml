@@ -1,0 +1,17 @@
+# fly.toml — change the app name before running `fly deploy`
+app = "paperlens"
+primary_region = "lhr"   # London; use "iad" for US East, "fra" for Frankfurt
+
+[build]
+
+[http_service]
+  internal_port     = 8080
+  force_https       = true
+  auto_stop_machines  = false  # no cold starts — keep at least 1 machine running
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus     = 1
+  memory   = "512mb"   # PDF image rendering needs headroom; free tier gives 256mb

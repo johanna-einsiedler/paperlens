@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.git/
+.gitignore
+.env
+*.pdf
+uv.lock
+pyproject.toml
