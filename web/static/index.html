@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PaperLens</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>PaperLens</h1>
+    <p>AI-powered data extraction and labeling for academic papers</p>
+  </header>
+
+  <!-- Progress indicator (6 visual steps) -->
+  <div class="progress-container">
+    <div class="progress-steps">
+      <div class="progress-step active" id="prog1">
+        <div class="step-circle" id="circ1">1</div>
+        <div class="step-label">Task</div>
+      </div>
+      <div class="step-connector" id="conn1"></div>
+      <div class="progress-step" id="prog2">
+        <div class="step-circle" id="circ2">2</div>
+        <div class="step-label">Setup</div>
+      </div>
+      <div class="step-connector" id="conn2"></div>
+      <div class="progress-step" id="prog3">
+        <div class="step-circle" id="circ3">3</div>
+        <div class="step-label">Question</div>
+      </div>
+      <div class="step-connector" id="conn3"></div>
+      <div class="progress-step" id="prog4">
+        <div class="step-circle" id="circ4">4</div>
+        <div class="step-label">Review</div>
+      </div>
+      <div class="step-connector" id="conn4"></div>
+      <div class="progress-step" id="prog5">
+        <div class="step-circle" id="circ5">5</div>
+        <div class="step-label">Upload</div>
+      </div>
+      <div class="step-connector" id="conn5"></div>
+      <div class="progress-step" id="prog6">
+        <div class="step-circle" id="circ6">6</div>
+        <div class="step-label">Results</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 1: Mode selection -->
+  <div class="panel active" id="step1">
+    <div class="card">
+
+      <!-- Mode grid (hidden when JSON upload panel is active) -->
+      <div id="modeGrid">
+        <h2>What would you like to do?</h2>
+        <p class="subtitle">Choose a task to get started</p>
+
+        <details class="info-box">
+          <summary>&#8505;&ensp;How does this work?</summary>
+          <div class="info-box-body">
+            <p>This tool uses AI vision models (GPT-4o, Gemini) to read academic PDFs and extract or classify structured information &mdash; no manual copy-pasting.</p>
+            <p><strong>Extract</strong> pulls specific values (statistics, factor loadings, effect sizes) into a JSON schema you define. <strong>Label</strong> classifies papers by content. In both cases you describe your task in plain language, the AI generates a tailored prompt, and you upload one or more PDFs.</p>
+            <p>After extraction, results are shown alongside the source PDF with <strong>yellow highlights</strong> marking the exact passages the model cited as evidence. You can flip through all referenced pages and zoom in to verify each value against the original.</p>
+            <p>Every field in the results is <strong>editable</strong>: click any value to correct it. Edits are tracked as human overrides. When you download the results, the exported JSON includes the original model values, your corrections, the full prompt, the model used, and a timestamp &mdash; everything you need for a reproducible audit trail.</p>
+            <p>You need an API key for OpenAI or Google Gemini. Your key is sent only to the provider and is never stored.</p>
+          </div>
+        </details>
+
+        <div class="option-grid">
+          <button class="option-card" onclick="selectMode('extraction')">
+            <div class="option-icon">📊</div>
+            <h3>Extract data from a paper</h3>
+            <p>Pull structured information, statistics, or specific values from academic papers into a defined format</p>
+          </button>
+          <button class="option-card" onclick="selectMode('labeling')">
+            <div class="option-icon">🏷️</div>
+            <h3>Label a paper</h3>
+            <p>Classify or categorize papers or their sections based on their content</p>
+          </button>
+          <button class="option-card option-card-load" onclick="selectLoadOption()">
+            <div class="option-icon">📂</div>
+            <div class="option-card-load-text">
+              <h3>Review existing results</h3>
+              <p>Load a previously exported JSON for human review and correction &mdash; no AI processing, no API key needed</p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- JSON upload panel — Stage 1: instructions -->
+      <div id="jsonUploadPanel" style="display:none">
+        <div id="jsonStage1">
+          <div class="panel-back-row">
+            <button class="btn btn-ghost btn-sm" onclick="cancelLoadOption()">&#8592; Back</button>
+            <h2>Review existing results</h2>
+          </div>
+          <p class="subtitle">Human review and correction only &mdash; no new AI extraction will be run</p>
+
+          <div class="json-format-info">
+            <p>You will need:</p>
+            <ul class="json-req-list">
+              <li><strong>A results JSON</strong> previously exported from this app (use <em>Download JSON</em> on the results page). It must contain a <code>papers</code> array.</li>
+              <li><strong>The original PDF files</strong> <em>(optional but recommended)</em> &mdash; upload them alongside the JSON so the viewer can show page images with yellow highlights for each extracted value.</li>
+            </ul>
+            <p class="json-format-evidence-note">For page highlighting to work, each result must include an <code>evidence</code> array:</p>
+            <details class="json-format-example">
+              <summary>Show expected evidence format</summary>
+<pre class="json-format-pre">"evidence": [
+  {
+    "snippet": "Table 2. Rotated factor matrix",
+    "page": 4,
+    "source": "Table 2",
+    "field": "F1 loadings"
+  }
+]</pre>
+            </details>
+          </div>
+
+          <div class="btn-row" style="margin-top:20px">
+            <button class="btn btn-ghost" onclick="cancelLoadOption()">Cancel</button>
+            <button class="btn btn-primary" onclick="showJsonStage2()">Continue &mdash; choose files &#8594;</button>
+          </div>
+        </div>
+
+        <!-- Stage 2: file pickers (hidden until user clicks Continue) -->
+        <div id="jsonStage2" style="display:none">
+          <div class="panel-back-row">
+            <button class="btn btn-ghost btn-sm" onclick="showJsonStage1()">&#8592; Back</button>
+            <h2>Load files</h2>
+          </div>
+
+          <div class="json-upload-grid">
+            <!-- JSON drop zone -->
+            <div class="json-upload-section">
+              <p class="json-upload-label">Results JSON <span class="json-upload-required">required</span></p>
+              <div class="json-drop-row" id="jsonUploadZone">
+                <input type="file" id="jsonInput" accept=".json" style="display:none" onchange="handleJsonFileSelect(event)" />
+                <button class="btn btn-primary btn-sm" onclick="document.getElementById('jsonInput').click()">Choose JSON</button>
+                <span class="json-drop-hint" id="jsonDropHint">or drop here</span>
+              </div>
+            </div>
+
+            <!-- PDF drop zone -->
+            <div class="json-upload-section">
+              <p class="json-upload-label">Original PDFs <span class="json-upload-optional">optional &mdash; for page preview</span></p>
+              <div class="json-drop-row" id="reviewPdfZone">
+                <input type="file" id="reviewPdfInput" accept=".pdf" multiple style="display:none" onchange="handleReviewPdfSelect(event)" />
+                <button class="btn btn-outline btn-sm" onclick="document.getElementById('reviewPdfInput').click()">Choose PDFs</button>
+                <span class="json-drop-hint" id="reviewPdfHint">or drop here</span>
+              </div>
+            </div>
+          </div>
+
+          <p class="upload-note" id="jsonError" style="display:none"></p>
+
+          <!-- Shown after a valid JSON is dropped/chosen -->
+          <div class="json-ready-row" id="jsonReadyRow" style="display:none">
+            <div class="json-ready-text">JSON ready. Add PDFs above if you want page previews, then click Load.</div>
+            <button class="btn btn-primary" id="jsonLoadBtn" onclick="commitLoadJson()" disabled>Load &amp; review &#8594;</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Step 2: Model + API key -->
+  <div class="panel" id="step2">
+    <div class="card">
+      <h2>Configure your AI model</h2>
+      <p class="subtitle">Choose a provider, select a model, and enter your API key</p>
+
+      <div class="form-group">
+        <label for="providerSelect">Provider</label>
+        <select id="providerSelect" onchange="onProviderChange()">
+          <option value="openai">OpenAI</option>
+          <option value="google">Google Gemini</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="modelSelect">Model</label>
+        <select id="modelSelect">
+          <!-- populated by onProviderChange() -->
+        </select>
+      </div>
+
+      <div class="form-group" id="deepseekWarningGroup" style="display:none">
+        <p class="provider-info">
+          &#8505;&ensp;DeepSeek does not support image input. Instead, the PDF's text layer is extracted and passed as text. This works well for native text PDFs but cannot process scanned papers. Prompt generation also uses DeepSeek.
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label for="apiKeyInput" id="apiKeyLabel">API key</label>
+        <input
+          type="password"
+          id="apiKeyInput"
+          placeholder=""
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <small id="apiKeyNote">Your key is sent only to the selected provider and is never stored.</small>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goTo(1)">Back</button>
+        <button class="btn btn-primary" onclick="submitStep2()">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Prompt method choice → then AI or manual -->
+  <div class="panel" id="step3">
+    <div class="card">
+
+      <!-- Sub-mode choice (default view) -->
+      <div id="step3Choice">
+        <h2>How would you like to provide a prompt?</h2>
+        <p class="subtitle">You can describe your task and let AI write a prompt, or paste your own</p>
+        <div class="option-grid">
+          <button class="option-card" onclick="setInputMode('generate')">
+            <div class="option-icon">✨</div>
+            <h3>Generate with AI</h3>
+            <p>Describe your task in plain language &mdash; AI will write a detailed prompt for you</p>
+          </button>
+          <button class="option-card" onclick="setInputMode('manual')">
+            <div class="option-icon">✏️</div>
+            <h3>I already have a prompt</h3>
+            <p>Paste your own prompt and skip the AI generation step entirely</p>
+          </button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="goTo(2)">Back</button>
+        </div>
+      </div>
+
+      <!-- AI generation section -->
+      <div id="aiSection" style="display:none">
+        <h2 id="step3Heading">Describe what you want to extract</h2>
+        <p class="subtitle" id="step3Sub">Be specific about what information you need from the papers</p>
+
+        <div class="form-group">
+          <label for="questionInput">Your question / task description</label>
+          <textarea
+            id="questionInput"
+            rows="5"
+            placeholder="E.g., Extract the sample size, mean age, and percentage of female participants from each study..."
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="contextInput">
+            Additional context
+            <span class="optional">(optional)</span>
+          </label>
+          <textarea
+            id="contextInput"
+            rows="3"
+            placeholder="E.g., Papers are from medical journals. Age is always reported as mean ± SD..."
+          ></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="showStep3Choice()">Back</button>
+          <button class="btn btn-primary" onclick="submitStep3()">Generate prompt</button>
+        </div>
+      </div>
+
+      <!-- Manual prompt section -->
+      <div id="manualSection" style="display:none">
+        <h2>Write your own prompt</h2>
+        <p class="subtitle">Paste or write your prompt directly &mdash; the AI generation step will be skipped</p>
+
+        <div class="form-group">
+          <label for="manualPromptInput">Prompt</label>
+          <textarea
+            id="manualPromptInput"
+            rows="12"
+            placeholder="Paste or write your full extraction or labeling prompt here..."
+          ></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="showStep3Choice()">Back</button>
+          <button class="btn btn-primary" onclick="useManualPrompt()">Use this prompt</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Step 4: Generating prompt (loading) -->
+  <div class="panel" id="step4">
+    <div class="card card-center">
+      <div class="spinner"></div>
+      <h2>Generating your prompt&hellip;</h2>
+      <p class="subtitle" style="margin-bottom:0">The AI is crafting a tailored prompt based on your task.</p>
+    </div>
+  </div>
+
+  <!-- Step 5: Review prompt -->
+  <div class="panel" id="step5">
+    <div class="card">
+      <h2>Review your generated prompt</h2>
+      <p class="subtitle">Does this prompt accurately capture what you need?</p>
+
+      <div class="prompt-box">
+        <div class="prompt-toolbar">
+          <span class="model-badge" id="modelBadge"></span>
+          <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            Copy
+          </button>
+        </div>
+        <div class="prompt-text" id="promptDisplay"></div>
+      </div>
+
+      <div class="confirm-row">
+        <button class="btn btn-success" onclick="confirmPrompt()">&#10003;&ensp;Looks good &mdash; upload paper</button>
+        <button class="btn btn-ghost" onclick="goTo(3)">&#8617;&ensp;Reformulate question</button>
+        <button class="btn btn-outline" onclick="regenerate()">&#8635;&ensp;Regenerate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 6: Upload PDFs (multiple) -->
+  <div class="panel" id="step6">
+    <div class="card">
+      <div class="step6-header">
+        <div>
+          <h2>Upload your papers</h2>
+          <p class="subtitle" style="margin-bottom:0">Upload one or more PDFs — they will be processed sequentially</p>
+        </div>
+        <button class="edit-setup-btn" onclick="editSetup()" title="Change API key or model">
+          &#9881;&ensp;Edit API key / model
+        </button>
+      </div>
+
+      <!-- Compact prompt reminder -->
+      <details class="prompt-summary" id="promptSummaryDetails">
+        <summary>View confirmed prompt <span class="prompt-summary-model" id="promptSummaryModel"></span></summary>
+        <pre class="prompt-summary-text" id="promptSummaryText"></pre>
+      </details>
+
+      <!-- Drop zone -->
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="pdfInput" accept=".pdf" multiple style="display:none" onchange="handleFileSelect(event)" />
+        <div class="upload-icon">📄</div>
+        <p class="upload-primary">Drop PDFs here</p>
+        <p class="upload-secondary">or click to browse &nbsp;&middot;&nbsp; multiple files supported &nbsp;&middot;&nbsp; max 50 MB each</p>
+      </div>
+
+      <!-- Selected files list (populated by JS) -->
+      <div class="file-list" id="fileList"></div>
+
+      <p class="upload-note" id="visionNote"></p>
+
+      <!-- Parsing method toggle — shown for vision models only -->
+      <div class="parse-method-group" id="parsingMethodGroup" style="display:none">
+        <label class="parse-method-label">Parsing method</label>
+        <div class="parse-method-row">
+          <label class="parse-method-opt">
+            <input type="radio" name="parseMethod" value="vision" checked onchange="onParseMethodChange(this)" />
+            <span><strong>Vision</strong> &mdash; page images sent to AI <span class="parse-method-default">(default)</span></span>
+          </label>
+          <label class="parse-method-opt">
+            <input type="radio" name="parseMethod" value="text" onchange="onParseMethodChange(this)" />
+            <span><strong>Text extraction</strong> &mdash; PDF text layer parsed as markdown (faster; native PDFs only)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goTo(5)">Back</button>
+        <button class="btn btn-primary" id="extractBtn" onclick="submitUpload()" disabled>Extract</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 7: Extracting (loading) -->
+  <div class="panel" id="step7">
+    <div class="card card-center">
+      <div class="spinner"></div>
+      <h2 id="loadingTitle">Extracting data&hellip;</h2>
+      <p class="subtitle" id="extractingNote" style="margin-bottom:0">
+        Processing your paper. This may take a minute for longer documents.
+      </p>
+    </div>
+  </div>
+
+  <!-- Step 8: Results (wide, 3-column: papers | entry | page image) -->
+  <div class="panel" id="step8">
+    <div class="card results-card">
+
+      <!-- Header -->
+      <div class="results-header">
+        <div>
+          <h2>Extraction results</h2>
+          <p class="subtitle" id="resultsSubtitle" style="margin-bottom:0"></p>
+        </div>
+        <div class="results-actions">
+          <button class="copy-btn" id="resultCopyBtn" onclick="copyResult()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            Copy JSON
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="downloadResult()">Download JSON</button>
+          <button class="btn btn-outline btn-sm" onclick="downloadAllPapers()">Download all</button>
+          <button class="btn btn-ghost btn-sm" onclick="goBackFromResults()">&#8592; Back</button>
+          <button class="btn btn-ghost btn-sm" onclick="startOver()">Start over</button>
+        </div>
+      </div>
+
+      <!-- Edit hint -->
+      <div class="edit-hint">Click any extracted value to edit it &mdash; changes are tracked and included in the downloaded JSON.</div>
+
+      <!-- No-evidence warning (shown when model returned 0 evidence snippets) -->
+      <div class="evidence-warning" id="evidenceWarning" style="display:none">
+        <span class="evidence-warning-icon">&#9888;</span>
+        <span>No evidence references were found in this extraction. Page highlighting is unavailable. This usually means the prompt does not request an <code>evidence</code> array &mdash; regenerate the prompt using the current template, or add the evidence requirement manually.</span>
+      </div>
+
+      <!-- 3-column body -->
+      <div class="results-layout">
+
+        <!-- Col 1: papers sidebar -->
+        <div class="papers-sidebar" id="papersSidebar">
+          <!-- populated by JS -->
+        </div>
+
+        <!-- Col 2+3: entry view -->
+        <div class="entry-area">
+
+          <!-- Entry navigation bar -->
+          <div class="entry-nav" id="entryNav" style="display:none">
+            <button class="btn btn-ghost btn-sm" id="prevBtn" onclick="prevEntry()" disabled>&#9664; Prev</button>
+            <span class="entry-counter" id="entryCounter"></span>
+            <button class="btn btn-ghost btn-sm" id="nextBtn" onclick="nextEntry()">Next &#9654;</button>
+          </div>
+
+          <!-- Entry result + page image side by side -->
+          <div class="entry-layout">
+
+            <div class="result-col" id="resultDisplay">
+              <!-- formatted entry rendered by JS -->
+            </div>
+
+            <div class="page-display-col">
+              <div class="pages-panel">
+                <div class="pages-panel-hdr">
+                  <span id="pageDisplayLabel">Page</span>
+                  <div class="page-evidence-nav" id="pageEvidenceNav" style="display:none">
+                    <button class="page-nav-btn" id="pageNavPrev" onclick="prevEvidencePage()" disabled>&#9664;</button>
+                    <span class="page-nav-counter" id="pageNavCounter"></span>
+                    <button class="page-nav-btn" id="pageNavNext" onclick="nextEvidencePage()">&#9654;</button>
+                  </div>
+                  <div class="zoom-controls">
+                    <button class="zoom-btn" onclick="zoomOut()" title="Zoom out">&#8722;</button>
+                    <button class="zoom-btn" onclick="zoomReset()" title="Reset zoom">&#10005;</button>
+                    <button class="zoom-btn" onclick="zoomIn()" title="Zoom in">+</button>
+                  </div>
+                </div>
+                <div class="page-zoom-container" id="pageZoomContainer">
+                  <img id="pageDisplayImg" src="" alt="" draggable="false" />
+                </div>
+                <p id="pageDisplayNone">No page reference<br>found in this entry.</p>
+              </div>
+            </div>
+
+          </div><!-- .entry-layout -->
+        </div><!-- .entry-area -->
+
+      </div><!-- .results-layout -->
+
+      <!-- Token usage footer — populated by JS -->
+      <div class="token-footer" id="tokenFooter" style="display:none"></div>
+
+    </div>
+  </div>
+
+</div><!-- .app -->
+
+<!-- Toast notification -->
+<div class="toast error-toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
