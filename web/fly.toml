@@ -14,4 +14,13 @@ primary_region = "lhr"   # London; use "iad" for US East, "fra" for Frankfurt
 [[vm]]
   cpu_kind = "shared"
   cpus     = 1
-  memory   = "512mb"   # PDF image rendering needs headroom; free tier gives 256mb
+  memory   = "2gb"     # 2 GB needed for parallel PDF rendering at 200 DPI
+
+# After running:
+#   fly volumes create paperlens_data --size 1 --region lhr
+# uncomment the block below so SQLite survives restarts.  PAPERLENS_DB_PATH
+# (set via `fly secrets set`) should point at /data/paperlens.sqlite3.
+#
+# [mounts]
+#   source      = "paperlens_data"
+#   destination = "/data"

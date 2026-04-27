@@ -14,43 +14,17 @@
     <p>AI-powered data extraction and labeling for academic papers</p>
   </header>
 
-  <!-- Progress indicator (6 visual steps) -->
-  <div class="progress-container">
-    <div class="progress-steps">
-      <div class="progress-step active" id="prog1">
-        <div class="step-circle" id="circ1">1</div>
-        <div class="step-label">Task</div>
-      </div>
-      <div class="step-connector" id="conn1"></div>
-      <div class="progress-step" id="prog2">
-        <div class="step-circle" id="circ2">2</div>
-        <div class="step-label">Setup</div>
-      </div>
-      <div class="step-connector" id="conn2"></div>
-      <div class="progress-step" id="prog3">
-        <div class="step-circle" id="circ3">3</div>
-        <div class="step-label">Question</div>
-      </div>
-      <div class="step-connector" id="conn3"></div>
-      <div class="progress-step" id="prog4">
-        <div class="step-circle" id="circ4">4</div>
-        <div class="step-label">Review</div>
-      </div>
-      <div class="step-connector" id="conn4"></div>
-      <div class="progress-step" id="prog5">
-        <div class="step-circle" id="circ5">5</div>
-        <div class="step-label">Upload</div>
-      </div>
-      <div class="step-connector" id="conn5"></div>
-      <div class="progress-step" id="prog6">
-        <div class="step-circle" id="circ6">6</div>
-        <div class="step-label">Results</div>
-      </div>
-    </div>
-  </div>
+  <!-- One-pager accordion: configuration sections 1–5 -->
+  <div class="onepager" id="onepager">
 
-  <!-- Step 1: Mode selection -->
-  <div class="panel active" id="step1">
+  <!-- Section 1: Mode selection -->
+  <details class="acc-section" id="step1" open>
+    <summary class="acc-header">
+      <span class="acc-num">1</span>
+      <span class="acc-title">Choose your task</span>
+      <span class="acc-summary-text" id="summary1"></span>
+      <span class="acc-chevron" aria-hidden="true">&#x25BE;</span>
+    </summary>
     <div class="card">
 
       <!-- Mode grid (hidden when JSON upload panel is active) -->
@@ -58,7 +32,7 @@
         <h2>What would you like to do?</h2>
         <p class="subtitle">Choose a task to get started</p>
 
-        <details class="info-box">
+        <details class="info-box" id="howItWorksBox">
           <summary>&#8505;&ensp;How does this work?</summary>
           <div class="info-box-body">
             <p>This tool uses AI vision models (GPT-4o, Gemini) to read academic PDFs and extract or classify structured information &mdash; no manual copy-pasting.</p>
@@ -69,8 +43,19 @@
           </div>
         </details>
 
+        <!-- Quick-start checklist: tells first-time users exactly what to have ready -->
+        <div class="prereq-box">
+          <span class="prereq-title">You'll need:</span>
+          <span class="prereq-item">an API key (OpenAI / Gemini / DeepSeek / your own server)</span>
+          <span class="prereq-sep">·</span>
+          <span class="prereq-item">one or more PDFs (max 50&nbsp;MB each)</span>
+          <span class="prereq-sep">·</span>
+          <span class="prereq-item">~30–120&nbsp;s per paper</span>
+        </div>
+
         <div class="option-grid">
-          <button class="option-card" onclick="selectMode('extraction')">
+          <button class="option-card option-card-recommended" onclick="selectMode('extraction')">
+            <span class="option-recommended-badge">Most common</span>
             <div class="option-icon">📊</div>
             <h3>Extract data from a paper</h3>
             <p>Pull structured information, statistics, or specific values from academic papers into a defined format</p>
@@ -87,6 +72,15 @@
               <p>Load a previously exported JSON for human review and correction &mdash; no AI processing, no API key needed</p>
             </div>
           </button>
+        </div>
+
+        <!-- Past extractions — only visible when SQLite has at least one batch -->
+        <div class="past-batches" id="pastBatches" style="display:none">
+          <div class="past-batches-header">
+            <h3>Recent extractions</h3>
+            <button class="btn btn-ghost btn-sm" onclick="refreshPastBatches()" title="Refresh">&#x21BB;</button>
+          </div>
+          <div class="past-batches-list" id="pastBatchesList"></div>
         </div>
       </div>
 
@@ -165,10 +159,16 @@
       </div>
 
     </div>
-  </div>
+  </details>
 
-  <!-- Step 2: Model + API key -->
-  <div class="panel" id="step2">
+  <!-- Section 2: Model + API key -->
+  <details class="acc-section" id="step2">
+    <summary class="acc-header">
+      <span class="acc-num">2</span>
+      <span class="acc-title">Configure your AI model</span>
+      <span class="acc-summary-text" id="summary2"></span>
+      <span class="acc-chevron" aria-hidden="true">&#x25BE;</span>
+    </summary>
     <div class="card">
       <h2>Configure your AI model</h2>
       <p class="subtitle">Choose a provider, select a model, and enter your API key</p>
@@ -179,14 +179,38 @@
           <option value="openai">OpenAI</option>
           <option value="google">Google Gemini</option>
           <option value="deepseek">DeepSeek</option>
+          <option value="vllm">Custom (vLLM / OpenAI-compatible)</option>
         </select>
       </div>
 
       <div class="form-group">
         <label for="modelSelect">Model</label>
+        <!-- Dropdown for cloud providers -->
         <select id="modelSelect">
           <!-- populated by onProviderChange() -->
         </select>
+        <!-- Free-text input for vLLM (hidden by default) -->
+        <input
+          type="text"
+          id="modelTextInput"
+          placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct"
+          autocomplete="off"
+          spellcheck="false"
+          style="display:none"
+        />
+      </div>
+
+      <!-- vLLM: base URL field -->
+      <div class="form-group" id="vllmGroup" style="display:none">
+        <label for="vllmBaseUrl">Server URL</label>
+        <input
+          type="text"
+          id="vllmBaseUrl"
+          placeholder="http://localhost:8000"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <small>The base URL of your vLLM (or any OpenAI-compatible) server. <code>/v1</code> is appended automatically if missing.</small>
       </div>
 
       <div class="form-group" id="deepseekWarningGroup" style="display:none">
@@ -195,16 +219,31 @@
         </p>
       </div>
 
+      <div class="form-group" id="openaiInfoGroup" style="display:none">
+        <p class="provider-info">
+          &#8505;&ensp;OpenAI enforces a per-request body-size limit (~50 MB).
+          For very large or image-heavy PDFs, vision extraction can exceed this.
+          If a paper fails with <em>"request entity too large"</em>, switch to
+          <strong>Text extraction</strong> in step 5 &mdash; or use Gemini, which has higher request limits.
+        </p>
+      </div>
+
       <div class="form-group">
         <label for="apiKeyInput" id="apiKeyLabel">API key</label>
-        <input
-          type="password"
-          id="apiKeyInput"
-          placeholder=""
-          autocomplete="off"
-          spellcheck="false"
-        />
+        <div class="api-key-row">
+          <input
+            type="password"
+            id="apiKeyInput"
+            placeholder=""
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" class="btn btn-outline btn-sm" id="testConnBtn" onclick="testConnection()">
+            Test connection
+          </button>
+        </div>
         <small id="apiKeyNote">Your key is sent only to the selected provider and is never stored.</small>
+        <div class="conn-status" id="connStatus" style="display:none"></div>
       </div>
 
       <div class="btn-row">
@@ -212,10 +251,16 @@
         <button class="btn btn-primary" onclick="submitStep2()">Continue</button>
       </div>
     </div>
-  </div>
+  </details>
 
-  <!-- Step 3: Prompt method choice → then AI or manual -->
-  <div class="panel" id="step3">
+  <!-- Section 3: Prompt method + question/manual prompt -->
+  <details class="acc-section" id="step3">
+    <summary class="acc-header">
+      <span class="acc-num">3</span>
+      <span class="acc-title">Describe your task</span>
+      <span class="acc-summary-text" id="summary3"></span>
+      <span class="acc-chevron" aria-hidden="true">&#x25BE;</span>
+    </summary>
     <div class="card">
 
       <!-- Sub-mode choice (default view) -->
@@ -292,22 +337,42 @@
       </div>
 
     </div>
-  </div>
+  </details>
 
-  <!-- Step 4: Generating prompt (loading) -->
-  <div class="panel" id="step4">
-    <div class="card card-center">
+  <!-- Section 4: Review the prompt (with inline loading state for prompt generation) -->
+  <details class="acc-section" id="step5">
+    <summary class="acc-header">
+      <span class="acc-num">4</span>
+      <span class="acc-title">Review prompt</span>
+      <span class="acc-summary-text" id="summary4"></span>
+      <span class="acc-chevron" aria-hidden="true">&#x25BE;</span>
+    </summary>
+
+    <!-- Inline loading state — shown while the AI is generating the prompt -->
+    <div class="card card-center acc-inline-loading" id="step4Loading" style="display:none">
       <div class="spinner"></div>
       <h2>Generating your prompt&hellip;</h2>
       <p class="subtitle" style="margin-bottom:0">The AI is crafting a tailored prompt based on your task.</p>
     </div>
-  </div>
 
-  <!-- Step 5: Review prompt -->
-  <div class="panel" id="step5">
-    <div class="card">
+    <!-- Normal review content -->
+    <div class="card" id="step5Content">
       <h2>Review your generated prompt</h2>
       <p class="subtitle">Does this prompt accurately capture what you need?</p>
+
+      <!-- Shown only when a custom (manual) prompt does not request the evidence schema -->
+      <div class="evidence-warning" id="promptEvidenceWarning" style="display:none">
+        <span class="evidence-warning-icon">&#9888;</span>
+        <div style="flex:1">
+          <div style="margin-bottom:6px">
+            <strong>This prompt does not request an evidence array.</strong>
+            Without it, page highlighting and snippet matching won't work.
+          </div>
+          <button class="btn btn-primary btn-sm" id="adaptPromptBtn" onclick="adaptPromptForEvidence()">
+            &#10024;&ensp;Adapt prompt for evidence
+          </button>
+        </div>
+      </div>
 
       <div class="prompt-box">
         <div class="prompt-toolbar">
@@ -329,19 +394,54 @@
         <button class="btn btn-outline" onclick="regenerate()">&#8635;&ensp;Regenerate</button>
       </div>
     </div>
-  </div>
+  </details>
 
-  <!-- Step 6: Upload PDFs (multiple) -->
-  <div class="panel" id="step6">
-    <div class="card">
+  <!-- Section 5: Upload PDFs (with inline loading state for extraction) -->
+  <details class="acc-section" id="step6">
+    <summary class="acc-header">
+      <span class="acc-num">5</span>
+      <span class="acc-title">Upload your papers</span>
+      <span class="acc-summary-text" id="summary5"></span>
+      <span class="acc-chevron" aria-hidden="true">&#x25BE;</span>
+    </summary>
+
+    <!-- Inline extracting state — shown while jobs are being submitted/processed -->
+    <div class="card card-center acc-inline-loading" id="step7Loading" style="display:none">
+      <div class="spinner"></div>
+      <h2 id="loadingTitle">Extracting data&hellip;</h2>
+      <p class="subtitle" id="extractingNote" style="margin-bottom:0">
+        Processing your paper. This may take a minute for longer documents.
+      </p>
+      <div style="margin-top:18px">
+        <button class="btn btn-outline btn-sm" onclick="cancelBatch()">Stop batch</button>
+      </div>
+
+      <!-- Email-while-you-wait — appears after a few seconds so the user has
+           something to do if the batch is going to take a while. -->
+      <div class="email-prompt" id="emailPrompt" style="display:none">
+        <div class="email-prompt-title">Taking a long time?</div>
+        <p class="email-prompt-sub">Pop in your email — we'll send you the results (or a failure summary) when the batch is done. You can close the tab.</p>
+        <form class="email-prompt-form" onsubmit="submitBatchEmail(event)">
+          <input
+            type="email"
+            id="batchEmailInput"
+            placeholder="you@example.com"
+            autocomplete="email"
+            spellcheck="false"
+            required
+          />
+          <button type="submit" class="btn btn-primary btn-sm" id="batchEmailBtn">Notify me</button>
+        </form>
+        <div class="email-prompt-status" id="emailPromptStatus" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="card" id="step6Content">
       <div class="step6-header">
         <div>
           <h2>Upload your papers</h2>
-          <p class="subtitle" style="margin-bottom:0">Upload one or more PDFs — they will be processed sequentially</p>
+          <p class="subtitle" style="margin-bottom:0">Upload one or more PDFs — they will be processed in parallel</p>
         </div>
-        <button class="edit-setup-btn" onclick="editSetup()" title="Change API key or model">
-          &#9881;&ensp;Edit API key / model
-        </button>
       </div>
 
       <!-- Compact prompt reminder -->
@@ -355,7 +455,9 @@
         <input type="file" id="pdfInput" accept=".pdf" multiple style="display:none" onchange="handleFileSelect(event)" />
         <div class="upload-icon">📄</div>
         <p class="upload-primary">Drop PDFs here</p>
-        <p class="upload-secondary">or click to browse &nbsp;&middot;&nbsp; multiple files supported &nbsp;&middot;&nbsp; max 50 MB each</p>
+        <p class="upload-secondary" id="uploadLimitHint">
+          Up to 20 papers per batch &middot; max 50 MB per file
+        </p>
       </div>
 
       <!-- Selected files list (populated by JS) -->
@@ -378,33 +480,34 @@
         </div>
       </div>
 
+      <!-- Size warning — flagged when vision-mode requests would exceed
+           a typical provider request-size limit. JS recomputes on every
+           file add/remove and parsing-mode toggle. -->
+      <div class="size-warning" id="sizeWarning" style="display:none"></div>
+
+      <!-- Approximate cost / token estimate (filled by JS once files are added) -->
+      <div class="cost-estimate" id="costEstimate" style="display:none"></div>
+
       <div class="btn-row">
         <button class="btn btn-ghost" onclick="goTo(5)">Back</button>
         <button class="btn btn-primary" id="extractBtn" onclick="submitUpload()" disabled>Extract</button>
       </div>
     </div>
-  </div>
+  </details>
 
-  <!-- Step 7: Extracting (loading) -->
-  <div class="panel" id="step7">
-    <div class="card card-center">
-      <div class="spinner"></div>
-      <h2 id="loadingTitle">Extracting data&hellip;</h2>
-      <p class="subtitle" id="extractingNote" style="margin-bottom:0">
-        Processing your paper. This may take a minute for longer documents.
-      </p>
-    </div>
-  </div>
+  </div><!-- /.onepager -->
 
-  <!-- Step 8: Results (wide, 3-column: papers | entry | page image) -->
-  <div class="panel" id="step8">
+  <!-- Step 8: Results (wide, 3-column: papers | entry | page image) — separate full-width view -->
+  <div class="panel" id="step8" style="display:none">
     <div class="card results-card">
 
       <!-- Header -->
       <div class="results-header">
-        <div>
+        <div class="results-title">
           <h2>Extraction results</h2>
           <p class="subtitle" id="resultsSubtitle" style="margin-bottom:0"></p>
+          <!-- Token usage moved up here so it's hard to miss -->
+          <div class="token-summary" id="tokenSummary" style="display:none"></div>
         </div>
         <div class="results-actions">
           <button class="copy-btn" id="resultCopyBtn" onclick="copyResult()">
@@ -414,8 +517,26 @@
             </svg>
             Copy JSON
           </button>
-          <button class="btn btn-outline btn-sm" onclick="downloadResult()">Download JSON</button>
-          <button class="btn btn-outline btn-sm" onclick="downloadAllPapers()">Download all</button>
+
+          <!-- Download menu — collapses 4 buttons into one -->
+          <div class="dropdown" id="downloadDropdown">
+            <button class="btn btn-outline btn-sm" onclick="toggleDownloadMenu(event)">
+              Download&ensp;&#x25BE;
+            </button>
+            <div class="dropdown-menu" id="downloadMenu">
+              <button class="dropdown-item" onclick="downloadResult();    closeDownloadMenu()">This paper &middot; JSON</button>
+              <button class="dropdown-item" onclick="downloadResultCsv(); closeDownloadMenu()">This paper &middot; CSV</button>
+              <hr>
+              <button class="dropdown-item" onclick="downloadAllPapers();    closeDownloadMenu()">All papers &middot; JSON</button>
+              <button class="dropdown-item" onclick="downloadAllPapersCsv(); closeDownloadMenu()">All papers &middot; CSV</button>
+            </div>
+          </div>
+
+          <!-- Retry-all-failed button — only visible when there are errored papers -->
+          <button class="btn btn-outline btn-sm" id="retryAllBtn" onclick="retryAllFailed()" style="display:none">
+            Retry&nbsp;failed&nbsp;<span id="retryAllCount"></span>
+          </button>
+
           <button class="btn btn-ghost btn-sm" onclick="goBackFromResults()">&#8592; Back</button>
           <button class="btn btn-ghost btn-sm" onclick="startOver()">Start over</button>
         </div>
@@ -424,10 +545,11 @@
       <!-- Edit hint -->
       <div class="edit-hint">Click any extracted value to edit it &mdash; changes are tracked and included in the downloaded JSON.</div>
 
-      <!-- No-evidence warning (shown when model returned 0 evidence snippets) -->
+      <!-- No-evidence warning — message + action are filled in by JS based on
+           whether the user's prompt actually requested an evidence array. -->
       <div class="evidence-warning" id="evidenceWarning" style="display:none">
         <span class="evidence-warning-icon">&#9888;</span>
-        <span>No evidence references were found in this extraction. Page highlighting is unavailable. This usually means the prompt does not request an <code>evidence</code> array &mdash; regenerate the prompt using the current template, or add the evidence requirement manually.</span>
+        <div class="evidence-warning-body" id="evidenceWarningBody"></div>
       </div>
 
       <!-- 3-column body -->
@@ -441,11 +563,27 @@
         <!-- Col 2+3: entry view -->
         <div class="entry-area">
 
-          <!-- Entry navigation bar -->
+          <!-- Entry navigation bar — shown when an entry array exists -->
           <div class="entry-nav" id="entryNav" style="display:none">
-            <button class="btn btn-ghost btn-sm" id="prevBtn" onclick="prevEntry()" disabled>&#9664; Prev</button>
-            <span class="entry-counter" id="entryCounter"></span>
-            <button class="btn btn-ghost btn-sm" id="nextBtn" onclick="nextEntry()">Next &#9654;</button>
+            <div class="entry-nav-left">
+              <button class="btn btn-ghost btn-sm" id="prevBtn" onclick="prevEntry()" disabled>&#9664; Prev</button>
+              <span class="entry-counter" id="entryCounter"></span>
+              <button class="btn btn-ghost btn-sm" id="nextBtn" onclick="nextEntry()">Next &#9654;</button>
+              <!-- Compact tab strip — only rendered when there are >1 entries -->
+              <div class="entry-tabs" id="entryTabs" style="display:none"></div>
+            </div>
+            <!-- Parsed / Raw toggle — flips the result column between the
+                 structured editable view and the model's raw response. -->
+            <div class="view-toggle" role="group" aria-label="View mode">
+              <button class="view-toggle-btn active" id="viewParsedBtn" onclick="setViewMode('parsed')">Parsed</button>
+              <button class="view-toggle-btn"        id="viewRawBtn"    onclick="setViewMode('raw')">Raw</button>
+            </div>
+          </div>
+
+          <!-- Hint banner that's only visible when there are multiple entries -->
+          <div class="multi-entry-hint" id="multiEntryHint" style="display:none">
+            <span class="multi-entry-icon">&#9783;</span>
+            <span id="multiEntryText"></span>
           </div>
 
           <!-- Entry result + page image side by side -->
@@ -482,16 +620,125 @@
 
       </div><!-- .results-layout -->
 
-      <!-- Token usage footer — populated by JS -->
-      <div class="token-footer" id="tokenFooter" style="display:none"></div>
-
     </div>
   </div>
+
+<footer class="app-footer">
+  <span>&copy; <a href="https://johannaeinsiedler.com" target="_blank" rel="noopener noreferrer">Johanna Einsiedler</a> &amp; Claude</span>
+</footer>
 
 </div><!-- .app -->
 
 <!-- Toast notification -->
 <div class="toast error-toast" id="toast"></div>
+
+<!-- Floating help button -->
+<button class="help-fab" id="helpFab" onclick="toggleHelpDrawer()" aria-label="Help">?</button>
+
+<!-- Help drawer (slides in from the right) -->
+<div class="help-overlay" id="helpOverlay" onclick="toggleHelpDrawer()"></div>
+<aside class="help-drawer" id="helpDrawer" aria-hidden="true">
+  <div class="help-drawer-header">
+    <h2>Help &amp; FAQ</h2>
+    <button class="help-close" onclick="toggleHelpDrawer()" aria-label="Close">&times;</button>
+  </div>
+  <div class="help-drawer-body">
+
+    <details class="help-section" open>
+      <summary>Getting started</summary>
+      <ol class="help-list">
+        <li>Pick a task: <strong>Extract</strong> (pull structured values) or <strong>Label</strong> (classify).</li>
+        <li>Choose a model and enter your API key.</li>
+        <li>Describe what you want — the AI writes a tailored prompt for you.</li>
+        <li>Review &amp; confirm the prompt.</li>
+        <li>Upload one or more PDFs.</li>
+        <li>Review results next to the original paper, edit any value, and download as JSON or CSV.</li>
+      </ol>
+    </details>
+
+    <details class="help-section">
+      <summary>Using a self-hosted model (vLLM, Ollama, LM Studio)</summary>
+      <p>Anything that exposes an OpenAI-compatible API works. On the setup screen, choose <strong>Custom (vLLM / OpenAI-compatible)</strong>, then:</p>
+      <ul class="help-list">
+        <li><strong>vLLM</strong> — Server URL: <code>http://your-host:8000</code> · Model: HuggingFace ID (e.g. <code>meta-llama/Llama-3.3-70B-Instruct</code>) · API key: any string.</li>
+        <li><strong>Ollama</strong> — Server URL: <code>http://localhost:11434</code> · Model: e.g. <code>llama3.2-vision</code> or <code>llama3.2:3b</code> · API key: any string (Ollama ignores it).</li>
+        <li><strong>LM Studio</strong> — Server URL: <code>http://localhost:1234</code> · Model: whatever you loaded · API key: any string.</li>
+      </ul>
+      <p>The <code>/v1</code> path is appended automatically. If your server runs on another machine, make sure it's reachable from wherever this app is hosted.</p>
+      <p><strong>Vision vs text:</strong> if your model doesn't support image inputs, switch the <em>Parsing method</em> on the upload screen to <strong>Text extraction</strong> — the PDF text layer is sent instead of page images.</p>
+    </details>
+
+    <details class="help-section">
+      <summary>Evidence highlighting &amp; how it works</summary>
+      <p>Every extracted value should be backed by a quoted snippet from the paper. The AI returns an <code>evidence</code> array on each result with this shape:</p>
+<pre class="help-pre">"evidence": [
+  {"snippet": "TABLE 1. Parameter estimates...",
+   "page": 3,
+   "source": "Table 1",
+   "field": "samples[0].factor_loadings"}
+]</pre>
+      <p>The <code>field</code> property is a JSON path that mirrors the structure of the extracted output, so each evidence entry points at exactly which value it supports (e.g. <code>samples[0].factor_loadings._table[0]</code> = the first row of the loadings table).</p>
+      <p>For every <code>_table</code> the model emits, the prompt requires at least one evidence entry whose snippet is the verbatim table caption (<code>"TABLE 1. ..."</code>). The viewer uses that caption to find and highlight the entire table region — not just the sentence that references it.</p>
+      <p>If you wrote a custom prompt that doesn't ask for evidence, the review screen shows a warning with a one-click <em>Adapt prompt</em> button that adds the requirement using your selected model.</p>
+    </details>
+
+    <details class="help-section">
+      <summary>Editing &amp; download</summary>
+      <p>Click any value in the results to edit it in place. Changes are tracked as <em>human overrides</em>.</p>
+      <ul class="help-list">
+        <li><strong>JSON</strong> — full export including the original model response, your edits, prompt, model, and timestamp.</li>
+        <li><strong>CSV</strong> — flattened table (one row per entry, dot-notation columns). Evidence arrays are stored as JSON in a single cell. Use <em>All&nbsp;(CSV)</em> to combine entries from every paper into one file with a <code>_filename</code> column.</li>
+      </ul>
+    </details>
+
+    <details class="help-section">
+      <summary>Reviewing previously exported results</summary>
+      <p>From the start screen, click <strong>Review existing results</strong>. Drop in the JSON file you previously downloaded, and optionally drop the original PDFs alongside it — the viewer will show page images with the same yellow highlights as before. No API key needed.</p>
+    </details>
+
+    <details class="help-section">
+      <summary>Privacy &amp; data handling</summary>
+      <ul class="help-list">
+        <li>Your API key is sent only to the provider you selected (OpenAI / Google / DeepSeek / your own server).</li>
+        <li>API keys are never stored on the server. They live only in your browser tab.</li>
+        <li>Uploaded PDFs are processed in memory and not persisted. Page images for the viewer are sent back to the browser as base64.</li>
+      </ul>
+    </details>
+
+    <details class="help-section">
+      <summary>Keyboard shortcuts</summary>
+      <table class="kbd-table">
+        <tr><td><kbd>?</kbd></td>                              <td>Open / close this help drawer</td></tr>
+        <tr><td><kbd>Esc</kbd></td>                            <td>Close help / download menu</td></tr>
+        <tr><td colspan="2"><strong>On the results page</strong></td></tr>
+        <tr><td><kbd>n</kbd> / <kbd>→</kbd></td>               <td>Next paper</td></tr>
+        <tr><td><kbd>p</kbd> / <kbd>←</kbd></td>               <td>Previous paper</td></tr>
+        <tr><td><kbd>j</kbd> / <kbd>↓</kbd></td>               <td>Next entry</td></tr>
+        <tr><td><kbd>k</kbd> / <kbd>↑</kbd></td>               <td>Previous entry</td></tr>
+        <tr><td><kbd>]</kbd></td>                              <td>Next evidence page</td></tr>
+        <tr><td><kbd>[</kbd></td>                              <td>Previous evidence page</td></tr>
+        <tr><td><kbd>e</kbd></td>                              <td>Start editing the first cell</td></tr>
+      </table>
+    </details>
+
+    <details class="help-section">
+      <summary>FAQ</summary>
+      <p><strong>Why are some papers refused / missing data?</strong> OpenAI vision models have a per-minute token budget that's shared across requests. The app waits 30s between papers and retries once after a 60s pause, but heavy back-to-back loads can still hit the limit.</p>
+      <p><strong>What's the page limit?</strong> 40 pages per PDF. Pages beyond that are ignored.</p>
+      <p><strong>Why are no highlights showing?</strong> Either the prompt didn't request evidence (a banner appears in that case), or the model's quoted snippets don't appear verbatim in the PDF text layer (common for scanned PDFs).</p>
+      <p><strong>Can I extract from a scanned PDF?</strong> Yes via vision (page images), but the text-extraction mode (and DeepSeek) requires a real text layer.</p>
+      <p><strong>Can I display nested data as a table?</strong> Yes — wrap tabular data with the explicit <code>_table</code> marker:
+<pre class="help-pre">"factor_loadings": {
+  "_table": [
+    {"item": 1, "F1": 0.83, "F2": 0.12},
+    {"item": 2, "F1": 0.45, "F2": 0.71}
+  ]
+}</pre>
+The viewer renders any object containing a <code>_table</code> array as a real HTML table — no shape guessing.</p>
+    </details>
+
+  </div>
+</aside>
 
 <script src="/static/app.js"></script>
 </body>

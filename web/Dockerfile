@@ -11,8 +11,10 @@ COPY . .
 
 EXPOSE 8080
 
-# 2 workers; 120s timeout — PDF rendering for large papers can take a while
-CMD ["gunicorn", "server:app", \
-     "--bind", "0.0.0.0:8080", \
-     "--workers", "2", \
-     "--timeout", "120"]
+# uvicorn serves the FastAPI app; async I/O lets one worker handle many concurrent
+# in-flight LLM calls.  Increase --workers when CPU (PDF rendering) becomes the
+# bottleneck rather than I/O wait.
+CMD ["uvicorn", "server:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--workers", "1"]
