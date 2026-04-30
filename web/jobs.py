@@ -25,9 +25,10 @@ import notifier
 from pdf_utils import (
     EXTRACTION_DPI,
     count_evidence_entries,
+    evidence_items_from_result,
     extract_evidence_snippets,
     merge_snippet_dicts,
-    pdf_to_highlighted_images,
+    pdf_to_pages_with_rects,
     pdf_to_images,
     pdf_to_markdown,
     recover_orphan_pages,
@@ -35,7 +36,10 @@ from pdf_utils import (
 from providers import extract_provider_message, extract_with_images, extract_with_text, get_provider
 
 # In-memory page-image cache keyed by job id.
+# Each entry holds the rendered page JPEGs AND the rect metadata (so the
+# client can overlay sub-view-filtered highlights without re-rendering).
 _PAGE_IMAGES: dict[str, list[str]] = {}
+_PAGE_HIGHLIGHTS: dict[str, list[dict]] = {}
 _LOCK = threading.Lock()
 
 
@@ -48,14 +52,22 @@ def get_page_images(job_id: str) -> list[str] | None:
         return _PAGE_IMAGES.get(job_id)
 
 
-def _set_page_images(job_id: str, images: list[str]) -> None:
+def get_page_highlights(job_id: str) -> list[dict] | None:
+    with _LOCK:
+        return _PAGE_HIGHLIGHTS.get(job_id)
+
+
+def _set_page_images(job_id: str, images: list[str], highlights: list[dict] | None = None) -> None:
     with _LOCK:
         _PAGE_IMAGES[job_id] = images
+        if highlights is not None:
+            _PAGE_HIGHLIGHTS[job_id] = highlights
 
 
 def forget_page_images(job_id: str) -> None:
     with _LOCK:
         _PAGE_IMAGES.pop(job_id, None)
+        _PAGE_HIGHLIGHTS.pop(job_id, None)
 
 
 class _Cancelled(Exception):
@@ -125,16 +137,28 @@ def _run_extraction(
             result, finish, n, usage = _run_vision_path(job_id, model, api_key, prompt, pdf_bytes, base_url)
 
         _set_phase(job_id, "Highlighting evidence")
-        # Snippets the model explicitly tagged with a page number
-        snippets_by_page = extract_evidence_snippets(result)
-        # Snippets the model returned WITHOUT a page — recover by searching
-        # the PDF text.  Most models drop the page field at least sometimes;
-        # this rescues those entries so highlighting still works.
-        recovered        = recover_orphan_pages(result, pdf_bytes)
-        snippets_by_page = merge_snippet_dicts(snippets_by_page, recovered)
-        n_snippets       = sum(len(v) for v in snippets_by_page.values())
-        page_images      = pdf_to_highlighted_images(pdf_bytes, snippets_by_page)
-        _set_page_images(job_id, [f"data:image/jpeg;base64,{b}" for b in page_images])
+        # Build the structured evidence list (snippet + page + field + source).
+        # Field info is preserved so the client can filter highlights by
+        # active sub-view (e.g., MASEM Loadings vs Correlations vs Descriptives).
+        evidence_items = evidence_items_from_result(result)
+        # Recover snippets the model returned without a page number by
+        # searching the PDF text; these get a page but no field, so they
+        # still show in the default (no-sub-view) overlay.
+        recovered_by_page = recover_orphan_pages(result, pdf_bytes)
+        for page, snippets in recovered_by_page.items():
+            for s in snippets:
+                evidence_items.append({"page": page, "snippet": s, "field": None, "source": None})
+
+        page_images, highlights = pdf_to_pages_with_rects(pdf_bytes, evidence_items)
+        # evidence_count keeps its prior semantic: snippets that have a usable
+        # page number (highlightable in principle).  Rect-located highlights
+        # are a strict subset, so this is always >= len(highlights).
+        n_snippets = len(evidence_items)
+        _set_page_images(
+            job_id,
+            [f"data:image/jpeg;base64,{b}" for b in page_images],
+            highlights,
+        )
 
         _check_cancelled(job_id)
         db.mark_done(

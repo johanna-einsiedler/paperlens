@@ -4,10 +4,15 @@ primary_region = "lhr"   # London; use "iad" for US East, "fra" for Frankfurt
 
 [build]
 
+# Single-machine app with a persistent volume — replace the old machine in
+# place rather than running two side-by-side.  Avoids "needs 2 volumes" errors.
+[deploy]
+  strategy = "immediate"
+
 [http_service]
   internal_port     = 8080
   force_https       = true
-  auto_stop_machines  = false  # no cold starts — keep at least 1 machine running
+  auto_stop_machines  = "off"  # no cold starts — keep at least 1 machine running
   auto_start_machines = true
   min_machines_running = 1
 
@@ -16,11 +21,10 @@ primary_region = "lhr"   # London; use "iad" for US East, "fra" for Frankfurt
   cpus     = 1
   memory   = "2gb"     # 2 GB needed for parallel PDF rendering at 200 DPI
 
-# After running:
+# SQLite job state lives on this volume so it survives machine restarts.
+# Volume created via:
 #   fly volumes create paperlens_data --size 1 --region lhr
-# uncomment the block below so SQLite survives restarts.  PAPERLENS_DB_PATH
-# (set via `fly secrets set`) should point at /data/paperlens.sqlite3.
-#
-# [mounts]
-#   source      = "paperlens_data"
-#   destination = "/data"
+# PAPERLENS_DB_PATH (set via `fly secrets set`) must point at /data/paperlens.sqlite3.
+[mounts]
+  source      = "paperlens_data"
+  destination = "/data"

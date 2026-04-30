@@ -10,9 +10,63 @@
 <div class="app">
 
   <header>
-    <h1>PaperLens</h1>
-    <p>AI-powered data extraction and labeling for academic papers</p>
+    <h1 id="appTitle">PaperLens</h1>
+    <p id="appTagline">AI-powered data extraction and labeling for academic papers</p>
   </header>
+
+  <!-- Preset banner — visible only when a domain workflow (e.g. MASEMiner) is active -->
+  <div class="preset-banner" id="presetBanner" style="display:none">
+    <span class="preset-banner-dot"></span>
+    <span class="preset-banner-label">
+      <strong id="presetBannerTitle"></strong>&nbsp;mode &middot;
+      <span id="presetBannerTagline"></span>
+    </span>
+    <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to generic">Switch to generic</button>
+  </div>
+
+  <!-- Preset-specific landing pages (e.g. /masemminer).  JS shows exactly
+       one of these on page load based on window.location.pathname. -->
+  <div class="preset-landing" id="masemLanding" style="display:none">
+    <div class="card preset-hero">
+      <div class="preset-hero-eyebrow">Pre-built workflow</div>
+      <h2 class="preset-hero-title">MASEMminer</h2>
+      <p class="preset-hero-tagline">
+        Extract factor loadings, correlation matrices, and study metadata for
+        Meta-Analytic Structural Equation Modeling — with human-in-the-loop review.
+      </p>
+      <div class="preset-hero-body">
+        <p>
+          MASEMminer is a tailored entry point into the PaperLens engine. It loads a vetted
+          extraction prompt for psychometric / factor-analytic studies, so you don't have to
+          design one yourself. Every result is shown alongside the source PDF with yellow
+          highlights on the cited passages, and every value is editable so you can correct
+          the model before exporting.
+        </p>
+        <div class="preset-hero-checklist">
+          <div class="preset-hero-section-title">You'll need</div>
+          <ul>
+            <li>An OpenAI / Gemini / DeepSeek API key (or a self-hosted vLLM / Ollama server)</li>
+            <li>One or more PDFs of the primary studies (max 50&nbsp;MB each, up to 20 per batch)</li>
+            <li>~30–120&nbsp;s per paper for the model to process</li>
+          </ul>
+        </div>
+        <div class="preset-hero-checklist">
+          <div class="preset-hero-section-title">What you'll get back</div>
+          <ul>
+            <li>Item-level standardised <strong>factor loadings</strong> per sample</li>
+            <li>Inter-factor <strong>correlation matrix</strong> per sample</li>
+            <li>Study <strong>metadata</strong>: N, age, % female, country, language, instrument version, analysis &amp; estimation method</li>
+            <li>Verbatim <strong>evidence snippets</strong> with page references</li>
+            <li>Editable JSON / CSV export including your manual corrections</li>
+          </ul>
+        </div>
+      </div>
+      <div class="preset-hero-cta">
+        <button class="btn btn-primary" onclick="startPresetFromLanding('masem')">Get started &#8594;</button>
+        <button class="btn btn-ghost" onclick="window.location.href = '/'">Use generic PaperLens instead</button>
+      </div>
+    </div>
+  </div>
 
   <!-- One-pager accordion: configuration sections 1–5 -->
   <div class="onepager" id="onepager">
@@ -72,6 +126,16 @@
               <p>Load a previously exported JSON for human review and correction &mdash; no AI processing, no API key needed</p>
             </div>
           </button>
+        </div>
+
+        <!-- Pre-built workflows — populated by JS from /api/presets.  Hidden
+             when the server has no presets configured. -->
+        <div class="prebuilt-workflows" id="prebuiltWorkflows" style="display:none">
+          <div class="prebuilt-workflows-header">
+            <h3>Or pick a pre-built workflow</h3>
+            <p class="subtitle">Tailored prompts for specific research methods. Skip the prompt-design step.</p>
+          </div>
+          <div class="prebuilt-workflows-list" id="prebuiltWorkflowsList"></div>
         </div>
 
         <!-- Past extractions — only visible when SQLite has at least one batch -->
@@ -610,6 +674,10 @@
                 </div>
                 <div class="page-zoom-container" id="pageZoomContainer">
                   <img id="pageDisplayImg" src="" alt="" draggable="false" />
+                  <!-- SVG overlay for client-side highlight rendering.
+                       Populated by JS based on the current page + sub-view filter. -->
+                  <svg id="highlightOverlay" class="highlight-overlay"
+                       preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"></svg>
                 </div>
                 <p id="pageDisplayNone">No page reference<br>found in this entry.</p>
               </div>

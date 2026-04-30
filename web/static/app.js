@@ -8,13 +8,52 @@ const config = {
   maxPdfBytes:    50 * 1024 * 1024,
 };
 
+/* Browser-scoped session id.  Generated once per browser, persisted in
+   localStorage, sent on every request as X-Session-Id.  The server uses it
+   to scope /api/batches to "your" batches so the History view doesn't
+   show other people's work.  Clearing localStorage forfeits history. */
+function _getOrCreateSessionId() {
+  try {
+    let sid = localStorage.getItem('paperlens.sessionId');
+    if (!sid) {
+      sid = (crypto && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+          }));
+      localStorage.setItem('paperlens.sessionId', sid);
+    }
+    return sid;
+  } catch (_) {
+    // localStorage disabled — fall back to a per-tab id
+    return 'transient-' + Math.random().toString(36).slice(2);
+  }
+}
+const SESSION_ID = _getOrCreateSessionId();
+
+/* Wrapper that always attaches the session header.  Use in place of fetch
+   for any call that should be scoped to the current browser. */
+function fetchScoped(url, opts = {}) {
+  const headers = new Headers(opts.headers || {});
+  headers.set('X-Session-Id', SESSION_ID);
+  return fetch(url, { ...opts, headers });
+}
+
 const state = {
   step: 1,
   mode: null,
+  activePreset: null,           // domain-workflow preset (e.g. MASEMiner), or null
   provider: 'openai',
   model: 'gpt-4o',
   apiKey: '',
   baseUrl: '',            // vLLM only: base URL of the OpenAI-compatible server
+  // Per-provider credential cache.  Avoids the bug where switching from
+  // OpenAI to Gemini left the OpenAI key visible (and saved) under the
+  // Gemini provider — the (provider, apiKey, model, baseUrl) tuple is
+  // now consistently scoped to one provider at a time.
+  // Shape: { openai: {apiKey, model, baseUrl}, google: {...}, ... }
+  providerCredentials: {},
   question: '',
   context: '',
   generatedPrompt: '',
@@ -214,14 +253,33 @@ function selectMode(mode) {
    Step 2 — Provider / Model + API key
 ────────────────────────────────────────────────────────── */
 
-function onProviderChange() {
-  const provider  = document.getElementById('providerSelect').value;
-  const isVllm    = provider === 'vllm';
-  const models    = PROVIDER_MODELS[provider] || [];
-  const sel       = document.getElementById('modelSelect');
-  const modelText = document.getElementById('modelTextInput');
+/* Persist whatever credentials are currently in `state` under the active
+   provider's slot.  Called whenever the user types in the API key, base URL,
+   or model fields, AND just before switching to a different provider. */
+function _stashProviderCredentials() {
+  const p = state.provider;
+  if (!p) return;
+  state.providerCredentials = state.providerCredentials || {};
+  state.providerCredentials[p] = {
+    apiKey:  state.apiKey  || '',
+    model:   state.model   || '',
+    baseUrl: state.baseUrl || '',
+  };
+}
 
-  // Toggle model dropdown vs free-text input
+function onProviderChange() {
+  // 1. Save the OUTGOING provider's credentials before switching, so we
+  //    don't lose them when the user toggles between providers.
+  _stashProviderCredentials();
+
+  const oldProvider = state.provider;
+  const provider    = document.getElementById('providerSelect').value;
+  const isVllm      = provider === 'vllm';
+  const models      = PROVIDER_MODELS[provider] || [];
+  const sel         = document.getElementById('modelSelect');
+  const modelText   = document.getElementById('modelTextInput');
+
+  // 2. Switch UI: model dropdown vs free-text input, etc.
   sel.style.display       = isVllm ? 'none' : '';
   modelText.style.display = isVllm ? ''     : 'none';
   if (!isVllm) {
@@ -233,6 +291,33 @@ function onProviderChange() {
   document.getElementById('deepseekWarningGroup').style.display = provider === 'deepseek' ? '' : 'none';
   document.getElementById('openaiInfoGroup').style.display      = provider === 'openai'   ? '' : 'none';
   document.getElementById('vllmGroup').style.display            = isVllm               ? '' : 'none';
+
+  // 3. Update state.provider AFTER stashing the outgoing credentials,
+  //    then load the INCOMING provider's cached credentials so the form
+  //    fields reflect the right key/model/baseUrl for this provider.
+  state.provider = provider;
+  const cached   = (state.providerCredentials || {})[provider] || {};
+  state.apiKey   = cached.apiKey  || '';
+  state.baseUrl  = cached.baseUrl || '';
+  // Reflect into form fields so the user sees the right values
+  document.getElementById('apiKeyInput').value = state.apiKey;
+  if (isVllm) {
+    document.getElementById('vllmBaseUrl').value = state.baseUrl;
+    if (cached.model) modelText.value = cached.model;
+    state.model = modelText.value || cached.model || '';
+  } else {
+    if (cached.model && sel.querySelector(`option[value="${CSS.escape(cached.model)}"]`)) {
+      sel.value = cached.model;
+    }
+    state.model = sel.value || (models[0]?.value || '');
+  }
+
+  // 4. Clear stale connection-status indicator (test result no longer applies)
+  const conn = document.getElementById('connStatus');
+  if (conn) conn.style.display = 'none';
+
+  // 5. Persist if we actually swapped providers
+  if (oldProvider && oldProvider !== provider) autoSaveSession();
 }
 
 /* ── localStorage auto-save (configuration only — files & results are not persisted) */
@@ -241,6 +326,7 @@ const _AUTO_SAVE_FIELDS = [
   'mode', 'provider', 'model', 'apiKey', 'baseUrl',
   'question', 'context', 'inputMode',
   'generatedPrompt', 'useTextExtraction',
+  'providerCredentials',   // per-provider {apiKey, model, baseUrl} cache
 ];
 
 function autoSaveSession() {
@@ -260,18 +346,28 @@ function autoRestoreSession() {
       if (snapshot[k] !== undefined && snapshot[k] !== null) state[k] = snapshot[k];
     });
 
+    // Backwards-compat: pre-2026 snapshots stored only the flat (apiKey, model,
+    // baseUrl) tuple under the active provider.  Hydrate providerCredentials
+    // from those flat fields so the rest of the code can rely on the map.
+    state.providerCredentials = state.providerCredentials || {};
+    if (state.provider && !state.providerCredentials[state.provider]) {
+      state.providerCredentials[state.provider] = {
+        apiKey:  state.apiKey  || '',
+        model:   state.model   || '',
+        baseUrl: state.baseUrl || '',
+      };
+    }
+    // Pre-fill the active provider's flat fields from the credentials map
+    // (the source of truth going forward).
+    const cached = state.providerCredentials[state.provider] || {};
+    if (cached.apiKey)  state.apiKey  = cached.apiKey;
+    if (cached.model)   state.model   = cached.model;
+    if (cached.baseUrl) state.baseUrl = cached.baseUrl;
+
     // Reflect into the visible form fields so what the user typed last time
     // actually appears in the inputs (otherwise it's just hidden in state).
     if (state.provider) document.getElementById('providerSelect').value = state.provider;
-    onProviderChange();
-    if (state.model) {
-      const sel = document.getElementById('modelSelect');
-      const txt = document.getElementById('modelTextInput');
-      if (state.provider === 'vllm') { txt.value = state.model; }
-      else if (sel.querySelector(`option[value="${CSS.escape(state.model)}"]`)) sel.value = state.model;
-    }
-    if (state.baseUrl)  document.getElementById('vllmBaseUrl').value = state.baseUrl;
-    if (state.apiKey)   document.getElementById('apiKeyInput').value = state.apiKey;
+    onProviderChange();   // populates model dropdown + swaps in cached values
     if (state.question) document.getElementById('questionInput').value = state.question;
     if (state.context)  document.getElementById('contextInput').value  = state.context;
     if (state.generatedPrompt) {
@@ -303,6 +399,8 @@ document.addEventListener('DOMContentLoaded', () => {
   autoRestoreSession();
   refreshPastBatches();
   loadServerConfig();
+  // /masemminer path → hero landing; ?preset=<id> → auto-apply; else inline list
+  applyPathOrQueryPreset();
 
   // First-time visitor: auto-open the "How does this work?" panel so the
   // landing screen isn't just three buttons with no orientation.
@@ -330,6 +428,9 @@ document.addEventListener('DOMContentLoaded', () => {
         state.baseUrl  = provider === 'vllm' ? document.getElementById('vllmBaseUrl').value.trim() : '';
         state.question = document.getElementById('questionInput').value;
         state.context  = document.getElementById('contextInput').value;
+        // Always keep the per-provider credential slot in sync so the (provider,
+        // apiKey, model, baseUrl) tuple is consistent even after a swap.
+        _stashProviderCredentials();
         autoSaveSession();
       });
     });
@@ -366,6 +467,15 @@ function submitStep2() {
   if (state.step > 2 && state.generatedPrompt) {
     // Header-click edit path: keep them on whatever step they were on.
     goTo(state.step);
+    return;
+  }
+  // Preset path: prompt is already loaded, so skip section 3 (describe)
+  // and go straight to section 4 (review prompt).
+  if (state.activePreset && state.generatedPrompt) {
+    document.getElementById('promptSummaryText').textContent  = state.generatedPrompt;
+    document.getElementById('promptSummaryModel').textContent = state.model;
+    goTo(5);
+    updateEvidenceWarning();
     return;
   }
 
@@ -415,7 +525,7 @@ async function testConnection() {
   status.textContent = 'Pinging the provider…';
 
   try {
-    const res  = await fetch('/api/test-connection', {
+    const res  = await fetchScoped('/api/test-connection', {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
       body:    JSON.stringify({
@@ -516,7 +626,7 @@ async function adaptPromptForEvidence() {
   const btn = document.getElementById('adaptPromptBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Adapting…'; }
   try {
-    const res = await fetch('/api/adapt-prompt', {
+    const res = await fetchScoped('/api/adapt-prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -548,7 +658,7 @@ async function adaptPromptForEvidence() {
 async function callGenerateAPI() {
   goTo(4);
   try {
-    const res = await fetch('/api/generate-prompt', {
+    const res = await fetchScoped('/api/generate-prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1023,7 +1133,7 @@ async function submitBatchEmail(event) {
   btn.disabled    = true;
   btn.textContent = 'Saving\u2026';
   try {
-    const res  = await fetch(`/api/batches/${state.batchId}/email`, {
+    const res  = await fetchScoped(`/api/batches/${state.batchId}/email`, {
       method:  'POST',
       headers: {'Content-Type': 'application/json'},
       body:    JSON.stringify({ email }),
@@ -1064,7 +1174,7 @@ async function processPaper(paper) {
   // Step 1: submit job, get job_id
   let jobId;
   try {
-    const res  = await fetch('/api/extract', { method: 'POST', body: form });
+    const res  = await fetchScoped('/api/extract', { method: 'POST', body: form });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || data.error || 'Failed to submit job.');
     jobId = data.job_id;
@@ -1139,7 +1249,7 @@ async function processPaper(paper) {
 async function pollJob(jobId, onUpdate) {
   let interval = 1000;
   while (true) {
-    const res = await fetch(`/api/jobs/${jobId}`);
+    const res = await fetchScoped(`/api/jobs/${jobId}`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Job lookup failed (${res.status}) ${text}`);
@@ -1162,10 +1272,11 @@ async function ensurePageImagesLoaded(paper) {
     showPageImage(paper, null);
   }
   try {
-    const res  = await fetch(`/api/jobs/${paper.jobId}/pages`);
+    const res  = await fetchScoped(`/api/jobs/${paper.jobId}/pages`);
     if (!res.ok) return;
     const data = await res.json();
     paper.pageImages = data.page_images || [];
+    paper.highlights = data.highlights || [];   // [{page, snippet, field, source, rects}]
     if (state.activePaperId === paper.id) {
       if (paper.entries && paper.entries.length > 0) renderEntry(paper);
       else showPageImage(paper, 1);
@@ -1182,7 +1293,8 @@ async function ensurePageImagesLoaded(paper) {
 ────────────────────────────────────────────────────────── */
 
 function renderPaperSidebar() {
-  const sidebar = document.getElementById('papersSidebar');
+  const sidebar  = document.getElementById('papersSidebar');
+  const subViews = state.activePreset?.sub_views;
   sidebar.innerHTML = state.papers.map(p => {
     const isActive  = p.id === state.activePaperId;
     const icon      = { pending: '○', processing: '⟳', done: '✓', error: '✕', cancelled: '⊘' }[p.status] || '·';
@@ -1195,6 +1307,17 @@ function renderPaperSidebar() {
     const stopBtn = (p.status === 'pending' || p.status === 'processing')
       ? `<button class="paper-stop" onclick="event.stopPropagation(); cancelPaper('${p.id}')" title="Stop this paper">✕</button>`
       : '';
+    // Sub-tabs (preset-driven) — only on the active, finished paper
+    let subTabsHtml = '';
+    if (isActive && subViews?.length && p.status === 'done') {
+      const activeId = p.subView || subViews[0].id;
+      subTabsHtml = `<div class="paper-subtabs">${subViews.map(sv => `
+        <button class="paper-subtab ${sv.id === activeId ? 'active' : ''}"
+                onclick="event.stopPropagation(); setSubView('${escHtml(sv.id)}')"
+                title="${escHtml(sv.label)}">
+          ${escHtml(sv.label)}
+        </button>`).join('')}</div>`;
+    }
     return `
       <div class="${cls}" ${onclick}>
         <span class="paper-status-icon">${icon}</span>
@@ -1203,9 +1326,83 @@ function renderPaperSidebar() {
           ${phaseLabel}
         </span>
         ${stopBtn}
-      </div>`;
+      </div>
+      ${subTabsHtml}`;
   }).join('');
   updateRetryAllButton();
+}
+
+/* ── Preset sub-views (e.g. MASEM Loadings/Correlations/Descriptives) ──── */
+
+function _activeSubViewFor(paper) {
+  const subViews = state.activePreset?.sub_views;
+  if (!subViews?.length) return null;
+  const id = paper.subView || subViews[0].id;
+  return subViews.find(s => s.id === id) || subViews[0];
+}
+
+/* Filter an entry object so only the keys for the current sub-view are
+   rendered.  Original data is untouched — we just hide what's irrelevant. */
+function _filterEntryBySubView(entry, subView) {
+  if (!subView || !entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+  const out = {};
+  if (Array.isArray(subView.include_keys)) {
+    for (const k of subView.include_keys) {
+      if (k in entry) out[k] = entry[k];
+    }
+    return out;
+  }
+  if (Array.isArray(subView.exclude_keys)) {
+    for (const [k, v] of Object.entries(entry)) {
+      if (!subView.exclude_keys.includes(k)) out[k] = v;
+    }
+    return out;
+  }
+  return entry;
+}
+
+/* Match an evidence entry's `field` path against the sub-view's keys. */
+function _evidenceMatchesSubView(field, subView) {
+  if (!subView || !field) return true;
+  if (Array.isArray(subView.include_keys)) {
+    return subView.include_keys.some(k => field.includes(k));
+  }
+  if (Array.isArray(subView.exclude_keys)) {
+    return !subView.exclude_keys.some(k => field.includes(k));
+  }
+  return true;
+}
+
+/* Pull the entry index out of a `samples[N]....` field path. */
+function _evidenceEntryIndex(field) {
+  const m = (field || '').match(/^samples\[(\d+)\]/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/* Pages cited by the evidence entries that match the current sub-view AND
+   the current entry index.  Returns a sorted, deduped list. */
+function _evidencePagesForSubView(parsed, subView, entryIndex) {
+  if (!Array.isArray(parsed?.evidence)) return [];
+  const pages = new Set();
+  for (const e of parsed.evidence) {
+    if (!e || typeof e !== 'object') continue;
+    const field = e.field || '';
+    const idx   = _evidenceEntryIndex(field);
+    if (idx !== null && idx !== entryIndex) continue;          // wrong sample
+    if (!_evidenceMatchesSubView(field, subView)) continue;     // wrong sub-view
+    const p = toPageNum(e.page);
+    if (p !== null) pages.add(p);
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+function setSubView(subViewId) {
+  const p = getActivePaper();
+  if (!p) return;
+  p.subView = subViewId;
+  renderPaperSidebar();
+  if (p.entries && p.entries.length > 0) renderEntry(p);
+  else displayPaper(p);
 }
 
 /* ── Cancel ────────────────────────────────────────────────────────────────── */
@@ -1213,16 +1410,198 @@ async function cancelPaper(paperId) {
   const p = state.papers.find(x => x.id === paperId);
   if (!p || !p.jobId) return;
   try {
-    await fetch(`/api/jobs/${p.jobId}/cancel`, { method: 'POST' });
+    await fetchScoped(`/api/jobs/${p.jobId}/cancel`, { method: 'POST' });
   } catch (err) {
     console.warn('cancelPaper failed:', err);
   }
 }
 
+/* ── Domain workflow presets (MASEMiner etc.) ───────────────────────────────
+   A preset re-skins the page (title, tagline, accent color), pre-fills the
+   relevant state (mode, provider, model, prompt), and jumps directly to
+   the step indicated by `skip_to`.  Activated either by URL (?preset=masem)
+   or via the "Pre-built workflows" modal on the landing screen. */
+
+async function applyPreset(presetId) {
+  let preset;
+  try {
+    const res = await fetchScoped(`/api/presets/${encodeURIComponent(presetId)}`);
+    if (!res.ok) {
+      showToast(`Preset "${presetId}" not found.`);
+      return false;
+    }
+    preset = await res.json();
+  } catch (err) {
+    showToast('Could not load preset: ' + err.message);
+    return false;
+  }
+
+  state.activePreset = preset;
+
+  // Re-skin: page title + tagline + accent color
+  document.title = preset.title;
+  const titleEl   = document.getElementById('appTitle');
+  const taglineEl = document.getElementById('appTagline');
+  if (titleEl)   titleEl.textContent   = preset.title;
+  if (taglineEl) taglineEl.textContent = preset.tagline || taglineEl.textContent;
+  if (preset.accent_color) {
+    document.documentElement.style.setProperty('--primary',      preset.accent_color);
+    document.documentElement.style.setProperty('--primary-dark', preset.accent_color);
+  }
+  document.body.dataset.preset = preset.id;
+
+  // Banner — visible while preset is active
+  const banner = document.getElementById('presetBanner');
+  if (banner) {
+    document.getElementById('presetBannerTitle').textContent   = preset.title;
+    document.getElementById('presetBannerTagline').textContent = preset.tagline || '';
+    banner.style.display = 'flex';
+  }
+
+  // Apply preset values to state
+  if (preset.mode)              state.mode             = preset.mode;
+  if (preset.default_provider)  state.provider         = preset.default_provider;
+  if (preset.default_model)     state.model            = preset.default_model;
+  if (preset.task_description)  state.question         = preset.task_description;
+  if (preset.context)           state.context          = preset.context;
+  if (preset.prompt) {
+    state.generatedPrompt = preset.prompt;
+    state.inputMode       = 'manual';   // user can still hit Regenerate later
+  }
+
+  // Reflect into the visible form fields (in case the user expands earlier sections)
+  const provSel = document.getElementById('providerSelect');
+  if (provSel && preset.default_provider) provSel.value = preset.default_provider;
+  onProviderChange();
+  const modelSel = document.getElementById('modelSelect');
+  if (modelSel && preset.default_model && preset.default_provider !== 'vllm') {
+    if (modelSel.querySelector(`option[value="${CSS.escape(preset.default_model)}"]`)) {
+      modelSel.value = preset.default_model;
+    }
+  }
+  const qInput = document.getElementById('questionInput');
+  const cInput = document.getElementById('contextInput');
+  const mInput = document.getElementById('manualPromptInput');
+  if (qInput && preset.task_description) qInput.value = preset.task_description;
+  if (cInput && preset.context)          cInput.value = preset.context;
+  if (mInput && preset.prompt)           mInput.value = preset.prompt;
+  const promptDisplay = document.getElementById('promptDisplay');
+  const modelBadge    = document.getElementById('modelBadge');
+  if (promptDisplay && preset.prompt) promptDisplay.textContent = preset.prompt;
+  if (modelBadge)                     modelBadge.textContent    = preset.default_model || preset.id;
+  // Skip the AI-generated vs Manual sub-choice on step 3 — the prompt is
+  // already loaded, so the manual section should be open by default if
+  // the user expands step 3.
+  if (preset.prompt) {
+    const choiceEl = document.getElementById('step3Choice');
+    const aiEl     = document.getElementById('aiSection');
+    const manEl    = document.getElementById('manualSection');
+    if (choiceEl) choiceEl.style.display = 'none';
+    if (aiEl)     aiEl.style.display     = 'none';
+    if (manEl)    manEl.style.display    = '';
+  }
+
+  // Land on the configured step.  For MASEMminer we go to step 2 (setup);
+  // submitStep2 then skips section 3 (describe) and jumps to section 4
+  // (review prompt) since the prompt is already loaded.
+  const SKIP = { upload: 6, prompt: 5, question: 3, setup: 2, task: 1 };
+  const targetStep = SKIP[preset.skip_to] || 2;
+  goTo(targetStep);
+  return true;
+}
+
+/* Used by the /masemminer hero "Get started" button — applies the preset,
+   hides the landing, shows the configuration accordion, lands on step 2. */
+async function startPresetFromLanding(presetId) {
+  const landing  = document.getElementById('masemLanding');
+  const onepager = document.getElementById('onepager');
+  if (landing)  landing.style.display  = 'none';
+  if (onepager) onepager.style.display = '';
+  await applyPreset(presetId);
+}
+
+function clearPreset() {
+  if (!state.activePreset) return;
+  // Reset URL so a refresh doesn't re-apply
+  if (window.history && window.history.replaceState) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('preset');
+    window.history.replaceState({}, '', url.toString());
+  }
+  // Restore the default branding
+  document.title = 'PaperLens';
+  document.getElementById('appTitle').textContent   = 'PaperLens';
+  document.getElementById('appTagline').textContent = 'AI-powered data extraction and labeling for academic papers';
+  document.documentElement.style.removeProperty('--primary');
+  document.documentElement.style.removeProperty('--primary-dark');
+  delete document.body.dataset.preset;
+  document.getElementById('presetBanner').style.display = 'none';
+  state.activePreset = null;
+  // Soft reset — clear the prompt + question/context so the user starts fresh
+  startOver();
+}
+
+/* Render the inline "Pre-built workflows" section on step 1.  Hidden
+   entirely when the server has no presets configured. */
+async function renderInlineWorkflows() {
+  const wrap = document.getElementById('prebuiltWorkflows');
+  const list = document.getElementById('prebuiltWorkflowsList');
+  if (!wrap || !list) return;
+  try {
+    const res  = await fetchScoped('/api/presets');
+    if (!res.ok) { wrap.style.display = 'none'; return; }
+    const data = await res.json();
+    const items = data.presets || [];
+    if (!items.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    list.innerHTML = items.map(p => `
+      <button class="workflow-card option-card-load" onclick="applyPreset('${escHtml(p.id)}')">
+        <div class="option-icon">🔬</div>
+        <div class="option-card-load-text">
+          <h3>${escHtml(p.title)}</h3>
+          <p>${escHtml(p.tagline || p.description || '')}</p>
+        </div>
+      </button>
+    `).join('');
+  } catch (_) {
+    wrap.style.display = 'none';
+  }
+}
+
+/* On page load:
+   1. If pathname is /masemminer (or similar), show the dedicated hero landing.
+   2. Otherwise, if ?preset=<id> is in the query string, auto-apply that preset
+      (legacy / direct-link entry).
+   3. Otherwise, populate the inline workflows section so users can pick one. */
+const _PRESET_PATHS = {
+  '/masemminer': 'masem',
+  // Add new dedicated path → preset mappings here as more workflows are added.
+};
+
+async function applyPathOrQueryPreset() {
+  const path      = window.location.pathname;
+  const presetForPath = _PRESET_PATHS[path];
+  if (presetForPath) {
+    // Show the hero landing for this preset; user clicks "Get started" to proceed
+    document.getElementById('onepager').style.display = 'none';
+    const landing = document.getElementById(presetForPath + 'Landing');
+    if (landing) landing.style.display = '';
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('preset');
+  if (id) {
+    await applyPreset(id);
+    return;
+  }
+  // No preset path / query — populate the inline workflows list on step 1
+  renderInlineWorkflows();
+}
+
 /* ── Server config (batch limits) ───────────────────────────────────────── */
 async function loadServerConfig() {
   try {
-    const res = await fetch('/api/config');
+    const res = await fetchScoped('/api/config');
     if (!res.ok) return;
     const data = await res.json();
     if (typeof data.max_batch_papers === 'number') config.maxBatchPapers = data.max_batch_papers;
@@ -1242,7 +1621,7 @@ async function refreshPastBatches() {
   const list = document.getElementById('pastBatchesList');
   if (!wrap || !list) return;
   try {
-    const res  = await fetch('/api/batches');
+    const res  = await fetchScoped('/api/batches');
     const data = await res.json();
     const batches = (data.batches || []).filter(b => b.n_total > 0);
     if (!batches.length) { wrap.style.display = 'none'; return; }
@@ -1273,7 +1652,7 @@ async function loadPastBatch(batchId) {
   // Fetch the batch + jobs, build paper objects from the persisted result strings
   let data;
   try {
-    const res = await fetch(`/api/batches/${batchId}`);
+    const res = await fetchScoped(`/api/batches/${batchId}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     data = await res.json();
   } catch (err) {
@@ -1325,7 +1704,7 @@ async function cancelBatch() {
   if (!state.batchId) return;
   if (!confirm('Stop all in-flight papers in this batch?')) return;
   try {
-    const res  = await fetch(`/api/batches/${state.batchId}/cancel`, { method: 'POST' });
+    const res  = await fetchScoped(`/api/batches/${state.batchId}/cancel`, { method: 'POST' });
     const data = await res.json();
     showToast(`Cancellation requested for ${data.cancelled || 0} paper(s).`, 'success');
   } catch (err) {
@@ -1581,21 +1960,32 @@ function renderEntry(paper) {
   display.dataset.paperId  = paper.id;
   display.dataset.entryIdx = paper.entryIndex;
 
+  // Sub-view filter (preset-driven, e.g. MASEM Loadings/Correlations/Descriptives)
+  const subView       = _activeSubViewFor(paper);
+  const filteredEntry = subView ? _filterEntryBySubView(entry, subView) : entry;
+
   if (paper.viewMode === 'raw') {
     // Raw mode — show the verbatim model output, untouched
     display.innerHTML =
       `<pre class="raw-response">${escHtml(stripFences(paper.result || paper.rawResponse || ''))}</pre>`;
   } else {
-    display.innerHTML = renderValueHtml(entry);
+    display.innerHTML = renderValueHtml(filteredEntry);
     applyOverrides(paper);
   }
 
-  // Collect all page numbers referenced in this entry; fall back to top-level
-  const entryPages  = [...findAllEntryPages(entry)].sort((a, b) => a - b);
-  const globalPages = entryPages.length ? entryPages
-    : [...findAllEntryPages(paper.parsed)].sort((a, b) => a - b);
-  paper.evidencePages   = globalPages;
-  paper.evidencePageIdx = 0;
+  // Evidence pages: when a sub-view is active, restrict to evidence whose
+  // `field` path matches the sub-view's keys; otherwise use the original
+  // walk-the-entry-and-fall-back-to-global logic.
+  let evidencePages;
+  if (subView) {
+    evidencePages = _evidencePagesForSubView(paper.parsed, subView, paper.entryIndex);
+  } else {
+    const entryPages  = [...findAllEntryPages(entry)].sort((a, b) => a - b);
+    evidencePages     = entryPages.length ? entryPages
+      : [...findAllEntryPages(paper.parsed)].sort((a, b) => a - b);
+  }
+  paper.evidencePages     = evidencePages;
+  paper.evidencePageIdx   = 0;
   paper.browseAllPagesIdx = 0;
   updatePageNav(paper);
   // If the entry has cited pages → show the first one (with highlights).
@@ -1626,43 +2016,108 @@ function showPageImage(paper, pageNum) {
   const n     = paper.pageImages.length;
 
   // pageNum is 1-indexed; pageImages is 0-indexed
-  // Reset zoom whenever we navigate to a new page
   zoomReset();
 
+  let displayedPage = null;
   if (pageNum && pageNum >= 1 && pageNum <= n) {
-    // Normal case — page is within the captured range
     img.src            = paper.pageImages[pageNum - 1];
     img.style.display  = 'block';
     none.style.display = 'none';
     label.textContent  = `Page ${pageNum}`;
+    displayedPage      = pageNum;
   } else if (pageNum && pageNum > n && n > 0) {
-    // Page cited by the model is beyond our captured range (document truncated
-    // at MAX_PAGES).  Show the last captured page and explain.
     img.src            = paper.pageImages[n - 1];
     img.style.display  = 'block';
     none.style.display = 'none';
-    label.textContent  = `Page ${pageNum} (beyond p.\u202f${n} — showing last captured)`;
+    label.textContent  = `Page ${pageNum} (beyond p.\u202f${n} \u2014 showing last captured)`;
+    displayedPage      = n;
   } else if (!pageNum && n > 0) {
     img.src            = paper.pageImages[0];
     img.style.display  = 'block';
     none.style.display = 'none';
     label.textContent  = 'Page 1';
+    displayedPage      = 1;
   } else {
     img.style.display  = 'none';
     none.style.display = 'block';
     if (paper.pageImagesLoading) {
-      // Skeleton state — explain why the panel is empty so it doesn't look broken
       none.innerHTML = `<div class="page-skeleton">
         <div class="page-skeleton-shimmer"></div>
-        <p class="page-skeleton-text">Loading page preview…</p>
+        <p class="page-skeleton-text">Loading page preview\u2026</p>
       </div>`;
     } else if (paper.pageImages.length === 0) {
       none.innerHTML = 'No page preview available.<br>Upload the PDF to see page images.';
     } else {
       none.innerHTML = 'No page reference<br>found in this entry.';
     }
-    label.textContent  = 'Page —';
+    label.textContent  = 'Page \u2014';
   }
+
+  // Render SVG highlight overlay for the displayed page (filtered by sub-view).
+  renderHighlightOverlay(paper, displayedPage);
+}
+
+/* Returns true if this evidence entry should be drawn given the active
+   sub-view filter.  Evidence with no field info (recovered orphans) is
+   shown only in the default (no-sub-view) overlay. */
+function _highlightMatchesSubView(highlight, subView) {
+  if (!subView) return true;
+  const field = highlight.field || '';
+  if (!field) return false;
+  if (Array.isArray(subView.include_keys)) {
+    return subView.include_keys.some(k => field.includes(k));
+  }
+  if (Array.isArray(subView.exclude_keys)) {
+    return !subView.exclude_keys.some(k => field.includes(k));
+  }
+  return true;
+}
+
+function _withImageDims(paper, pageIndex0, callback) {
+  paper._imgDims = paper._imgDims || {};
+  if (paper._imgDims[pageIndex0]) { callback(paper._imgDims[pageIndex0]); return; }
+  const probe = new Image();
+  probe.onload  = () => {
+    paper._imgDims[pageIndex0] = { w: probe.naturalWidth, h: probe.naturalHeight };
+    callback(paper._imgDims[pageIndex0]);
+  };
+  probe.onerror = () => callback(null);
+  probe.src = paper.pageImages[pageIndex0];
+}
+
+function renderHighlightOverlay(paper, pageNum) {
+  const svg = document.getElementById('highlightOverlay');
+  if (!svg) return;
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  if (!pageNum || !Array.isArray(paper.highlights) || paper.highlights.length === 0) {
+    svg.style.display = 'none';
+    return;
+  }
+  const subView = _activeSubViewFor(paper);
+  const matching = paper.highlights.filter(h =>
+    h.page === pageNum && _highlightMatchesSubView(h, subView)
+  );
+  if (!matching.length) { svg.style.display = 'none'; return; }
+
+  _withImageDims(paper, pageNum - 1, dims => {
+    if (!dims) { svg.style.display = 'none'; return; }
+    svg.setAttribute('viewBox', `0 0 ${dims.w} ${dims.h}`);
+    svg.style.display = 'block';
+    for (const h of matching) {
+      for (const r of (h.rects || [])) {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x',      r[0]);
+        rect.setAttribute('y',      r[1]);
+        rect.setAttribute('width',  r[2]);
+        rect.setAttribute('height', r[3]);
+        rect.setAttribute('class',  'highlight-rect');
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        title.textContent = (h.field ? `[${h.field}] ` : '') + (h.snippet || '');
+        rect.appendChild(title);
+        svg.appendChild(rect);
+      }
+    }
+  });
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -2210,7 +2665,11 @@ const zoom = { scale: 1, x: 0, y: 0, dragging: false, startX: 0, startY: 0 };
 
 function applyZoom() {
   const img = document.getElementById('pageDisplayImg');
-  img.style.transform = `translate(${zoom.x}px,${zoom.y}px) scale(${zoom.scale})`;
+  const svg = document.getElementById('highlightOverlay');
+  const t   = `translate(${zoom.x}px,${zoom.y}px) scale(${zoom.scale})`;
+  img.style.transform = t;
+  // Keep the SVG overlay locked to the image at every zoom/pan tick
+  if (svg) svg.style.transform = t;
 }
 
 function clampZoom() {
@@ -2749,7 +3208,7 @@ async function fetchReviewPageImages(pdfFiles) {
     form.append('result', paper.result || '');
 
     try {
-      const res  = await fetch('/api/pages', { method: 'POST', body: form });
+      const res  = await fetchScoped('/api/pages', { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok || data.error) {
         console.warn(`[fetchReviewPageImages] ${pdfFile.name}: ${data.error}`);
@@ -2779,6 +3238,7 @@ function goBackFromResults() {
 function startOver() {
   Object.assign(state, {
     mode: null, provider: 'openai', model: 'gpt-4o', apiKey: '', baseUrl: '',
+    providerCredentials: {},
     question: '', context: '', inputMode: 'generate',
     generatedPrompt: '', useTextExtraction: false,
     notifyEmail: '', batchId: null,

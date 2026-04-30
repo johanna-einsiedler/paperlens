@@ -440,27 +440,60 @@ def test_extract_creates_batch_and_links_job(client):
 
 
 def test_list_batches_aggregates_counts(client):
-    """list_batches returns aggregate counts per batch — feeds the History view."""
+    """list_batches returns aggregate counts per batch, scoped to the caller's
+    X-Session-Id so each browser only sees its own batches."""
     pdf = _make_pdf_bytes()
+    sid = "session-A"
+    headers = {"X-Session-Id": sid}
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
-        client.post("/api/extract",
+        client.post("/api/extract", headers=headers,
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b1"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
-        # Wait for completion
         deadline = time.time() + 5
         while time.time() < deadline:
-            j = client.get("/api/batches").json()["batches"]
+            j = client.get("/api/batches", headers=headers).json()["batches"]
             if j and (j[0]["n_done"] or 0) == 1:
                 break
             time.sleep(0.05)
 
-    listing = client.get("/api/batches").json()["batches"]
+    listing = client.get("/api/batches", headers=headers).json()["batches"]
     assert len(listing) >= 1
     b = next(x for x in listing if x["id"] == "b1")
     assert b["n_total"] == 1
     assert b["n_done"]  == 1
+
+
+def test_list_batches_isolates_sessions(client):
+    """A batch created by session A must NOT appear in session B's history,
+    and the History endpoint without a session id returns nothing."""
+    pdf = _make_pdf_bytes()
+    with patch("jobs.extract_with_images",
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+        client.post("/api/extract", headers={"X-Session-Id": "alice"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "alice-batch"},
+            files={"pdf": ("a.pdf", pdf, "application/pdf")},
+        )
+        # Wait for the worker thread to finish so the batch is fully populated
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            j = client.get("/api/batches", headers={"X-Session-Id": "alice"}).json()["batches"]
+            if j and (j[0]["n_done"] or 0) == 1:
+                break
+            time.sleep(0.05)
+
+    # Alice can see her batch
+    alice = client.get("/api/batches", headers={"X-Session-Id": "alice"}).json()["batches"]
+    assert any(b["id"] == "alice-batch" for b in alice)
+
+    # Bob cannot
+    bob = client.get("/api/batches", headers={"X-Session-Id": "bob"}).json()["batches"]
+    assert all(b["id"] != "alice-batch" for b in bob)
+
+    # Anonymous (no session header) gets nothing
+    anon = client.get("/api/batches").json()["batches"]
+    assert anon == []
 
 
 def test_cancel_endpoint_requests_cancel(client):

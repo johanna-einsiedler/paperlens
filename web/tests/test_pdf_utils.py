@@ -203,6 +203,50 @@ def test_recover_orphan_pages_locates_snippets_in_pdf(native_pdf_bytes):
     assert any("147 undergraduate" in s for s in recovered[1])
 
 
+def test_pdf_to_pages_with_rects_returns_pages_and_rects(native_pdf_bytes):
+    """The new renderer returns plain page images + rect metadata per
+    evidence entry that could be located in the PDF text."""
+    items = [
+        {"page": 1, "snippet": "N = 147 undergraduate students participated.",
+         "field": "samples[0].sample_size", "source": None},
+        {"page": 3, "snippet": "Table 2",
+         "field": "samples[0].factor_loadings", "source": "Table 2"},
+        {"page": 1, "snippet": "definitely not in the PDF",
+         "field": "samples[0].notes", "source": None},
+    ]
+    pages, highlights = pdf_utils.pdf_to_pages_with_rects(native_pdf_bytes, items)
+    # 3 pages in the fixture
+    assert len(pages) == 3
+    # The two locatable snippets get rect entries; the third is silently dropped
+    assert len(highlights) >= 2
+    # Each highlight carries the metadata the client needs to filter by sub-view
+    for h in highlights:
+        assert "page"    in h and isinstance(h["page"], int)
+        assert "snippet" in h
+        assert "field"   in h
+        assert "rects"   in h and isinstance(h["rects"], list) and h["rects"]
+        # Each rect is [x, y, width, height] in image-pixel coords (positive numbers)
+        for r in h["rects"]:
+            assert len(r) == 4
+            assert all(isinstance(v, (int, float)) and v >= 0 for v in r)
+
+
+def test_evidence_items_from_result_preserves_field_and_source():
+    payload = """{"samples": [{
+      "evidence": [
+        {"snippet": "abc", "page": 2, "source": "Table 1", "field": "samples[0].x"},
+        {"snippet": "no page",                "field": "samples[0].y"},
+        {"snippet": "bad page", "page": "?",  "field": "samples[0].z"}
+      ]
+    }]}"""
+    items = pdf_utils.evidence_items_from_result(payload)
+    # Only the entry with a usable page number survives
+    assert len(items) == 1
+    assert items[0]["page"]   == 2
+    assert items[0]["field"]  == "samples[0].x"
+    assert items[0]["source"] == "Table 1"
+
+
 def test_merge_snippet_dicts_dedupes_within_pages():
     a = {1: ["snippet A", "snippet B"]}
     b = {1: ["snippet B", "snippet C"], 2: ["snippet D"]}

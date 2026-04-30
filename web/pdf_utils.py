@@ -441,3 +441,167 @@ def pdf_to_highlighted_images(
 
     doc.close()
     return images
+
+
+def pdf_to_pages_with_rects(
+    pdf_bytes: bytes,
+    evidence_items: list[dict],
+    dpi: int = DISPLAY_DPI,
+) -> tuple[list[str], list[dict]]:
+    """Render plain JPEG page images PLUS rect metadata for each evidence
+    entry's location, so the client can overlay highlights selectively
+    (filtered by the active sub-view).
+
+    ``evidence_items`` is a list of dicts ``{page, snippet, field, source}``.
+    ``page`` is 1-indexed.
+
+    Returns:
+        pages       — list of base64-encoded JPEG strings, one per PDF page
+        highlights  — list of dicts with keys:
+                        ``page``    1-indexed PDF page
+                        ``snippet`` original snippet text (for tooltips)
+                        ``field``   JSON path declared by the model (used to
+                                    filter by sub-view), or None
+                        ``source``  table/figure id or None
+                        ``rects``   list of [x, y, width, height] in
+                                    image-pixel coordinates at the
+                                    requested DPI
+
+    Memory-friendly alternative to ``pdf_to_highlighted_images``: we render
+    each page only once (no per-sub-view duplication) and the client decides
+    which rects to draw on top.
+    """
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    pages: list[str]      = []
+    highlights: list[dict] = []
+
+    mat   = fitz.Matrix(dpi / 72, dpi / 72)
+    scale = dpi / 72.0  # PDF points → image pixels
+
+    # Group evidence items by page for one-pass rendering
+    by_page: dict[int, list[dict]] = {}
+    for ev in evidence_items:
+        page = ev.get("page")
+        if not isinstance(page, int) or page < 1:
+            continue
+        by_page.setdefault(page, []).append(ev)
+
+    for page_idx in range(min(len(doc), MAX_PAGES)):
+        page      = doc[page_idx]
+        page_1idx = page_idx + 1
+
+        for ev in by_page.get(page_1idx, []):
+            snippet = ev.get("snippet") or ""
+            if not snippet or len(snippet) < 5:
+                continue
+            norm         = _normalize_snippet(snippet)
+            is_table_ref = bool(_TABLE_REF_RE.search(norm))
+
+            def _search(text: str) -> list:
+                rects = page.search_for(text)
+                if not rects:
+                    try:
+                        rects = page.search_for(text, flags=1)
+                    except Exception:
+                        pass
+                return rects or []
+
+            # Same fallback chain as pdf_to_highlighted_images
+            rects = _search(norm) or _search(norm[:120]) or _search(norm[:80])
+            if not rects:
+                sentences = [
+                    s.strip() for s in re.split(r"(?<=[.!?])\s+", norm)
+                    if len(s.strip()) >= 20
+                ]
+                for sent in sentences:
+                    rects = _search(sent)
+                    if rects:
+                        break
+            if not rects:
+                words = norm.split()
+                for i in range(max(0, len(words) - 3)):
+                    chunk = " ".join(words[i : i + 4])
+                    rects = _search(chunk)
+                    if rects:
+                        break
+
+            # Optional table-region expansion
+            table_rects: list = []
+            if is_table_ref:
+                m = _TABLE_REF_RE.search(norm)
+                if m:
+                    caption = _find_table_caption(page, m.group(1))
+                    if caption:
+                        expanded = _expand_to_table_region(page, [caption])
+                        table_rects = expanded if expanded else [caption]
+
+            if rects:
+                if table_rects:
+                    rects = list(rects) + list(table_rects)
+                elif is_table_ref:
+                    expanded = _expand_to_table_region(page, list(rects))
+                    if expanded:
+                        rects = expanded
+            elif table_rects:
+                rects = table_rects
+
+            if rects:
+                pixel_rects = [
+                    [r.x0 * scale, r.y0 * scale,
+                     (r.x1 - r.x0) * scale, (r.y1 - r.y0) * scale]
+                    for r in rects
+                ]
+                highlights.append({
+                    "page":    page_1idx,
+                    "snippet": snippet,
+                    "field":   ev.get("field"),
+                    "source":  ev.get("source"),
+                    "rects":   pixel_rects,
+                })
+
+        # Render this page WITHOUT highlight annotations
+        pix       = page.get_pixmap(matrix=mat)
+        img_bytes = pix.tobytes("jpeg", jpg_quality=85)
+        pages.append(base64.b64encode(img_bytes).decode())
+
+    doc.close()
+    return pages, highlights
+
+
+def evidence_items_from_result(result_text: str) -> list[dict]:
+    """Walk the parsed JSON and return every evidence-like entry that has a
+    snippet AND a usable page number, preserving ``field`` and ``source``.
+
+    This is the structured input to ``pdf_to_pages_with_rects``.
+    """
+    parsed = _parse_result_json(result_text)
+    if parsed is None:
+        return []
+    out: list[dict] = []
+
+    def walk(obj):
+        if isinstance(obj, dict):
+            snip = obj.get("snippet")
+            page = obj.get("page")
+            if snip and page is not None:
+                try:
+                    page_num = int(float(page))
+                    if page_num > 0:
+                        out.append({
+                            "page":    page_num,
+                            "snippet": str(snip),
+                            "field":   obj.get("field"),
+                            "source":  obj.get("source"),
+                        })
+                except (TypeError, ValueError):
+                    pass
+            for v in obj.values():
+                walk(v)
+        elif isinstance(obj, list):
+            for x in obj:
+                walk(x)
+
+    walk(parsed)
+    return out

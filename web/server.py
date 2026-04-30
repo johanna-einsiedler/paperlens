@@ -36,13 +36,14 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import db
 import jobs as jobs_mod
+import presets_loader
 from pdf_utils import extract_evidence_snippets, pdf_to_highlighted_images
 from prompt_builder import EVIDENCE_APPENDIX, build_meta_prompt
 from providers import extract_provider_message, generate_text
@@ -99,6 +100,14 @@ _NO_CACHE_HEADERS = {
 def index() -> FileResponse:
     # Prevent the browser from serving a stale index that points to an outdated
     # bundle.  Static assets are still mounted above with their own headers.
+    return FileResponse(STATIC_DIR / "index.html", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/masemminer")
+def masemminer_landing() -> FileResponse:
+    """Dedicated entry point for MASEMminer.  Serves the same index.html;
+    the frontend detects ``window.location.pathname === '/masemminer'`` and
+    shows a custom hero landing instead of the generic mode cards."""
     return FileResponse(STATIC_DIR / "index.html", headers=_NO_CACHE_HEADERS)
 
 
@@ -287,6 +296,24 @@ def get_config() -> dict:
     }
 
 
+# ── /api/presets — domain workflow presets (e.g. MASEMiner) ─────────────────
+
+@app.get("/api/presets")
+def list_presets() -> dict:
+    """List the available presets with branding metadata only — keeps the
+    response small for the workflow picker on the landing screen."""
+    return {"presets": presets_loader.list_summaries()}
+
+
+@app.get("/api/presets/{preset_id}")
+def get_preset(preset_id: str) -> dict:
+    """Full preset detail (including the full prompt body)."""
+    preset = presets_loader.get(preset_id)
+    if preset is None:
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    return preset
+
+
 # ── /api/test-connection ─────────────────────────────────────────────────────
 
 @app.post("/api/test-connection")
@@ -366,6 +393,7 @@ async def extract(
     batch_id: str = Form(""),       # generated client-side; same id for every paper in a batch
     notify_email: str = Form(""),   # optional — triggers email when the batch finishes
     pdf: UploadFile = File(...),
+    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
 ) -> dict:
     api_key      = api_key.strip()
     prompt       = prompt.strip()
@@ -399,8 +427,9 @@ async def extract(
         )
 
     if batch_id:
-        # Idempotent — only the first paper in the batch creates the row
-        db.create_batch(batch_id, notify_email)
+        # Idempotent — only the first paper in the batch creates the row.
+        # session_id scopes the History view to one browser.
+        db.create_batch(batch_id, notify_email, session_id=x_session_id)
         # Per-batch cap on paper count.  Counts existing jobs with this id so
         # the limit is enforced even if the frontend misbehaves or the same
         # batch_id is reused across requests.
@@ -462,8 +491,16 @@ def get_job_pages(job_id: str) -> dict:
     row = db.get_job(job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found.")
-    images = jobs_mod.get_page_images(job_id) or []
-    return {"job_id": job_id, "page_images": images}
+    images     = jobs_mod.get_page_images(job_id) or []
+    highlights = jobs_mod.get_page_highlights(job_id) or []
+    # ``highlights`` is a list of {page, snippet, field, source, rects} —
+    # the frontend overlays an SVG layer of yellow rectangles on top of
+    # ``page_images``, filtered by the currently-selected sub-view (if any).
+    return {
+        "job_id":      job_id,
+        "page_images": images,
+        "highlights":  highlights,
+    }
 
 
 @app.post("/api/jobs/{job_id}/cancel")
@@ -478,9 +515,17 @@ def cancel_job(job_id: str) -> dict:
 # ── /api/batches — history + per-batch detail ────────────────────────────────
 
 @app.get("/api/batches")
-def list_batches() -> dict:
-    """Recent batches with aggregate counts — feeds the History view."""
-    return {"batches": db.list_batches(limit=50)}
+def list_batches(
+    x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+) -> dict:
+    """Recent batches for the current browser only.
+
+    Each browser mints a UUID once and stores it in localStorage; that id is
+    sent on every request as ``X-Session-Id``.  This endpoint scopes the
+    History view to that id, so users no longer see other people's batches.
+    Without a session id, returns an empty list.
+    """
+    return {"batches": db.list_batches(limit=50, session_id=x_session_id)}
 
 
 @app.get("/api/batches/{batch_id}")

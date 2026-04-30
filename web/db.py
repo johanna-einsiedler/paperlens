@@ -111,6 +111,12 @@ def init() -> None:
             if name not in existing_cols:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {type_}")
         conn.execute("CREATE INDEX IF NOT EXISTS jobs_batch_id_idx ON jobs(batch_id)")
+        # Add session_id to batches so the History list can be scoped per-browser.
+        # Existing rows get NULL — they won't show up in any user's list (acceptable).
+        existing_batch_cols = {row["name"] for row in conn.execute("PRAGMA table_info(batches)")}
+        if "session_id" not in existing_batch_cols:
+            conn.execute("ALTER TABLE batches ADD COLUMN session_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS batches_session_id_idx ON batches(session_id)")
 
 
 # ── Job CRUD ──────────────────────────────────────────────────────────────────
@@ -235,11 +241,12 @@ def cleanup_old_jobs(older_than_seconds: int = 24 * 3600) -> int:
 
 # ── Batch CRUD ────────────────────────────────────────────────────────────────
 
-def create_batch(batch_id: str, notify_email: str | None) -> None:
+def create_batch(batch_id: str, notify_email: str | None, session_id: str | None = None) -> None:
     with _connect() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO batches (id, notify_email, created_at) VALUES (?, ?, ?)",
-            (batch_id, notify_email, time.time()),
+            "INSERT OR IGNORE INTO batches (id, notify_email, session_id, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (batch_id, notify_email, session_id, time.time()),
         )
 
 
@@ -249,8 +256,15 @@ def get_batch(batch_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def list_batches(limit: int = 50) -> list[dict[str, Any]]:
-    """Return recent batches with aggregate job counts — feeds the History view."""
+def list_batches(limit: int = 50, session_id: str | None = None) -> list[dict[str, Any]]:
+    """Return recent batches for one browser session, with aggregate job counts.
+
+    If ``session_id`` is None, returns nothing — this stops the public
+    History view from leaking other users' work.  Pass the ``X-Session-Id``
+    header value here.
+    """
+    if not session_id:
+        return []
     with _connect() as conn:
         rows = conn.execute(
             """SELECT
@@ -264,10 +278,11 @@ def list_batches(limit: int = 50) -> list[dict[str, Any]]:
                  MAX(j.model)                                                 AS model
                FROM batches b
                LEFT JOIN jobs j ON j.batch_id = b.id
+               WHERE b.session_id = ?
                GROUP BY b.id
                ORDER BY b.created_at DESC
                LIMIT ?""",
-            (limit,),
+            (session_id, limit),
         ).fetchall()
     return [dict(r) for r in rows]
 
