@@ -1361,14 +1361,24 @@ function _filterEntryBySubView(entry, subView) {
   return entry;
 }
 
+/* Split a JSON path like "samples[0].factor_loadings.F1.1" into its segment
+   identifiers ("samples", "factor_loadings", "F1", "1"), so we can match
+   include/exclude_keys exactly instead of doing a naive substring check
+   (which would let "n" match every field containing the letter n). */
+function _fieldSegments(field) {
+  if (!field) return [];
+  return field.split('.').map(seg => seg.replace(/\[\d+\]$/, ''));
+}
+
 /* Match an evidence entry's `field` path against the sub-view's keys. */
 function _evidenceMatchesSubView(field, subView) {
   if (!subView || !field) return true;
+  const segs = _fieldSegments(field);
   if (Array.isArray(subView.include_keys)) {
-    return subView.include_keys.some(k => field.includes(k));
+    return subView.include_keys.some(k => segs.includes(k));
   }
   if (Array.isArray(subView.exclude_keys)) {
-    return !subView.exclude_keys.some(k => field.includes(k));
+    return !subView.exclude_keys.some(k => segs.includes(k));
   }
   return true;
 }
@@ -1458,10 +1468,11 @@ async function applyPreset(presetId) {
     banner.style.display = 'flex';
   }
 
-  // Apply preset values to state
+  // Apply preset values to state (provider/model are handled below — must
+  // route through onProviderChange so the credential cache stays consistent
+  // when the preset switches us to a different provider than the user's
+  // last session).
   if (preset.mode)              state.mode             = preset.mode;
-  if (preset.default_provider)  state.provider         = preset.default_provider;
-  if (preset.default_model)     state.model            = preset.default_model;
   if (preset.task_description)  state.question         = preset.task_description;
   if (preset.context)           state.context          = preset.context;
   if (preset.prompt) {
@@ -1469,14 +1480,22 @@ async function applyPreset(presetId) {
     state.inputMode       = 'manual';   // user can still hit Regenerate later
   }
 
-  // Reflect into the visible form fields (in case the user expands earlier sections)
+  // Provider/model swap.  Set the dropdown FIRST, then call onProviderChange:
+  // it stashes the OUTGOING provider's credentials under that provider's
+  // own slot, then loads the INCOMING provider's cached credentials (or
+  // empty if the user has never used that provider).  This avoids the bug
+  // where the user's Gemini key would get re-saved under the openai slot.
   const provSel = document.getElementById('providerSelect');
-  if (provSel && preset.default_provider) provSel.value = preset.default_provider;
-  onProviderChange();
+  if (provSel && preset.default_provider) {
+    provSel.value = preset.default_provider;
+    onProviderChange();
+  }
   const modelSel = document.getElementById('modelSelect');
   if (modelSel && preset.default_model && preset.default_provider !== 'vllm') {
     if (modelSel.querySelector(`option[value="${CSS.escape(preset.default_model)}"]`)) {
       modelSel.value = preset.default_model;
+      state.model    = preset.default_model;
+      _stashProviderCredentials();
     }
   }
   const qInput = document.getElementById('questionInput');
@@ -2067,11 +2086,12 @@ function _highlightMatchesSubView(highlight, subView) {
   if (!subView) return true;
   const field = highlight.field || '';
   if (!field) return false;
+  const segs = _fieldSegments(field);
   if (Array.isArray(subView.include_keys)) {
-    return subView.include_keys.some(k => field.includes(k));
+    return subView.include_keys.some(k => segs.includes(k));
   }
   if (Array.isArray(subView.exclude_keys)) {
-    return !subView.exclude_keys.some(k => field.includes(k));
+    return !subView.exclude_keys.some(k => segs.includes(k));
   }
   return true;
 }
