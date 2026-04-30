@@ -7,9 +7,14 @@ import json
 import re
 from collections import defaultdict
 
-# Pattern that recognises table identifiers such as "Table 2", "TABLE A1", "Appendix Table 3"
+# Pattern that recognises table identifiers such as "Table 2", "TABLE A1",
+# "Appendix Table 3", "Tabelle 4" (German), "Tableau 4" (French),
+# "Tabla 4" (Spanish), "Tabella 4" (Italian), "Tabela 4" (Portuguese).
+# We also accept the model's normalisation back to "TABLE N" even when the
+# underlying PDF is non-English.
+_TABLE_WORDS = ("table", "tbl", "tabelle", "tableau", "tabla", "tabella", "tabela")
 _TABLE_REF_RE = re.compile(
-    r"\b(?:appendix\s+)?(?:table|tbl\.?)\s*([A-Z]?\d+(?:\.\d+)?)\b",
+    r"\b(?:appendix\s+)?(?:" + "|".join(_TABLE_WORDS) + r")\.?\s*([A-Z]?\d+(?:\.\d+)?)\b",
     re.IGNORECASE,
 )
 
@@ -370,11 +375,77 @@ def _normalize_snippet(text: str) -> str:
     return " ".join(text.split())
 
 
-_CAPTION_PATTERNS = (
-    "TABLE {n}.", "Table {n}.",
-    "TABLE {n}:", "Table {n}:",
-    "TABLE {n} ", "Table {n} ",
+_CAPTION_TEMPLATES = ("{w} {n}.", "{w} {n}:", "{w} {n} ", "{w}{n}.")
+# Word forms covered (mixed case + uppercase variant for each).  Both English
+# (Table) and the most common European-language equivalents are included so a
+# German PDF with "Tabelle 4." still gets its caption located when the model
+# emitted "TABLE 4." in evidence.
+_CAPTION_WORDS = (
+    "Table", "TABLE",
+    "Tabelle", "TABELLE",
+    "Tableau", "TABLEAU",
+    "Tabla", "TABLA",
+    "Tabella", "TABELLA",
+    "Tabela", "TABELA",
 )
+
+
+def _snippet_candidates(norm: str):
+    """Yield search candidates for ``norm`` in priority order, from most
+    specific to most generic.
+
+    Handles the common shapes that defeat exact ``page.search_for``:
+      * leading numeric markers ("1. Mir ist..." → "Mir ist...")
+      * trailing numeric loadings (".75" / "0.69" at end)
+      * line-broken contiguous text (sentence and word-window slices)
+    """
+    seen: set[str] = set()
+
+    def emit(s: str):
+        s = s.strip(" \t\n.,;:")
+        if len(s) >= 6 and s not in seen:
+            seen.add(s)
+            return s
+        return None
+
+    cand = emit(norm)
+    if cand: yield cand
+
+    # Strip leading "12. " / "12) " markers.
+    stripped_lead = re.sub(r"^\s*\d+[.\)]\s+", "", norm)
+    cand = emit(stripped_lead)
+    if cand: yield cand
+
+    # Strip trailing numeric loadings: " .75", " 0.69", " -.42"
+    stripped_tail = re.sub(r"\s+-?\.?\d+(?:[.,]\d+)?\s*$", "", stripped_lead)
+    cand = emit(stripped_tail)
+    if cand: yield cand
+
+    # Length-based truncations on the cleaned string
+    base = stripped_tail or stripped_lead or norm
+    for n in (180, 120, 80):
+        if len(base) > n:
+            cand = emit(base[:n])
+            if cand: yield cand
+
+    # Sentence-style splits, longest first
+    sentences = sorted(
+        (s.strip() for s in re.split(r"(?<=[.!?])\s+", base) if len(s.strip()) >= 20),
+        key=len, reverse=True,
+    )
+    for s in sentences:
+        cand = emit(s)
+        if cand: yield cand
+
+    # Sliding word window — try larger windows first so we get the most
+    # context (and the most unique match) before falling back to short ones.
+    words = base.split()
+    for size in (10, 8, 6, 4):
+        if size > len(words):
+            continue
+        for i in range(len(words) - size + 1):
+            cand = emit(" ".join(words[i : i + size]))
+            if cand: yield cand
 
 
 def _find_table_caption(page, table_num: str):
@@ -384,11 +455,16 @@ def _find_table_caption(page, table_num: str):
     Searching for the snippet alone anchors the highlight in the prose, not the
     table.  Looking up the caption directly lets us expand from the table's
     actual top edge.  Returns the first match's rect, or None.
+
+    Multilingual: tries Table / Tabelle / Tableau / Tabla / Tabella / Tabela
+    captions so a German or other-language PDF still resolves correctly when
+    the model normalised the table name to "TABLE N" in evidence.
     """
-    for pat in _CAPTION_PATTERNS:
-        rects = page.search_for(pat.format(n=table_num))
-        if rects:
-            return rects[0]
+    for word in _CAPTION_WORDS:
+        for tpl in _CAPTION_TEMPLATES:
+            rects = page.search_for(tpl.format(w=word, n=table_num))
+            if rects:
+                return rects[0]
     return None
 
 
@@ -577,6 +653,7 @@ def pdf_to_pages_with_rects(
     which rects to draw on top.
     """
     import fitz  # PyMuPDF
+    _DEHY = getattr(fitz, "TEXT_DEHYPHENATE", 0)
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     pages: list[str]      = []
@@ -605,32 +682,22 @@ def pdf_to_pages_with_rects(
             is_table_ref = bool(_TABLE_REF_RE.search(norm))
 
             def _search(text: str) -> list:
-                rects = page.search_for(text)
-                if not rects:
+                # First pass: plain search.  Second pass: dehyphenated, which
+                # also helps when the PDF text spans hyphenated line breaks
+                # ("Hauptkomponenten-\nanalyse" → "Hauptkomponentenanalyse").
+                rects = page.search_for(text) or []
+                if not rects and _DEHY:
                     try:
-                        rects = page.search_for(text, flags=1)
+                        rects = page.search_for(text, flags=_DEHY) or []
                     except Exception:
                         pass
-                return rects or []
+                return rects
 
-            # Same fallback chain as pdf_to_highlighted_images
-            rects = _search(norm) or _search(norm[:120]) or _search(norm[:80])
-            if not rects:
-                sentences = [
-                    s.strip() for s in re.split(r"(?<=[.!?])\s+", norm)
-                    if len(s.strip()) >= 20
-                ]
-                for sent in sentences:
-                    rects = _search(sent)
-                    if rects:
-                        break
-            if not rects:
-                words = norm.split()
-                for i in range(max(0, len(words) - 3)):
-                    chunk = " ".join(words[i : i + 4])
-                    rects = _search(chunk)
-                    if rects:
-                        break
+            rects: list = []
+            for cand in _snippet_candidates(norm):
+                rects = _search(cand)
+                if rects:
+                    break
 
             # Optional table-region expansion
             table_rects: list = []
