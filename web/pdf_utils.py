@@ -77,12 +77,117 @@ def pdf_to_markdown(pdf_bytes: bytes, max_pages: int = MAX_PAGES) -> tuple[str, 
 
 def _parse_result_json(result_text: str):
     """Strip markdown fences and parse the model's JSON output.  Returns the
-    parsed object or None if it can't be parsed."""
+    parsed object or None if it can't be parsed.
+
+    Tolerant of: code fences, preamble before the JSON, trailing text after
+    the JSON, and mid-output truncation (we close open strings/containers
+    and retry).  This lets us still surface partial evidence/data even when
+    the model gets cut off mid-output.
+    """
     text = result_text.strip()
     text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\n?```\s*$", "", text)
     try:
         return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Locate the first plausible JSON container start.
+    starts = [i for i in (text.find("{"), text.find("[")) if i != -1]
+    if not starts:
+        return None
+    candidate = text[min(starts):]
+
+    # Try shrinking from the end — strips trailing prose.
+    for end in range(len(candidate), 0, -1):
+        if candidate[end - 1] not in "}]":
+            continue
+        try:
+            return json.loads(candidate[:end])
+        except json.JSONDecodeError:
+            continue
+
+    # Truncation repair: walk forward as a tiny JSON tokenizer.  Whenever we
+    # observe a *complete value* (string, number/literal, or closed container),
+    # remember the position + open-container stack.  At the end, truncate at
+    # the last such position and append the missing closing brackets.
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    expecting_value = False  # True at top level, after `:` in obj, or `[`/`,` in arr
+    safe_cut = 0
+    safe_stack: list[str] = []
+
+    def mark_safe(pos: int) -> None:
+        nonlocal safe_cut, safe_stack
+        if stack:
+            safe_cut = pos
+            safe_stack = list(stack)
+
+    i = 0
+    n = len(candidate)
+    while i < n:
+        ch = candidate[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+                if expecting_value:
+                    mark_safe(i + 1)
+                    expecting_value = False
+            i += 1
+            continue
+        if ch in " \t\n\r":
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            i += 1
+            continue
+        if ch == "{":
+            stack.append("}")
+            expecting_value = False  # next token is a key
+            i += 1
+            continue
+        if ch == "[":
+            stack.append("]")
+            expecting_value = True
+            i += 1
+            continue
+        if ch in "}]":
+            if stack and stack[-1] == ch:
+                stack.pop()
+            mark_safe(i + 1)
+            expecting_value = False
+            i += 1
+            continue
+        if ch == ":":
+            expecting_value = True
+            i += 1
+            continue
+        if ch == ",":
+            mark_safe(i)  # safe to truncate *before* a dangling comma
+            expecting_value = stack[-1:] == ["]"]
+            i += 1
+            continue
+        # Number / true / false / null literal — consume until a structural char
+        j = i
+        while j < n and candidate[j] not in '{}[],:" \t\n\r':
+            j += 1
+        if expecting_value:
+            mark_safe(j)
+            expecting_value = False
+        i = j
+
+    if not safe_stack:
+        return None
+    repaired = candidate[:safe_cut].rstrip().rstrip(",").rstrip()
+    repaired += "".join(reversed(safe_stack))
+    try:
+        return json.loads(repaired)
     except json.JSONDecodeError:
         return None
 

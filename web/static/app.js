@@ -1733,10 +1733,11 @@ function renderEvidenceWarning(paper) {
   if (!el || !body) return;
 
   if (paper.status !== 'done') { el.style.display = 'none'; return; }
+  if (paper.evidenceWarningDismissed) { el.style.display = 'none'; return; }
 
   const total      = paper.evidenceTotal ?? 0;   // entries with a snippet
   const usable     = paper.evidenceCount ?? 0;   // entries we could highlight
-  // Highlights work — no warning needed
+  // Highlights work — no notice needed
   if (usable > 0) { el.style.display = 'none'; return; }
   // No evidence emitted at all — and the server-side recovery couldn't
   // help.  Either the prompt didn't ask, or the model stayed silent.
@@ -1744,33 +1745,35 @@ function renderEvidenceWarning(paper) {
   if (total === 0) {
     if (!promptHasSchema) {
       body.innerHTML =
-        `<strong>No evidence references were found.</strong> Your prompt does not ` +
-        `request an <code>evidence</code> array, so the model had no reason to emit one. ` +
-        `Page highlighting is unavailable.<br>` +
-        `<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="goToAdaptPrompt()">` +
-        `&#10024; Rework prompt to add evidence</button>`;
+        `Page highlights aren't available — your prompt doesn't request an ` +
+        `<code>evidence</code> array. Results are shown on the left; the PDF on ` +
+        `the right is browsable but unhighlighted. ` +
+        `<button class="btn btn-outline btn-sm" onclick="goToAdaptPrompt()">` +
+        `Add evidence to prompt</button>`;
     } else {
       body.innerHTML =
-        `<strong>The model did not return any evidence references.</strong> Your prompt ` +
-        `does ask for them — this is a model failure, not a schema problem. ` +
-        `Page highlighting is unavailable for this paper.<br>` +
-        `<button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="retryPaper('${paper.id}')">` +
+        `Page highlights aren't available for this paper — the model didn't ` +
+        `return any evidence references this run. The extracted data is shown ` +
+        `on the left; you can browse the PDF unhighlighted on the right. ` +
+        `<button class="btn btn-outline btn-sm" onclick="retryPaper('${paper.id}')">` +
         `Re-run this paper</button>`;
     }
   } else {
-    // Snippets came back but every one was missing a usable page number AND
-    // we couldn't recover them by searching the PDF text either.  Switch the
-    // user to the raw view so they can at least read the snippets manually.
     body.innerHTML =
-      `<strong>The model returned ${total} evidence snippet${total !== 1 ? 's' : ''} but no page numbers,</strong> ` +
-      `and we couldn't locate them in the PDF text either. Page highlighting is ` +
-      `disabled for this paper. The snippets are still in the raw response.<br>` +
-      `<button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="setViewMode('raw')">` +
-      `View raw response</button> ` +
-      `<button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="retryPaper('${paper.id}')">` +
-      `Re-run this paper</button>`;
+      `Page highlights aren't available — ${total} snippet${total !== 1 ? 's were' : ' was'} ` +
+      `returned without page numbers, and we couldn't locate them in the PDF text. ` +
+      `The extracted data is shown on the left; the snippets are in the raw response. ` +
+      `<button class="btn btn-outline btn-sm" onclick="setViewMode('raw')">View raw response</button> ` +
+      `<button class="btn btn-outline btn-sm" onclick="retryPaper('${paper.id}')">Re-run</button>`;
   }
   el.style.display = 'flex';
+}
+
+function dismissEvidenceWarning() {
+  const paper = getActivePaper();
+  if (paper) paper.evidenceWarningDismissed = true;
+  const el = document.getElementById('evidenceWarning');
+  if (el) el.style.display = 'none';
 }
 
 /* Jump back to the prompt-review section so the user can hit Adapt. */
@@ -2216,7 +2219,76 @@ function stripFences(text) {
 }
 
 function parseFull(text) {
-  try { return JSON.parse(stripFences(text)); } catch { return null; }
+  const cleaned = stripFences(text || '');
+  try { return JSON.parse(cleaned); } catch {}
+  return _repairTruncatedJson(cleaned);
+}
+
+/* Mirror of pdf_utils._parse_result_json's repair path: tolerates preamble,
+   trailing prose, and mid-output truncation by closing open strings/containers. */
+function _repairTruncatedJson(text) {
+  if (!text) return null;
+  const startA = text.indexOf('{');
+  const startB = text.indexOf('[');
+  const candidates = [startA, startB].filter(i => i !== -1);
+  if (!candidates.length) return null;
+  const candidate = text.slice(Math.min(...candidates));
+
+  // Try shrinking from the end — strips trailing prose.
+  for (let end = candidate.length; end > 0; end--) {
+    const c = candidate[end - 1];
+    if (c !== '}' && c !== ']') continue;
+    try { return JSON.parse(candidate.slice(0, end)); } catch {}
+  }
+
+  // Truncation repair: tokenizer-style walk.
+  const stack = [];
+  let inString = false, escape = false;
+  let expectingValue = false;
+  let safeCut = 0;
+  let safeStack = [];
+  const markSafe = (pos) => {
+    if (stack.length) { safeCut = pos; safeStack = stack.slice(); }
+  };
+
+  for (let i = 0; i < candidate.length; ) {
+    const ch = candidate[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') {
+        inString = false;
+        if (expectingValue) { markSafe(i + 1); expectingValue = false; }
+      }
+      i++; continue;
+    }
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { i++; continue; }
+    if (ch === '"') { inString = true; i++; continue; }
+    if (ch === '{') { stack.push('}'); expectingValue = false; i++; continue; }
+    if (ch === '[') { stack.push(']'); expectingValue = true;  i++; continue; }
+    if (ch === '}' || ch === ']') {
+      if (stack.length && stack[stack.length - 1] === ch) stack.pop();
+      markSafe(i + 1);
+      expectingValue = false;
+      i++; continue;
+    }
+    if (ch === ':') { expectingValue = true;  i++; continue; }
+    if (ch === ',') {
+      markSafe(i);
+      expectingValue = stack[stack.length - 1] === ']';
+      i++; continue;
+    }
+    // Number / true / false / null — consume until a structural char
+    let j = i;
+    while (j < candidate.length && !'{}[],:" \t\n\r'.includes(candidate[j])) j++;
+    if (expectingValue) { markSafe(j); expectingValue = false; }
+    i = j;
+  }
+
+  if (!safeStack.length) return null;
+  let repaired = candidate.slice(0, safeCut).replace(/[\s,]+$/, '');
+  for (let k = safeStack.length - 1; k >= 0; k--) repaired += safeStack[k];
+  try { return JSON.parse(repaired); } catch { return null; }
 }
 
 function parseEntries(text) {

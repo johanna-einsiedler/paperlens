@@ -611,9 +611,11 @@
 
       <!-- No-evidence warning — message + action are filled in by JS based on
            whether the user's prompt actually requested an evidence array. -->
-      <div class="evidence-warning" id="evidenceWarning" style="display:none">
-        <span class="evidence-warning-icon">&#9888;</span>
-        <div class="evidence-warning-body" id="evidenceWarningBody"></div>
+      <div class="evidence-notice" id="evidenceWarning" style="display:none">
+        <span class="evidence-notice-icon" aria-hidden="true">&#9432;</span>
+        <div class="evidence-notice-body" id="evidenceWarningBody"></div>
+        <button type="button" class="evidence-notice-close" aria-label="Dismiss"
+                onclick="dismissEvidenceWarning()">&times;</button>
       </div>
 
       <!-- 3-column body -->

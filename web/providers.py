@@ -162,7 +162,7 @@ def extract_with_images(
         response = client.models.generate_content(
             model=model,
             contents=parts,
-            config=types.GenerateContentConfig(temperature=0, max_output_tokens=16000),
+            config=types.GenerateContentConfig(temperature=0),
         )
         text = response.text or ""
         try:
@@ -176,7 +176,6 @@ def extract_with_images(
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": content_blocks}],
-        max_tokens=16000,
     )
     choice = response.choices[0]
     return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
@@ -221,7 +220,7 @@ def extract_with_text(
         response = client.models.generate_content(
             model=model,
             contents=full_prompt,
-            config=types.GenerateContentConfig(temperature=0, max_output_tokens=16000),
+            config=types.GenerateContentConfig(temperature=0),
         )
         text = response.text or ""
         try:
@@ -236,7 +235,6 @@ def extract_with_text(
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": full_prompt}],
-            max_tokens=16000,
         )
         choice = response.choices[0]
         return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)

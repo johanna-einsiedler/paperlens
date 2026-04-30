@@ -671,6 +671,46 @@ header p {
   padding: 1px 4px;
 }
 
+/* Softer info-style notice for the results panel — used when extraction
+   succeeded but page-highlighting couldn't be wired up. The data still
+   renders normally; this is just a quiet aside. */
+.evidence-notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #94a3b8;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.5;
+}
+.evidence-notice-icon { flex-shrink: 0; font-size: 13px; margin-top: 1px; opacity: 0.75; }
+.evidence-notice-body { flex: 1; }
+.evidence-notice-body code {
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.evidence-notice-body .btn { margin-top: 6px; }
+.evidence-notice-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0 2px;
+  margin: -2px -2px 0 4px;
+}
+.evidence-notice-close:hover { color: #475569; }
+
 /* ── Buttons ─────────────────────────────────────── */
 
 .btn-row {
