@@ -337,6 +337,37 @@ function autoSaveSession() {
   } catch (_) { /* localStorage may be disabled */ }
 }
 
+/* Self-healing for sessions corrupted by an older build that stashed
+   credentials under the wrong provider slot (e.g. a Gemini "AIza..." key
+   ended up under the openai slot when the user opened MASEMiner with a
+   prior Gemini session).  Detects keys whose shape clearly belongs to a
+   different provider and wipes the bad entry. */
+const _PROVIDER_KEY_SHAPE = {
+  google:   /^AIza[0-9A-Za-z_\-]{20,}$/,
+  openai:   /^sk-[0-9A-Za-z_\-]{20,}$/,
+  deepseek: /^sk-[0-9A-Za-z_\-]{20,}$/,
+};
+function _looksWrongForProvider(provider, apiKey) {
+  if (!apiKey || provider === 'vllm') return false;
+  // Reverse check: does the key shape match a *different* provider's pattern
+  // while clearly NOT matching this provider's pattern?
+  const ownPat = _PROVIDER_KEY_SHAPE[provider];
+  if (!ownPat || ownPat.test(apiKey)) return false;
+  for (const [other, pat] of Object.entries(_PROVIDER_KEY_SHAPE)) {
+    if (other === provider) continue;
+    if (pat.test(apiKey)) return true;
+  }
+  return false;
+}
+function _scrubProviderCredentials(creds) {
+  if (!creds || typeof creds !== 'object') return;
+  for (const [prov, slot] of Object.entries(creds)) {
+    if (slot && _looksWrongForProvider(prov, slot.apiKey)) {
+      slot.apiKey = '';
+    }
+  }
+}
+
 function autoRestoreSession() {
   try {
     const raw = localStorage.getItem(_AUTO_SAVE_KEY);
@@ -356,6 +387,11 @@ function autoRestoreSession() {
         model:   state.model   || '',
         baseUrl: state.baseUrl || '',
       };
+    }
+    // Heal wrong-provider keys left behind by an older build.
+    _scrubProviderCredentials(state.providerCredentials);
+    if (_looksWrongForProvider(state.provider, state.apiKey)) {
+      state.apiKey = '';
     }
     // Pre-fill the active provider's flat fields from the credentials map
     // (the source of truth going forward).
@@ -3450,3 +3486,52 @@ function showToast(message, kind = 'error') {
 }
 
 // Initialisation is handled by the DOMContentLoaded listener near onProviderChange.
+
+/* ──────────────────────────────────────────────────────────
+   Debug helper — invoke from the browser console as `dbgHL()`
+   to dump the highlight pipeline state for the active paper.
+
+   Reports: total highlights received from server, how many match the
+   currently-displayed page, how the active sub-view filters them, and the
+   raw highlight entries (with rects, fields, snippets) so we can see
+   exactly which evidence items the rect-locator could and couldn't place.
+────────────────────────────────────────────────────────── */
+window.dbgHL = function() {
+  const p = getActivePaper();
+  if (!p) { console.log('[dbgHL] no active paper'); return null; }
+
+  const subView = _activeSubViewFor(p);
+  const img     = document.getElementById('pageDisplayImg');
+  const pageNum = (() => {
+    // Reverse-lookup the displayed page from the img src's index in pageImages
+    if (!img || !p.pageImages) return null;
+    const i = p.pageImages.indexOf(img.src);
+    return i >= 0 ? i + 1 : null;
+  })();
+
+  const highlights = p.highlights || [];
+  const byPage = {};
+  for (const h of highlights) {
+    byPage[h.page] = byPage[h.page] || 0;
+    byPage[h.page]++;
+  }
+  const matchingPage = highlights.filter(h => h.page === pageNum);
+  const matchingPageAndSV = matchingPage.filter(h => _highlightMatchesSubView(h, subView));
+
+  console.group('[dbgHL] paper', p.filename);
+  console.log('subView          :', subView ? subView.id : '(none)');
+  console.log('current pageNum  :', pageNum);
+  console.log('paper.evidencePages:', p.evidencePages);
+  console.log('paper.pageImages : count =', p.pageImages?.length || 0);
+  console.log('paper.highlights : total =', highlights.length, 'by page =', byPage);
+  console.log('on this page     :', matchingPage.length);
+  console.log('+ sub-view filter:', matchingPageAndSV.length);
+  console.table(highlights.map(h => ({
+    page:    h.page,
+    field:   h.field,
+    rects:   (h.rects || []).length,
+    snippet: (h.snippet || '').slice(0, 60),
+  })));
+  console.groupEnd();
+  return { paper: p, highlights, byPage, pageNum, subView };
+};

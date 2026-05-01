@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 from collections import defaultdict
+
+# Set PAPERLENS_DEBUG_HL=1 to print rect-locator outcomes per snippet to
+# stdout.  Useful when the user reports "no highlights" — read the server
+# logs and see exactly which snippets failed to locate.
+_DEBUG_HL = os.environ.get("PAPERLENS_DEBUG_HL") == "1"
 
 # Pattern that recognises table identifiers such as "Table 2", "TABLE A1",
 # "Appendix Table 3", "Tabelle 4" (German), "Tableau 4" (French),
@@ -694,10 +700,19 @@ def pdf_to_pages_with_rects(
                 return rects
 
             rects: list = []
+            matched_via: str | None = None
             for cand in _snippet_candidates(norm):
                 rects = _search(cand)
                 if rects:
+                    matched_via = cand
                     break
+
+            if _DEBUG_HL:
+                tag = f"p{page_1idx} field={ev.get('field')!r}"
+                if rects:
+                    print(f"[hl] FOUND  {tag} via {matched_via[:60]!r} -> {len(rects)} rect(s)", flush=True)
+                else:
+                    print(f"[hl] MISS   {tag} snippet={norm[:80]!r}", flush=True)
 
             # Optional table-region expansion
             table_rects: list = []
@@ -705,6 +720,8 @@ def pdf_to_pages_with_rects(
                 m = _TABLE_REF_RE.search(norm)
                 if m:
                     caption = _find_table_caption(page, m.group(1))
+                    if _DEBUG_HL:
+                        print(f"[hl] table-ref t={m.group(1)!r} caption={'YES' if caption else 'no'} on p{page_1idx}", flush=True)
                     if caption:
                         expanded = _expand_to_table_region(page, [caption])
                         table_rects = expanded if expanded else [caption]
@@ -737,6 +754,13 @@ def pdf_to_pages_with_rects(
         pix       = page.get_pixmap(matrix=mat)
         img_bytes = pix.tobytes("jpeg", jpg_quality=85)
         pages.append(base64.b64encode(img_bytes).decode())
+
+    if _DEBUG_HL:
+        print(
+            f"[hl] summary: {len(evidence_items)} evidence items -> "
+            f"{len(highlights)} highlight rects, {len(pages)} pages rendered",
+            flush=True,
+        )
 
     doc.close()
     return pages, highlights
