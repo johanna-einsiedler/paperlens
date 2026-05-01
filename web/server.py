@@ -37,7 +37,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -103,12 +103,20 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", headers=_NO_CACHE_HEADERS)
 
 
-@app.get("/masemminer")
-def masemminer_landing() -> FileResponse:
-    """Dedicated entry point for MASEMminer.  Serves the same index.html;
-    the frontend detects ``window.location.pathname === '/masemminer'`` and
+@app.get("/maseminer")
+def maseminer_landing() -> FileResponse:
+    """Dedicated entry point for MASEMiner.  Serves the same index.html;
+    the frontend detects ``window.location.pathname === '/maseminer'`` and
     shows a custom hero landing instead of the generic mode cards."""
     return FileResponse(STATIC_DIR / "index.html", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/masemminer")
+def masemminer_legacy() -> RedirectResponse:
+    """Backwards-compat redirect — the canonical URL is now ``/maseminer``
+    (single ``M`` to match the brand name MASEMiner).  Permanent so any
+    bookmarked links and the old fly.io rewrites keep working."""
+    return RedirectResponse(url="/maseminer", status_code=301)
 
 
 @app.middleware("http")

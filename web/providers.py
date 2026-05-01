@@ -40,6 +40,14 @@ def extract_provider_message(exc: Exception) -> str:
     return str(exc)
 
 
+# Provider-specific base URLs for the OpenAI-compatible chat-completions
+# API.  DeepSeek and Mistral both speak the same wire format as OpenAI, so
+# we reuse the openai SDK with a custom base_url instead of pulling in
+# their official clients.
+_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+_MISTRAL_BASE_URL  = "https://api.mistral.ai/v1"
+
+
 def get_provider(model: str, base_url: str | None = None) -> str:
     """Infer the provider from the model name prefix, or 'vllm' if a custom base URL is set."""
     if base_url:
@@ -48,6 +56,10 @@ def get_provider(model: str, base_url: str | None = None) -> str:
         return "google"
     if model.startswith("deepseek"):
         return "deepseek"
+    # Mistral ships text-only ``mistral-*`` and vision-capable ``pixtral-*``
+    # models.  Both live on the same Mistral endpoint.
+    if model.startswith(("mistral", "pixtral")):
+        return "mistral"
     return "openai"
 
 
@@ -91,7 +103,16 @@ def generate_text(
         return response.text.strip()
 
     if provider == "deepseek":
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+        client = openai.OpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+        )
+        return response.choices[0].message.content.strip()
+
+    if provider == "mistral":
+        client = openai.OpenAI(api_key=api_key, base_url=_MISTRAL_BASE_URL)
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
@@ -171,6 +192,19 @@ def extract_with_images(
             finish = "stop"
         return text.strip(), finish, _gemini_usage(response)
 
+    if provider == "mistral":
+        # Mistral's Pixtral models accept the same OpenAI-style content
+        # blocks (text + image_url).  Plain ``mistral-*`` models will reject
+        # the request — the user should pick a ``pixtral-*`` model for
+        # vision, which our default model list already does.
+        client = openai.OpenAI(api_key=api_key, base_url=_MISTRAL_BASE_URL)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": content_blocks}],
+        )
+        choice = response.choices[0]
+        return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+
     # OpenAI or vLLM (OpenAI-compatible)
     client = _openai_compat_client(api_key, base_url)
     response = client.chat.completions.create(
@@ -229,6 +263,16 @@ def extract_with_text(
             finish = "stop"
         return text.strip(), finish, _gemini_usage(response)
 
+    # ── Mistral (OpenAI-compatible, 128k context — no chunking) ───────────────
+    if provider == "mistral":
+        client = openai.OpenAI(api_key=api_key, base_url=_MISTRAL_BASE_URL)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": full_prompt}],
+        )
+        choice = response.choices[0]
+        return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+
     # ── OpenAI or vLLM (OpenAI-compatible) ───────────────────────────────────
     if provider in ("openai", "vllm"):
         client = _openai_compat_client(api_key, base_url)
@@ -244,7 +288,7 @@ def extract_with_text(
 
     header = f"{prompt}{page_instruction}\n\n"
     full_text = header + markdown_text
-    client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com/v1")
+    client = openai.OpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL)
 
     if len(full_text) <= _DEEPSEEK_INPUT_CHAR_LIMIT:
         response = client.chat.completions.create(

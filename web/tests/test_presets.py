@@ -149,3 +149,11 @@ def test_masem_preset_declares_sub_views(client):
     assert "factor_correlations"  in by_id["correlations"]["include_keys"]
     assert "factor_loadings"      in by_id["descriptives"]["exclude_keys"]
     assert "factor_correlations"  in by_id["descriptives"]["exclude_keys"]
+    # Evidence-key narrowing: when on the Loadings sub-view, page-nav and
+    # rect overlays should be scoped strictly to ``factor_loadings`` (not
+    # also to ``sample_id`` / ``n``, which live in include_keys for data
+    # display only).  Same for correlations.
+    assert by_id["loadings"]["evidence_keys"]     == ["factor_loadings"]
+    assert by_id["correlations"]["evidence_keys"] == ["factor_correlations"]
+    # Descriptives doesn't need narrowing — exclude_keys already does the job.
+    assert "evidence_keys" not in by_id["descriptives"]

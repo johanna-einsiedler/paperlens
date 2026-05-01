@@ -22,6 +22,14 @@ def test_get_provider_deepseek():
     assert providers.get_provider("deepseek-chat") == "deepseek"
 
 
+def test_get_provider_mistral():
+    # Plain text + vision-capable Pixtral models both route to mistral
+    assert providers.get_provider("mistral-large-latest") == "mistral"
+    assert providers.get_provider("mistral-small-latest") == "mistral"
+    assert providers.get_provider("pixtral-large-latest") == "mistral"
+    assert providers.get_provider("pixtral-12b-2409")     == "mistral"
+
+
 def test_get_provider_vllm_when_base_url_set():
     # Any model name + base_url → vllm
     assert providers.get_provider("gpt-4o", base_url="http://localhost:8000") == "vllm"

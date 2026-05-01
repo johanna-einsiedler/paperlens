@@ -58,7 +58,11 @@ const state = {
   context: '',
   generatedPrompt: '',
   inputMode: 'generate',
-  useTextExtraction: false,
+  // Default extraction mode is text-layer parsing (faster, cheaper, supports
+  // highlighting).  Vision is only used as a fallback when the upfront PDF
+  // probe reports no usable text layer (or when the user explicitly picks
+  // it via the parsing-method radio).
+  useTextExtraction: true,
   notifyEmail: '',        // optional — server emails when the batch finishes
   batchId: null,          // shared id for all papers in one upload
   selectedFiles: [],
@@ -83,21 +87,31 @@ const state = {
     }
 */
 
-// Models that support image input (vision). DeepSeek is text-only.
+// Models grouped per provider.  First option is the dropdown default and is
+// chosen to be a sensible text-mode LLM — vision-capable models are listed
+// after, tagged "(vision)" so the choice is explicit.  Recommendation
+// labels were removed because they pushed an opinion that often didn't
+// match the active extraction mode.
 const PROVIDER_MODELS = {
   openai:   [
-    { value: 'gpt-4o',       label: 'GPT-4o — recommended' },
-    { value: 'gpt-4o-mini',  label: 'GPT-4o Mini — faster & cheaper' },
+    { value: 'gpt-4o-mini',  label: 'GPT-4o Mini' },
+    { value: 'gpt-4o',       label: 'GPT-4o' },
     { value: 'gpt-4-turbo',  label: 'GPT-4 Turbo' },
   ],
   google:   [
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — recommended' },
-    { value: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro — most capable' },
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro' },
     { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   ],
+  mistral:  [
+    { value: 'mistral-large-latest', label: 'Mistral Large' },
+    { value: 'mistral-small-latest', label: 'Mistral Small' },
+    { value: 'pixtral-large-latest', label: 'Pixtral Large (vision)' },
+    { value: 'pixtral-12b-2409',     label: 'Pixtral 12B (vision)' },
+  ],
   deepseek: [
-    { value: 'deepseek-chat',     label: 'DeepSeek Chat — text extraction' },
-    { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (R1) — text extraction' },
+    { value: 'deepseek-chat',     label: 'DeepSeek Chat' },
+    { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (R1)' },
   ],
   vllm: [], // model name is entered as free text
 };
@@ -105,6 +119,7 @@ const PROVIDER_MODELS = {
 const PROVIDER_KEY_PLACEHOLDER = {
   openai:   'sk-...',
   google:   'AIza...',
+  mistral:  'your Mistral API key',
   deepseek: 'sk-...',
   vllm:     'any string (or leave blank if auth is disabled)',
 };
@@ -112,6 +127,7 @@ const PROVIDER_KEY_PLACEHOLDER = {
 const PROVIDER_KEY_LABEL = {
   openai:   'OpenAI API key',
   google:   'Google Gemini API key',
+  mistral:  'Mistral API key',
   deepseek: 'DeepSeek API key',
   vllm:     'API key',
 };
@@ -120,12 +136,19 @@ function getProvider(model) {
   if (state.provider === 'vllm')    return 'vllm';
   if (model.startsWith('gemini'))   return 'google';
   if (model.startsWith('deepseek')) return 'deepseek';
+  if (model.startsWith('mistral') || model.startsWith('pixtral')) return 'mistral';
   return 'openai';
 }
 
-// Returns true for vision-based models, false for text-only (DeepSeek).
-// vLLM models default to vision — user can toggle to text extraction if their model doesn't support it.
-function isVisionModel(model) { return getProvider(model) !== 'deepseek'; }
+// Returns true for vision-based models.  Text-only: DeepSeek and the plain
+// ``mistral-*`` family.  ``pixtral-*`` models on Mistral support vision.
+// vLLM models default to vision — user can toggle to text extraction if
+// their hosted model doesn't support image input.
+function isVisionModel(model) {
+  if (model.startsWith('deepseek')) return false;
+  if (model.startsWith('mistral'))  return false;   // pixtral-* still passes
+  return true;
+}
 
 /* ──────────────────────────────────────────────────────────
    Navigation (one-pager accordion + separate results view)
@@ -223,7 +246,7 @@ function updateSectionStatuses(step) {
       : state.loadedFromFile        ? 'Review existing results'
       : '',
     2: state.model
-      ? `${({openai:'OpenAI', google:'Gemini', deepseek:'DeepSeek', vllm:'Custom'}[state.provider] || state.provider)} · ${state.model}`
+      ? `${({openai:'OpenAI', google:'Gemini', mistral:'Mistral', deepseek:'DeepSeek', vllm:'Custom'}[state.provider] || state.provider)} · ${state.model}`
       : '',
     3: state.generatedPrompt
       ? (state.inputMode === 'manual' ? 'Custom prompt' : 'Prompt generated')
@@ -351,6 +374,10 @@ const _PROVIDER_KEY_SHAPE = {
   google:   /^AIza[0-9A-Za-z_\-]{20,}$/,
   openai:   /^sk-[0-9A-Za-z_\-]{20,}$/,
   deepseek: /^sk-[0-9A-Za-z_\-]{20,}$/,
+  // Mistral keys are short opaque strings (no fixed prefix) — they don't
+  // look like any other provider's pattern, so we leave them out of the
+  // shape table.  _looksWrongForProvider returns false when the active
+  // provider has no shape entry, which is exactly what we want for Mistral.
 };
 function _looksWrongForProvider(provider, apiKey) {
   if (!apiKey || provider === 'vllm') return false;
@@ -440,7 +467,7 @@ document.addEventListener('DOMContentLoaded', () => {
   autoRestoreSession();
   refreshPastBatches();
   loadServerConfig();
-  // /masemminer path → hero landing; ?preset=<id> → auto-apply; else inline list
+  // /maseminer path → hero landing; ?preset=<id> → auto-apply; else inline list
   applyPathOrQueryPreset();
 
   // First-time visitor: auto-open the "How does this work?" panel so the
@@ -745,13 +772,14 @@ function confirmPrompt() {
   } else {
     note.style.display = 'none';
   }
-  // Show parsing method toggle only for vision models (DeepSeek always uses text extraction)
+  // Show parsing method toggle only for vision-capable models (DeepSeek
+  // always uses the text path).  Default is now text — vision kicks in
+  // automatically per-paper when the upfront probe says the PDF is scanned.
   const parsingGroup = document.getElementById('parsingMethodGroup');
   if (parsingGroup) {
     parsingGroup.style.display = isVisionModel(state.model) ? '' : 'none';
-    // Reset to vision (default) when switching models
-    const visionRadio = parsingGroup.querySelector('input[value="vision"]');
-    if (visionRadio) { visionRadio.checked = true; state.useTextExtraction = false; }
+    const textRadio = parsingGroup.querySelector('input[value="text"]');
+    if (textRadio) { textRadio.checked = true; state.useTextExtraction = true; }
   }
   goTo(6);
 }
@@ -907,10 +935,12 @@ function _renderProbeBadge(file) {
   return `<span class="probe-badge probe-mixed" title="${scanned} of ${total} pages have no text layer — those pages won't get highlights">Mixed (${scanned}/${total} scanned)</span>`;
 }
 
-/* Top-of-list summary banner.  Shown when at least one selected file is
-   image-only OR when the user has picked a text-only model (DeepSeek) and
-   any selected file is scanned (in which case extraction itself will fail
-   on those pages, not just highlighting). */
+/* Top-of-list summary banner.  Default extraction mode is text — for any
+   selected PDF that's scanned (no text layer), processPaper auto-falls
+   back to vision for THAT file.  This banner explains the routing so users
+   know what to expect (especially: no rect highlights for scanned PDFs).
+   When the user has picked DeepSeek (text-only with no vision fallback)
+   it becomes a hard warning instead. */
 function renderScannedBatchWarning() {
   const el = document.getElementById('scannedBatchWarning');
   if (!el) return;
@@ -919,23 +949,23 @@ function renderScannedBatchWarning() {
                                  && (f.probe.scanned_pages || []).length > 0);
   if (scanned.length === 0) { el.style.display = 'none'; return; }
 
-  const fullScans = scanned.filter(f => (f.probe.scanned_pages || []).length === f.probe.total_pages);
-  const provider  = state.provider;
-  const textOnly  = provider === 'deepseek' || state.useTextExtraction;
+  const fullScans       = scanned.filter(f => (f.probe.scanned_pages || []).length === f.probe.total_pages);
+  const providerHasVis  = state.provider !== 'deepseek';
 
   let msg;
-  if (textOnly && fullScans.length > 0) {
-    msg = `<strong>Text-extraction can't read ${fullScans.length} of ${scanned.length} ` +
-          `selected PDF${scanned.length !== 1 ? 's' : ''}.</strong> They appear to be ` +
-          `scans (no text layer). Switch to a vision model (e.g. GPT-4o or Gemini) ` +
-          `to extract from these — they'll work fine, but page highlights won't be available.`;
+  if (!providerHasVis && fullScans.length > 0) {
+    // DeepSeek + scanned = extraction will return nothing.  Hard block.
+    msg = `<strong>DeepSeek can't read ${fullScans.length} of ${scanned.length} ` +
+          `selected PDF${scanned.length !== 1 ? 's' : ''}</strong> — they're scans ` +
+          `with no text layer, and DeepSeek is text-only. Switch to a vision-capable ` +
+          `model (e.g. GPT-4o or Gemini) to process them.`;
     el.classList.remove('warning-soft');
     el.classList.add('warning-hard');
   } else {
     msg = `<strong>${scanned.length} of ${files.length} selected PDF${files.length !== 1 ? 's are' : ' is'} ` +
-          `scanned</strong> (image-only). The vision model can still read ` +
-          `${scanned.length === 1 ? 'it' : 'them'}, but rect-based page highlights ` +
-          `won't be drawn for the scanned pages.`;
+          `scanned</strong> (no text layer). ${scanned.length === 1 ? 'It' : 'They'} will ` +
+          `automatically use vision-mode extraction instead of text parsing — slower and ` +
+          `more expensive, and page highlights won't be drawn for ${scanned.length === 1 ? 'it' : 'these files'}.`;
     el.classList.remove('warning-hard');
     el.classList.add('warning-soft');
   }
@@ -955,6 +985,10 @@ const _MODEL_RATES = {
   'gemini-2.0-flash':    {in: 0.075, out: 0.30},
   'deepseek-chat':       {in: 0.27,  out: 1.10},
   'deepseek-reasoner':   {in: 0.55,  out: 2.19},
+  'pixtral-large-latest':{in: 2.00,  out: 6.00},
+  'pixtral-12b-2409':    {in: 0.15,  out: 0.15},
+  'mistral-large-latest':{in: 2.00,  out: 6.00},
+  'mistral-small-latest':{in: 0.20,  out: 0.60},
 };
 
 /* Rough tokens-per-page when the PDF is sent as page images.  OpenAI's
@@ -1131,45 +1165,95 @@ async function submitUpload() {
     return;
   }
 
-  try {
-    // crypto.randomUUID is only available in secure contexts (HTTPS or localhost).
-    // Fall back to a manual UUID v4 if the browser doesn't expose it.
-    const uuid = () => (crypto && crypto.randomUUID
-      ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = (Math.random() * 16) | 0;
-          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-        }));
+  // crypto.randomUUID is only available in secure contexts (HTTPS or localhost).
+  // Fall back to a manual UUID v4 if the browser doesn't expose it.
+  const uuid = () => (crypto && crypto.randomUUID
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      }));
 
-    // One batch id shared by every paper in this upload — server uses it to
-    // group jobs, fire the completion email once, and surface the History view.
+  try {
+    // Incremental upload: when the user has already processed some papers
+    // in this session and adds more files, keep the existing papers' state
+    // (results, edits, page images) and only run the freshly-added ones.
+    // We index existing papers by filename+size so re-adding the *same*
+    // file doesn't double-process it.
+    const existingByKey = new Map();
+    for (const p of state.papers || []) {
+      // Match what the file probe used so the keys agree.
+      const sf = (state.selectedFiles || []).find(f => f.name === p.filename);
+      if (sf) existingByKey.set(p.filename + sf.size, p);
+    }
+
+    const newPapers = [];
+    const toProcess = [];
+    for (const f of state.selectedFiles) {
+      const key = f.name + f.size;
+      const existing = existingByKey.get(key);
+      if (existing && (existing.status === 'done' || existing.status === 'processing')) {
+        // Keep its result/edits as-is.
+        newPapers.push(existing);
+        continue;
+      }
+      // First-time file (or previous run errored / was pending) — make a
+      // fresh paper object and queue it for processing.
+      const paper = {
+        id: uuid(),
+        blob: f.blob,
+        filename: f.name,
+        // Carry the upfront PDF probe so processPaper can auto-fall back to
+        // vision when the text layer is unusable.
+        probe: f.probe || null,
+        status: 'pending',
+        phase: null,
+        result: '',
+        rawResponse: null,
+        jobId: null,
+        pageImages: [],
+        pageImagesFetched: false,
+        entries: null,
+        entryIndex: 0,
+        evidencePages: [],
+        evidencePageIdx: 0,
+        evidenceCount: null,
+        tokenUsage: null,
+        pagesProcessed: 0,
+        error: null,
+        overrides: {},
+        viewMode: 'parsed',     // 'parsed' = formatted editable view; 'raw' = model JSON
+        browseAllPagesIdx: 0,   // when there's no evidence, used to flip through every captured page
+      };
+      newPapers.push(paper);
+      toProcess.push(paper);
+    }
+
+    if (toProcess.length === 0) {
+      // Nothing new to do.  Jump straight to the results view so the user
+      // can review their existing papers without a noop "extract" click.
+      state.papers = newPapers;
+      state.activePaperId = state.papers[0]?.id || null;
+      renderPaperSidebar();
+      if (state.activePaperId) displayPaper(state.papers[0]);
+      goTo(8);
+      return;
+    }
+
+    // Only allocate a fresh batch id when there's actual new work — that
+    // way the new papers form their own batch (separate completion email,
+    // separate History row) and don't piggy-back onto the previous run.
     state.batchId    = uuid();
     state.notifyEmail = '';   // captured later via the in-loading-screen prompt
 
-    state.papers = state.selectedFiles.map(f => ({
-      id: uuid(),
-      blob: f.blob,
-      filename: f.name,
-      status: 'pending',
-      phase: null,
-      result: '',
-      rawResponse: null,
-      jobId: null,
-      pageImages: [],
-      pageImagesFetched: false,
-      entries: null,
-      entryIndex: 0,
-      evidencePages: [],
-      evidencePageIdx: 0,
-      evidenceCount: null,
-      tokenUsage: null,
-      pagesProcessed: 0,
-      error: null,
-      overrides: {},
-      viewMode: 'parsed',     // 'parsed' = formatted editable view; 'raw' = model JSON
-      browseAllPagesIdx: 0,   // when there's no evidence, used to flip through every captured page
-    }));
-    state.activePaperId = null;
+    state.papers = newPapers;
+    // Incremental run: keep the user on step 8 viewing whatever they had
+    // open; new papers stream into the sidebar as they finish.  First-time
+    // run: clear active id so the first completion takes focus.
+    const incremental = existingByKey.size > 0
+                     && newPapers.some(p => p.status === 'done');
+    if (!incremental) state.activePaperId = null;
+    state._incrementalRun = incremental;
   } catch (err) {
     console.error('[submitUpload] failed to build papers queue:', err);
     showToast('Could not start extraction: ' + err.message);
@@ -1202,11 +1286,15 @@ function sleepWithCountdown(ms, onTick) {
 }
 
 async function processQueue() {
-  // Show loading screen for the batch
-  const n = state.papers.length;
-  document.getElementById('loadingTitle').textContent   = 'Extracting data\u2026';
-  document.getElementById('extractingNote').textContent =
-    `Submitting ${n} paper${n > 1 ? 's' : ''} for processing\u2026`;
+  const incremental = state._incrementalRun === true;
+  state._incrementalRun = false;
+
+  if (!incremental) {
+    const n = state.papers.length;
+    document.getElementById('loadingTitle').textContent   = 'Extracting data\u2026';
+    document.getElementById('extractingNote').textContent =
+      `Submitting ${n} paper${n > 1 ? 's' : ''} for processing\u2026`;
+  }
 
   // Reset the inline email prompt to its default form state for this batch
   const emailWrap   = document.getElementById('emailPrompt');
@@ -1218,12 +1306,20 @@ async function processQueue() {
   if (emailForm)   emailForm.style.display   = '';
   if (emailInput)  emailInput.value          = '';
   // Surface 'Taking a long time?' after ~8s so it isn't in the user's face
-  // when the batch is short.
-  const emailPromptTimer = setTimeout(() => {
+  // when the batch is short.  Skipped for incremental runs (we stay on the
+  // results view, not the loading screen, so the prompt has nowhere to go).
+  const emailPromptTimer = incremental ? null : setTimeout(() => {
     if (emailWrap && state.step === 7) emailWrap.style.display = 'block';
   }, 8000);
 
-  goTo(7);
+  if (incremental) {
+    // Stay on the results view; sidebar already shows the new papers as
+    // 'pending' and will animate them through 'processing' \u2192 'done'.
+    goTo(8);
+    renderPaperSidebar();
+  } else {
+    goTo(7);
+  }
 
   // Submit all jobs in parallel (server runs them concurrently via asyncio).
   await Promise.all(state.papers.map(p =>
@@ -1285,11 +1381,23 @@ async function processPaper(paper) {
   paper.status = 'processing';
   renderPaperSidebar();
 
+  // Per-paper routing.  Default is text (set globally), but if the upfront
+  // probe says this PDF has no usable text layer we force vision — text
+  // extraction would just return an empty document.  The user's explicit
+  // pick (state.useTextExtraction = false via the radio) still wins, since
+  // they may have a reason to use vision on a text-readable PDF.
+  let useText = state.useTextExtraction;
+  if (useText && paper.probe && !paper.probe.error
+      && paper.probe.text_layer_present === false) {
+    useText = false;
+    paper.autoVisionFallback = true;   // surfaced in the UI as a small note
+  }
+
   const form = new FormData();
   form.append('api_key',             state.apiKey);
   form.append('model',               state.model);
   form.append('prompt',              state.generatedPrompt);
-  form.append('use_text_extraction', state.useTextExtraction ? '1' : '0');
+  form.append('use_text_extraction', useText ? '1' : '0');
   if (state.baseUrl) form.append('base_url', state.baseUrl);
   if (state.batchId) form.append('batch_id', state.batchId);
   // Email is collected after submission via /api/batches/<id>/email — see submitBatchEmail()
@@ -1495,10 +1603,18 @@ function _fieldSegments(field) {
   return field.split('.').map(seg => seg.replace(/\[\d+\]$/, ''));
 }
 
-/* Match an evidence entry's `field` path against the sub-view's keys. */
+/* Match an evidence entry's `field` path against the sub-view's keys.
+   Sub-views can declare an optional ``evidence_keys`` array — if present,
+   it overrides ``include_keys`` for evidence/highlight matching only.
+   This lets the data column include context fields like ``sample_id`` /
+   ``n`` while the page-nav and overlay rects stay scoped strictly to the
+   sub-view's primary domain (e.g. only ``factor_loadings``). */
 function _evidenceMatchesSubView(field, subView) {
   if (!subView || !field) return true;
   const segs = _fieldSegments(field);
+  if (Array.isArray(subView.evidence_keys)) {
+    return subView.evidence_keys.some(k => segs.includes(k));
+  }
   if (Array.isArray(subView.include_keys)) {
     return subView.include_keys.some(k => segs.includes(k));
   }
@@ -1588,7 +1704,16 @@ async function applyPreset(presetId) {
   // Banner — visible while preset is active
   const banner = document.getElementById('presetBanner');
   if (banner) {
-    document.getElementById('presetBannerTitle').textContent   = preset.title;
+    // MASEMiner uses a two-tone "MASE / Miner" wordmark.  Other presets
+    // fall back to plain text so they don't pick up the navy/teal styling.
+    const titleEl = document.getElementById('presetBannerTitle');
+    if (preset.id === 'masem') {
+      titleEl.innerHTML = '<span class="brand-mase">MASE</span><span class="brand-miner">Miner</span>';
+      titleEl.classList.add('masem-wordmark');
+    } else {
+      titleEl.textContent = preset.title;
+      titleEl.classList.remove('masem-wordmark');
+    }
     document.getElementById('presetBannerTagline').textContent = preset.tagline || '';
     banner.style.display = 'flex';
   }
@@ -1645,7 +1770,7 @@ async function applyPreset(presetId) {
     if (manEl)    manEl.style.display    = '';
   }
 
-  // Land on the configured step.  For MASEMminer we go to step 2 (setup);
+  // Land on the configured step.  For MASEMiner we go to step 2 (setup);
   // submitStep2 then skips section 3 (describe) and jumps to section 4
   // (review prompt) since the prompt is already loaded.
   const SKIP = { upload: 6, prompt: 5, question: 3, setup: 2, task: 1 };
@@ -1654,7 +1779,7 @@ async function applyPreset(presetId) {
   return true;
 }
 
-/* Used by the /masemminer hero "Get started" button — applies the preset,
+/* Used by the /maseminer hero "Get started" button — applies the preset,
    hides the landing, shows the configuration accordion, lands on step 2. */
 async function startPresetFromLanding(presetId) {
   const landing  = document.getElementById('masemLanding');
@@ -1713,12 +1838,15 @@ async function renderInlineWorkflows() {
 }
 
 /* On page load:
-   1. If pathname is /masemminer (or similar), show the dedicated hero landing.
+   1. If pathname is /maseminer (or similar), show the dedicated hero landing.
    2. Otherwise, if ?preset=<id> is in the query string, auto-apply that preset
       (legacy / direct-link entry).
    3. Otherwise, populate the inline workflows section so users can pick one. */
 const _PRESET_PATHS = {
-  '/masemminer': 'masem',
+  // Canonical URL (single "M") plus the legacy double-"m" alias for any
+  // bookmarks that pre-date the brand spelling change.
+  '/maseminer':  'masem',
+  '/maseminer': 'masem',
   // Add new dedicated path → preset mappings here as more workflows are added.
 };
 
@@ -2007,6 +2135,15 @@ function displayPaper(paper) {
   renderEvidenceWarning(paper);
   renderTokenFooter(paper);
 
+  // Show the "Re-run" header button whenever this paper isn't currently
+  // being processed.  Hidden during 'pending' / 'processing' to avoid
+  // letting the user fire a second job on top of the first.
+  const rerunBtn = document.getElementById('rerunActiveBtn');
+  if (rerunBtn) {
+    rerunBtn.style.display = (paper.status === 'done' || paper.status === 'error')
+      ? '' : 'none';
+  }
+
   const nav     = document.getElementById('entryNav');
   const display = document.getElementById('resultDisplay');
 
@@ -2124,12 +2261,48 @@ function _buildManualScaffold(activePreset) {
 function retryPaper(id) {
   const paper = state.papers.find(p => p.id === id);
   if (!paper) return;
-  paper.status            = 'pending';
-  paper.error             = null;
-  paper.jobId             = null;
-  paper.pageImagesFetched = false;
+  // Clear all previous-run state so the UI doesn't show stale data while
+  // the new run is in flight, and so the second result fully overwrites
+  // the first instead of mixing with it.
+  paper.status              = 'pending';
+  paper.phase               = null;
+  paper.error               = null;
+  paper.jobId               = null;
+  paper.result              = '';
+  paper.entries             = null;
+  paper.entryIndex          = 0;
+  paper.parsed              = null;
+  paper.pageImages          = [];
+  paper.pageImagesFetched   = false;
+  paper.highlights          = [];
+  paper.scannedPages        = [];
+  paper.evidencePages       = [];
+  paper.evidencePageIdx     = 0;
+  paper.evidenceCount       = null;
+  paper.evidenceTotal       = null;
+  paper.tokenUsage          = null;
+  paper.pagesProcessed      = 0;
+  paper.overrides           = {};
+  paper.manualMode          = false;
+  paper.manualEntries       = null;
+  paper.evidenceWarningDismissed = false;
+  paper.autoVisionFallback  = false;
   renderPaperSidebar();
+  if (state.activePaperId === paper.id) displayPaper(paper);
   processPaper(paper);
+}
+
+/* "Re-run" button on the results header — re-extracts the currently-active
+   paper, replacing its previous result.  Confirms before discarding edits
+   the user has already made (overrides), since those will be lost. */
+function rerunActivePaper() {
+  const p = getActivePaper();
+  if (!p) return;
+  const hasEdits = p.overrides && Object.keys(p.overrides).length > 0;
+  if (hasEdits && !confirm(
+    'Re-run this paper? Your manual edits to the previous result will be discarded.'
+  )) return;
+  retryPaper(p.id);
 }
 
 function renderEntry(paper) {
@@ -2153,15 +2326,20 @@ function renderEntry(paper) {
     }
   }
   if (tabs) {
-    if (total > 1) {
-      tabs.style.display = 'flex';
-      tabs.innerHTML = paper.entries.map((_, i) =>
-        `<button class="entry-tab ${i === paper.entryIndex ? 'active' : ''}" onclick="jumpToEntry(${i})" title="Entry ${i + 1}">${i + 1}</button>`
-      ).join('');
-    } else {
-      tabs.style.display = 'none';
-      tabs.innerHTML = '';
-    }
+    // Always show the tabs strip when at least one entry exists, so the
+    // "+ Add sample" / "Remove" controls are reachable even with a single
+    // entry (e.g. just-filled-in manual mode).
+    tabs.style.display = total >= 1 ? 'flex' : 'none';
+    const tabBtns = paper.entries.map((_, i) =>
+      `<button class="entry-tab ${i === paper.entryIndex ? 'active' : ''}" onclick="jumpToEntry(${i})" title="Entry ${i + 1}">${i + 1}</button>`
+    ).join('');
+    const addBtn = `<button class="entry-tab entry-tab-add" title="Add a new sample"
+                            onclick="addEntryToPaper('${paper.id}')">+</button>`;
+    const delBtn = total > 1
+      ? `<button class="entry-tab entry-tab-del" title="Delete this sample"
+                onclick="removeActiveEntry('${paper.id}')">&minus;</button>`
+      : '';
+    tabs.innerHTML = tabBtns + addBtn + delBtn;
   }
 
   // Reflect the current view-mode in the toggle buttons
@@ -2210,6 +2388,75 @@ function renderEntry(paper) {
   // through the whole document via the always-visible nav.
   const initialPage = paper.evidencePages[0] ?? (paper.pageImages.length ? 1 : null);
   showPageImage(paper, initialPage);
+}
+
+/* Append a new empty sample to the paper.  For preset workflows the
+   scaffold is shape-aware (e.g. MASEM gets the full schema); for generic
+   extractions we just push a copy of the first entry's keys with cleared
+   values so the user has familiar fields to fill in. */
+function addEntryToPaper(paperId) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper) return;
+  paper.entries = paper.entries || [];
+  let scaffold;
+  if (state.activePreset) {
+    scaffold = _buildManualScaffold(state.activePreset)[0] || {};
+  } else if (paper.entries.length > 0) {
+    scaffold = _emptyLikeEntry(paper.entries[0]);
+  } else {
+    scaffold = {};
+  }
+  paper.entries.push(scaffold);
+  paper.entryIndex = paper.entries.length - 1;
+  if (state.activePaperId === paper.id) renderEntry(paper);
+  renderPaperSidebar();
+}
+
+/* Build an empty-keyed copy of an existing entry so a freshly-added sample
+   has the same field shape (cleared to nulls / empty strings).  Recurses
+   into nested dicts; arrays become empty arrays. */
+function _emptyLikeEntry(entry) {
+  if (entry === null || entry === undefined) return null;
+  if (Array.isArray(entry))                  return [];
+  if (typeof entry !== 'object')             return null;
+  const out = {};
+  for (const [k, v] of Object.entries(entry)) {
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      // Nested dict — preserve key shape but clear values
+      const inner = {};
+      for (const k2 of Object.keys(v)) inner[k2] = null;
+      out[k] = inner;
+    } else if (Array.isArray(v)) {
+      out[k] = [];
+    } else if (typeof v === 'string') {
+      out[k] = '';
+    } else {
+      out[k] = null;
+    }
+  }
+  return out;
+}
+
+/* Remove the currently-displayed sample and shift focus to a neighbour. */
+function removeActiveEntry(paperId) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper || !paper.entries || paper.entries.length <= 1) return;
+  const idx = paper.entryIndex;
+  if (!confirm(`Delete sample ${idx + 1}? Its values will be removed.`)) return;
+  paper.entries.splice(idx, 1);
+  // Drop overrides for the deleted entry; renumber the rest.
+  const ovIn  = paper.overrides || {};
+  const ovOut = {};
+  for (const [k, v] of Object.entries(ovIn)) {
+    const i = parseInt(k, 10);
+    if (i === idx)         continue;
+    if (i > idx)            ovOut[i - 1] = v;
+    else                    ovOut[i]     = v;
+  }
+  paper.overrides   = ovOut;
+  paper.entryIndex  = Math.min(idx, paper.entries.length - 1);
+  if (state.activePaperId === paper.id) renderEntry(paper);
+  renderPaperSidebar();
 }
 
 function jumpToEntry(i) {
@@ -2286,12 +2533,16 @@ function showPageImage(paper, pageNum) {
 
 /* Returns true if this evidence entry should be drawn given the active
    sub-view filter.  Evidence with no field info (recovered orphans) is
-   shown only in the default (no-sub-view) overlay. */
+   shown only in the default (no-sub-view) overlay.  Honours
+   ``evidence_keys`` first when set (see _evidenceMatchesSubView). */
 function _highlightMatchesSubView(highlight, subView) {
   if (!subView) return true;
   const field = highlight.field || '';
   if (!field) return false;
   const segs = _fieldSegments(field);
+  if (Array.isArray(subView.evidence_keys)) {
+    return subView.evidence_keys.some(k => segs.includes(k));
+  }
   if (Array.isArray(subView.include_keys)) {
     return subView.include_keys.some(k => segs.includes(k));
   }
@@ -2703,6 +2954,118 @@ function isDottedNumericTable(obj) {
   return groups.size >= 2 && items.size >= 2;
 }
 
+/* Resolve an entry-relative path like ``factor_loadings`` or
+   ``samples[0].factor_loadings`` to the live nested object inside
+   ``entry``.  Returns null when any segment is missing. */
+function _resolveEntryPath(entry, path) {
+  if (!path) return entry;
+  const tokens = path.match(/[^.\[\]]+|\[\d+\]/g) || [];
+  let cur = entry;
+  for (const t of tokens) {
+    if (cur == null || typeof cur !== 'object') return null;
+    if (t.startsWith('[')) cur = cur[parseInt(t.slice(1, -1), 10)];
+    else                   cur = cur[t];
+  }
+  return cur ?? null;
+}
+
+/* Compute the next group label for an "add column" action.  Looks at the
+   numeric suffix on the existing group prefixes and increments.  E.g.
+   ``["F1","F2","F3"]`` → ``"F4"``; ``["R1","R2"]`` → ``"R3"``.  Falls back
+   to ``"F1"`` when there are no existing groups. */
+function _nextDottedGroup(groups) {
+  if (!groups.length) return 'F1';
+  const last = groups[groups.length - 1];
+  const m = last.match(/^([A-Za-z]+)(\d+)$/);
+  if (!m) return last + '_new';
+  const prefix = m[1];
+  let maxN = 0;
+  for (const g of groups) {
+    const mm = g.match(/^([A-Za-z]+)(\d+)$/);
+    if (mm && mm[1] === prefix) maxN = Math.max(maxN, parseInt(mm[2], 10));
+  }
+  return prefix + (maxN + 1);
+}
+
+/* Mutators for the dotted-table renderer.  Each operates on the live
+   entry's dict (no copy), then re-renders.  Confirms before destructive
+   actions to avoid accidental clicks. */
+function addDottedColumn(paperId, tablePath) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper) return;
+  const obj = _resolveEntryPath(paper.entries[paper.entryIndex], tablePath);
+  if (!obj || typeof obj !== 'object') return;
+  const groups = [], items = new Set(), seen = new Set();
+  for (const k of Object.keys(obj)) {
+    const m = k.match(_DOTTED_KEY_RE);
+    if (!m) continue;
+    if (!seen.has(m[1])) { seen.add(m[1]); groups.push(m[1]); }
+    items.add(parseInt(m[2], 10));
+  }
+  const newGroup = _nextDottedGroup(groups);
+  const itemList = items.size ? [...items].sort((a, b) => a - b) : [1];
+  for (const it of itemList) obj[`${newGroup}.${it}`] = null;
+  if (state.activePaperId === paper.id) renderEntry(paper);
+}
+
+function removeDottedColumn(paperId, tablePath, group) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper) return;
+  if (!confirm(`Delete column ${group}? All values in that column will be removed.`)) return;
+  const obj = _resolveEntryPath(paper.entries[paper.entryIndex], tablePath);
+  if (!obj || typeof obj !== 'object') return;
+  for (const k of Object.keys(obj)) {
+    const m = k.match(_DOTTED_KEY_RE);
+    if (m && m[1] === group) delete obj[k];
+  }
+  // Sweep stale overrides for the deleted cells so they don't leak into export.
+  const ov = paper.overrides[paper.entryIndex] || {};
+  for (const p of Object.keys(ov)) {
+    const tail = tablePath ? p.slice(tablePath.length + 1) : p;
+    const m = tail.match(_DOTTED_KEY_RE);
+    if (m && m[1] === group) delete ov[p];
+  }
+  if (state.activePaperId === paper.id) renderEntry(paper);
+}
+
+function addDottedRow(paperId, tablePath) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper) return;
+  const obj = _resolveEntryPath(paper.entries[paper.entryIndex], tablePath);
+  if (!obj || typeof obj !== 'object') return;
+  const groups = [], items = new Set(), seen = new Set();
+  for (const k of Object.keys(obj)) {
+    const m = k.match(_DOTTED_KEY_RE);
+    if (!m) continue;
+    if (!seen.has(m[1])) { seen.add(m[1]); groups.push(m[1]); }
+    items.add(parseInt(m[2], 10));
+  }
+  const sortedItems = [...items].sort((a, b) => a - b);
+  const newItem = (sortedItems.length ? sortedItems[sortedItems.length - 1] : 0) + 1;
+  const groupList = groups.length ? groups : ['F1'];
+  for (const g of groupList) obj[`${g}.${newItem}`] = null;
+  if (state.activePaperId === paper.id) renderEntry(paper);
+}
+
+function removeDottedRow(paperId, tablePath, item) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper) return;
+  if (!confirm(`Delete row ${item}? All values in that row will be removed.`)) return;
+  const obj = _resolveEntryPath(paper.entries[paper.entryIndex], tablePath);
+  if (!obj || typeof obj !== 'object') return;
+  for (const k of Object.keys(obj)) {
+    const m = k.match(_DOTTED_KEY_RE);
+    if (m && parseInt(m[2], 10) === item) delete obj[k];
+  }
+  const ov = paper.overrides[paper.entryIndex] || {};
+  for (const p of Object.keys(ov)) {
+    const tail = tablePath ? p.slice(tablePath.length + 1) : p;
+    const m = tail.match(_DOTTED_KEY_RE);
+    if (m && parseInt(m[2], 10) === item) delete ov[p];
+  }
+  if (state.activePaperId === paper.id) renderEntry(paper);
+}
+
 function renderDottedTable(obj, path) {
   // Preserve insertion order for groups, numeric sort for items
   const groupOrder = [];
@@ -2716,27 +3079,55 @@ function renderDottedTable(obj, path) {
   }
   const items = [...itemSet].sort((a, b) => a - b);
 
+  const escPath = escHtml(path || '');
+  const paperId = escHtml(state.activePaperId || '');
+
   const head = `<thead><tr>
     <th class="rv-tbl-rowlabel">Item</th>
-    ${groupOrder.map(g => `<th>${escHtml(g)}</th>`).join('')}
+    ${groupOrder.map(g => `<th>
+      <div class="rv-tbl-coltitle">
+        <span>${escHtml(g)}</span>
+        <button class="rv-tbl-del" title="Delete column ${escHtml(g)}"
+                onclick="removeDottedColumn('${paperId}', '${escPath}', '${escHtml(g)}')">&times;</button>
+      </div>
+    </th>`).join('')}
+    <th class="rv-tbl-addcol">
+      <button class="rv-tbl-add-btn" title="Add column"
+              onclick="addDottedColumn('${paperId}', '${escPath}')">+</button>
+    </th>
   </tr></thead>`;
 
   const body = items.map(item => {
-    const labelCell = `<td class="rv-tbl-rowlabel">${item}</td>`;
+    const labelCell = `<td class="rv-tbl-rowlabel">
+      <div class="rv-tbl-rowlabel-inner">
+        <span>${item}</span>
+        <button class="rv-tbl-del" title="Delete row ${item}"
+                onclick="removeDottedRow('${paperId}', '${escPath}', ${item})">&times;</button>
+      </div>
+    </td>`;
     const cells = groupOrder.map(g => {
       const key      = `${g}.${item}`;
       const val      = obj[key];
       const cellPath = path ? `${path}.${key}` : key;
       return `<td>${_renderCellHtml(val === undefined ? null : val, cellPath)}</td>`;
     }).join('');
-    return `<tr>${labelCell}${cells}</tr>`;
+    return `<tr>${labelCell}${cells}<td class="rv-tbl-addcol-cell"></td></tr>`;
   }).join('');
+
+  const addRowFooter = `<tr class="rv-tbl-addrow">
+    <td class="rv-tbl-rowlabel">
+      <button class="rv-tbl-add-btn" title="Add row"
+              onclick="addDottedRow('${paperId}', '${escPath}')">+</button>
+    </td>
+    ${groupOrder.map(() => `<td></td>`).join('')}
+    <td></td>
+  </tr>`;
 
   const caption = `<span class="rv-table-caption-icon">▦</span> Table · ${items.length} rows × ${groupOrder.length + 1} cols `
                 + `<span class="rv-table-source rv-table-source-auto" data-tip="Auto-detected from dotted F1.1-style keys. Update your prompt to use the _table marker for explicit tables.">auto-detected</span>`;
   return `<div class="rv-table-wrap">
     <div class="rv-table-caption">${caption}</div>
-    <table class="rv-table">${head}<tbody>${body}</tbody></table>
+    <table class="rv-table">${head}<tbody>${body}${addRowFooter}</tbody></table>
   </div>`;
 }
 
@@ -3117,6 +3508,12 @@ function initResultDisplay() {
   // Capture edits on blur
   display.addEventListener('blur', handleFieldEdit, true);
 
+  // Click / focus on any value cell jumps the PDF panel to the page where
+  // the model cited evidence for that field.  Falls back to the closest
+  // parent path when the leaf doesn't have its own evidence entry.
+  display.addEventListener('focusin', handleCellEvidenceJump);
+  display.addEventListener('click',   handleCellEvidenceJump);
+
   // Prevent Enter from inserting <br>/<div>; treat it as commit
   display.addEventListener('keydown', e => {
     if (!e.target.classList.contains('rv-editable')) return;
@@ -3130,6 +3527,102 @@ function initResultDisplay() {
     const text = (e.clipboardData || window.clipboardData).getData('text/plain');
     document.execCommand('insertText', false, text);
   });
+}
+
+/* Look up the page where the model cited evidence for a given JSON-path
+   and navigate the right-hand PDF panel there.  Match priority:
+     1. Exact ``field`` match (e.g. clicking ``samples[0].factor_loadings.F1.1``
+        and there's an evidence entry with that exact field)
+     2. Longest-prefix parent match (clicking the leaf falls back to the
+        table caption evidence at ``samples[0].factor_loadings``)
+     3. Sample-level fallback (any evidence under ``samples[i]``) so a
+        click on ``samples[0].sex`` lands on Table 1's page even when the
+        model didn't tag the leaf.
+   When nothing maps to a usable page, the click is a no-op and the
+   currently-displayed page stays put. */
+function handleCellEvidenceJump(event) {
+  const el = event.target;
+  if (!el || !el.classList || !el.classList.contains('rv-editable')) return;
+  const path = el.dataset.path;
+  if (!path) return;
+  const paper = getActivePaper();
+  if (!paper || !paper.pageImages || !paper.pageImages.length) return;
+
+  const page = _evidencePageForPath(paper, path);
+  if (!page) return;
+  // Skip the work (and the zoom reset inside showPageImage) when we're
+  // already on the right page — clicking different cells on the same page
+  // shouldn't keep collapsing the user's zoom.
+  const img = document.getElementById('pageDisplayImg');
+  const currentSrc = img && img.src;
+  const targetSrc  = paper.pageImages[page - 1];
+  if (currentSrc === targetSrc) return;
+
+  showPageImage(paper, page);
+  // Keep the page-evidence counter in sync if the resolved page is one of
+  // the navigator's stops (purely cosmetic — overlay update was already
+  // handled by showPageImage).
+  if (Array.isArray(paper.evidencePages)) {
+    const idx = paper.evidencePages.indexOf(page);
+    if (idx >= 0) {
+      paper.evidencePageIdx = idx;
+      updatePageNav(paper);
+    }
+  }
+}
+
+/* Pick the most specific evidence entry whose ``field`` either equals or
+   is an ancestor of ``path``, and return its 1-indexed page number.
+
+   The rendered cell's ``data-path`` is relative to the active entry
+   (e.g. ``factor_loadings.F1.1``).  Evidence fields, however, are emitted
+   by the model relative to the full parsed object
+   (``samples[0].factor_loadings.F1.1``).  We construct both candidate
+   forms and match against either, so the lookup works regardless of
+   whether the entries array was unwrapped from ``samples[]`` or sits at
+   the top level. */
+function _evidencePageForPath(paper, path) {
+  const evidence = (paper.parsed && Array.isArray(paper.parsed.evidence))
+    ? paper.parsed.evidence : [];
+  if (!evidence.length || !path) return null;
+
+  const idx = (paper.entryIndex == null) ? 0 : paper.entryIndex;
+  const fullPath = `samples[${idx}].${path}`;
+  const candidates = [path, fullPath];
+
+  // Pass 1: exact match against either candidate form.
+  for (const e of evidence) {
+    if (!e || !e.field) continue;
+    if (candidates.includes(e.field)) {
+      const p = toPageNum(e.page);
+      if (p) return p;
+    }
+  }
+  // Pass 2: longest-prefix match — leaf cells fall back to their table /
+  // section caption (e.g. F1.1 → factor_loadings caption).
+  let bestPage = null, bestLen = -1;
+  for (const e of evidence) {
+    if (!e || !e.field) continue;
+    for (const cand of candidates) {
+      if (cand === e.field || cand.startsWith(e.field + '.')) {
+        const p = toPageNum(e.page);
+        if (p && e.field.length > bestLen) { bestPage = p; bestLen = e.field.length; }
+      }
+    }
+  }
+  if (bestPage) return bestPage;
+  // Pass 3: any evidence under the same ``samples[i]`` parent so a click
+  // on a leaf the model never explicitly cited still lands somewhere
+  // sensible (typically Table 1 / the Methods page).
+  const samplePrefix = `samples[${idx}]`;
+  for (const e of evidence) {
+    if (!e || !e.field) continue;
+    if (e.field.startsWith(samplePrefix)) {
+      const p = toPageNum(e.page);
+      if (p) return p;
+    }
+  }
+  return null;
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -3572,7 +4065,7 @@ function startOver() {
     mode: null, provider: 'openai', model: 'gpt-4o', apiKey: '', baseUrl: '',
     providerCredentials: {},
     question: '', context: '', inputMode: 'generate',
-    generatedPrompt: '', useTextExtraction: false,
+    generatedPrompt: '', useTextExtraction: true,
     notifyEmail: '', batchId: null,
     selectedFiles: [], papers: [],
     activePaperId: null, loadedFromFile: false, setupReturnStep: null,

@@ -1168,6 +1168,12 @@ header p {
   background: var(--primary);
   flex-shrink: 0;
 }
+.preset-banner-mark {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
 .preset-banner-label {
   flex: 1;
   white-space: nowrap;
@@ -1207,14 +1213,14 @@ header p {
 }
 .link-btn:hover { color: var(--primary-dark); }
 
-/* ── /masemminer hero landing ───────────────────────────────────────────── */
+/* ── /maseminer hero landing ───────────────────────────────────────────── */
 
 .preset-landing {
   margin-top: 8px;
 }
 
 .preset-hero {
-  border-top: 4px solid #7c3aed;
+  border-top: 4px solid var(--primary);
 }
 
 .preset-hero-eyebrow {
@@ -1222,13 +1228,38 @@ header p {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #7c3aed;
+  color: var(--primary);
   margin-bottom: 8px;
+  text-align: center;
+}
+.preset-hero-tagline {
+  text-align: center;
 }
 
+/* Stacked brand logo: visual mark above the two-tone wordmark, treated
+   as one unit (no separate text headline). */
+.preset-hero-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+.preset-hero-mark {
+  flex-shrink: 0;
+  width: 120px;
+  height: 120px;
+}
+
+/* Two-tone "MASE/Miner" wordmark — ``MASE`` in dark navy, ``Miner`` in
+   teal, matching the SVG mark above. */
+.masem-wordmark .brand-mase  { color: #1d4a8c; font-weight: 800; letter-spacing: 0.01em; }
+.masem-wordmark .brand-miner { color: #5cb8c8; font-weight: 600; }
+.preset-hero-logo .preset-hero-title { margin: 0; line-height: 1; }
 .preset-hero-title {
   font-size: 32px;
-  margin-bottom: 6px;
+  margin: 0;
+  letter-spacing: -0.01em;
 }
 
 .preset-hero-tagline {
@@ -2173,6 +2204,16 @@ body.wide-mode .app {
 }
 .entry-tab:hover  { background: var(--bg); color: var(--text); }
 .entry-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* "+" / "−" controls next to the numbered tabs for adding / removing samples */
+.entry-tab-add, .entry-tab-del {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 10px;
+  color: var(--text-muted);
+  border-style: dashed;
+}
+.entry-tab-add:hover { color: #16a34a; border-color: #86efac; background: #f0fdf4; }
+.entry-tab-del:hover { color: #dc2626; border-color: #fca5a5; background: #fef2f2; }
 
 /* Parsed / Raw toggle */
 .view-toggle {
@@ -2789,6 +2830,64 @@ kbd {
   background: var(--bg);
   white-space: nowrap;
 }
+
+/* Inline ✕ button on each column header / row label and the "+ col" / "+ row"
+   add buttons.  Subtle by default; hover state in red (delete) or green (add).
+   IMPORTANT: ``display: flex`` MUST live on inner div, NOT the ``<th>``/``<td>``
+   itself — applying flex to a table cell drops it out of the table layout
+   and collapses every header into a single column. */
+.rv-tbl-coltitle,
+.rv-tbl-rowlabel-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: space-between;
+}
+.rv-tbl-del {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.rv-tbl-del:hover { color: #dc2626; background: #fef2f2; border-color: #fca5a5; }
+.rv-tbl-addcol,
+.rv-tbl-addrow .rv-tbl-rowlabel,
+.rv-tbl-add-btn {
+  text-align: center;
+}
+.rv-tbl-add-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.rv-tbl-add-btn:hover { color: #16a34a; background: #f0fdf4; border-color: #86efac; }
+.rv-tbl-addcol-cell { background: transparent; }
+.rv-tbl-addrow td   { background: transparent; border-bottom: none; }
 
 .rv-table td .rv-num,
 .rv-table td .rv-str,

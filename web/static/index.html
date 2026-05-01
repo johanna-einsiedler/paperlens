@@ -14,9 +14,45 @@
     <p id="appTagline">AI-powered data extraction and labeling for academic papers</p>
   </header>
 
+  <!-- Reusable MASEMiner mark.  References this with <use href="#masemMark"/>
+       in the hero, the banner, and anywhere else the brand mark is needed.
+       Blocky 5×5 "M" letterform + a detached teal square, evoking the act
+       of "mining" structured data out of the matrix. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="masemMark" viewBox="0 0 64 64">
+      <!-- Dark-navy blocky M.  Square = 7×7, gap = 1px, 5 cols × 5 rows.
+           Filled cells: outer pillars (col 0 + col 4) on every row, plus
+           inner shoulders (col 1, col 3 row 1) and the centre peak
+           (col 2 row 2). -->
+      <g fill="#1d4a8c">
+        <!-- Left pillar -->
+        <rect x="6"  y="13" width="7" height="7" rx="1"/>
+        <rect x="6"  y="21" width="7" height="7" rx="1"/>
+        <rect x="6"  y="29" width="7" height="7" rx="1"/>
+        <rect x="6"  y="37" width="7" height="7" rx="1"/>
+        <rect x="6"  y="45" width="7" height="7" rx="1"/>
+        <!-- Right pillar -->
+        <rect x="38" y="13" width="7" height="7" rx="1"/>
+        <rect x="38" y="21" width="7" height="7" rx="1"/>
+        <rect x="38" y="29" width="7" height="7" rx="1"/>
+        <rect x="38" y="37" width="7" height="7" rx="1"/>
+        <rect x="38" y="45" width="7" height="7" rx="1"/>
+        <!-- Inner M slope -->
+        <rect x="14" y="21" width="7" height="7" rx="1"/>
+        <rect x="30" y="21" width="7" height="7" rx="1"/>
+        <rect x="22" y="29" width="7" height="7" rx="1"/>
+      </g>
+      <!-- Dotted connector from the M to the extracted teal square -->
+      <line x1="46" y1="14" x2="52" y2="9.5"
+            stroke="#1d4a8c" stroke-width="1" stroke-dasharray="1.5 2" stroke-linecap="round"/>
+      <!-- Teal "extracted" tile, detached at the upper-right corner -->
+      <rect x="51" y="3" width="10" height="10" rx="1.5" fill="#5cb8c8"/>
+    </symbol>
+  </svg>
+
   <!-- Preset banner — visible only when a domain workflow (e.g. MASEMiner) is active -->
   <div class="preset-banner" id="presetBanner" style="display:none">
-    <span class="preset-banner-dot"></span>
+    <svg class="preset-banner-mark" width="20" height="20" aria-hidden="true"><use href="#masemMark"/></svg>
     <span class="preset-banner-label">
       <strong id="presetBannerTitle"></strong>&nbsp;mode &middot;
       <span id="presetBannerTagline"></span>
@@ -24,19 +60,27 @@
     <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to generic">Switch to generic</button>
   </div>
 
-  <!-- Preset-specific landing pages (e.g. /masemminer).  JS shows exactly
+  <!-- Preset-specific landing pages (e.g. /maseminer).  JS shows exactly
        one of these on page load based on window.location.pathname. -->
   <div class="preset-landing" id="masemLanding" style="display:none">
     <div class="card preset-hero">
       <div class="preset-hero-eyebrow">Pre-built workflow</div>
-      <h2 class="preset-hero-title">MASEMminer</h2>
+      <!-- Brand logo: visual mark above the two-tone wordmark, treated as
+           one unit (no separate text headline beside it). -->
+      <div class="preset-hero-logo" role="img" aria-label="MASEMiner">
+        <svg class="preset-hero-mark" width="120" height="120" aria-hidden="true"><use href="#masemMark"/></svg>
+        <h2 class="preset-hero-title masem-wordmark">
+          <span class="brand-mase">MASE</span><span class="brand-miner">Miner</span>
+        </h2>
+      </div>
       <p class="preset-hero-tagline">
-        Extract factor loadings, correlation matrices, and study metadata for
-        Meta-Analytic Structural Equation Modeling — with human-in-the-loop review.
+        Extract factor loadings, inter-factor correlations, and study metadata
+        from primary studies for Meta-Analytic Structural Equation Modeling
+        — with human-in-the-loop review.
       </p>
       <div class="preset-hero-body">
         <p>
-          MASEMminer is a tailored entry point into the PaperLens engine. It loads a vetted
+          MASEMiner is a tailored entry point into the PaperLens engine. It loads a vetted
           extraction prompt for psychometric / factor-analytic studies, so you don't have to
           design one yourself. Every result is shown alongside the source PDF with yellow
           highlights on the cited passages, and every value is editable so you can correct
@@ -108,8 +152,7 @@
         </div>
 
         <div class="option-grid">
-          <button class="option-card option-card-recommended" onclick="selectMode('extraction')">
-            <span class="option-recommended-badge">Most common</span>
+          <button class="option-card" onclick="selectMode('extraction')">
             <div class="option-icon">📊</div>
             <h3>Extract data from a paper</h3>
             <p>Pull structured information, statistics, or specific values from academic papers into a defined format</p>
@@ -242,6 +285,7 @@
         <select id="providerSelect" onchange="onProviderChange()">
           <option value="openai">OpenAI</option>
           <option value="google">Google Gemini</option>
+          <option value="mistral">Mistral</option>
           <option value="deepseek">DeepSeek</option>
           <option value="vllm">Custom (vLLM / OpenAI-compatible)</option>
         </select>
@@ -532,17 +576,21 @@
 
       <p class="upload-note" id="visionNote"></p>
 
-      <!-- Parsing method toggle — shown for vision models only -->
+      <!-- Parsing method toggle — shown for vision-capable models only.
+           Default is text extraction (faster, cheaper, supports rect-based
+           page highlighting).  When the upfront PDF probe reports a scanned
+           paper we automatically fall back to vision for THAT paper, even
+           if "text" is selected here. -->
       <div class="parse-method-group" id="parsingMethodGroup" style="display:none">
         <label class="parse-method-label">Parsing method</label>
         <div class="parse-method-row">
           <label class="parse-method-opt">
-            <input type="radio" name="parseMethod" value="vision" checked onchange="onParseMethodChange(this)" />
-            <span><strong>Vision</strong> &mdash; page images sent to AI <span class="parse-method-default">(default)</span></span>
+            <input type="radio" name="parseMethod" value="text" checked onchange="onParseMethodChange(this)" />
+            <span><strong>Text extraction</strong> &mdash; PDF text layer parsed as markdown <span class="parse-method-default">(default; auto-falls back to vision for scanned PDFs)</span></span>
           </label>
           <label class="parse-method-opt">
-            <input type="radio" name="parseMethod" value="text" onchange="onParseMethodChange(this)" />
-            <span><strong>Text extraction</strong> &mdash; PDF text layer parsed as markdown (faster; native PDFs only)</span>
+            <input type="radio" name="parseMethod" value="vision" onchange="onParseMethodChange(this)" />
+            <span><strong>Vision</strong> &mdash; page images sent to AI (slower, but works on any PDF)</span>
           </label>
         </div>
       </div>
@@ -599,6 +647,14 @@
             </div>
           </div>
 
+          <!-- Re-run THIS paper.  Wipes the previous result and reprocesses
+               using the current prompt + provider config.  Always available
+               for done/error states; hidden while a job is in flight. -->
+          <button class="btn btn-outline btn-sm" id="rerunActiveBtn" onclick="rerunActivePaper()" style="display:none"
+                  title="Re-extract this paper. The previous result will be replaced.">
+            &#8635; Re-run
+          </button>
+
           <!-- Retry-all-failed button — only visible when there are errored papers -->
           <button class="btn btn-outline btn-sm" id="retryAllBtn" onclick="retryAllFailed()" style="display:none">
             Retry&nbsp;failed&nbsp;<span id="retryAllCount"></span>
@@ -610,7 +666,7 @@
       </div>
 
       <!-- Edit hint -->
-      <div class="edit-hint">Click any extracted value to edit it &mdash; changes are tracked and included in the downloaded JSON.</div>
+      <div class="edit-hint">Click any extracted value to edit it &mdash; the PDF on the right jumps to the evidence page automatically. Changes are tracked and included in the downloaded JSON.</div>
 
       <!-- No-evidence warning — message + action are filled in by JS based on
            whether the user's prompt actually requested an evidence array. -->

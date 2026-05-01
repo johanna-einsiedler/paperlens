@@ -1,8 +1,8 @@
 {
   "id":                "masem",
   "title":             "MASEMiner",
-  "tagline":           "Extract TAS-20 factor loadings, inter-factor correlations, and coded study metadata for Meta-Analytic Structural Equation Modeling",
-  "description":       "Tailored workflow for MASEM extraction from TAS-20 (Toronto Alexithymia Scale, 20-item) studies. Pre-loaded with a vetted, multi-prompt-derived extraction template that produces, for every reported sample: (a) item-level standardised factor loadings F1.1–F5.20, (b) inter-factor correlations R1.2–R4.5 (10 unique pairs), and (c) study + sample metadata coded to a fixed scheme (pubtype, clinical, cfa, met, rot as integers; country / lang / age / sex / n) suitable for downstream meta-analytic database use.",
+  "tagline":           "Extract factor loadings, inter-factor correlations, and study metadata from primary studies for Meta-Analytic Structural Equation Modeling",
+  "description":       "Tailored workflow for Meta-Analytic Structural Equation Modeling (MASEM) extraction from primary psychometric / factor-analytic studies. Pre-loaded with a vetted extraction template that produces, for every reported sample: (a) item-level standardised factor loadings, (b) inter-factor correlations, and (c) coded study + sample metadata (publication year, country, language, sample size, age, % female, clinical status, analysis & estimation method) suitable for downstream meta-analytic databases.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
@@ -10,17 +10,19 @@
   "context":           "Papers report TAS-20 psychometric / factor-analytic studies. Standard three-factor structure: F1 = DIF, F2 = DDF, F3 = EOT. Output uses flat dotted keys (F1.1, R1.2) so the viewer auto-renders them as tables. Coded metadata fields use the fixed integer schemes specified in the prompt (e.g. cfa: 0=EFA, 1=CFA; rot: 1=orthogonal, 2=oblique).",
   "prompt_file":       "masem.prompt.md",
   "skip_to":           "setup",
-  "accent_color":      "#7c3aed",
+  "accent_color":      "#1d4a8c",
   "sub_views": [
     {
-      "id":           "loadings",
-      "label":        "Factor loadings",
-      "include_keys": ["sample_id", "n", "factor_loadings"]
+      "id":            "loadings",
+      "label":         "Factor loadings",
+      "include_keys":  ["sample_id", "n", "factor_loadings"],
+      "evidence_keys": ["factor_loadings"]
     },
     {
-      "id":           "correlations",
-      "label":        "Factor correlations",
-      "include_keys": ["sample_id", "n", "factor_correlations"]
+      "id":            "correlations",
+      "label":         "Factor correlations",
+      "include_keys":  ["sample_id", "n", "factor_correlations"],
+      "evidence_keys": ["factor_correlations"]
     },
     {
       "id":           "descriptives",
