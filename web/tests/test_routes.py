@@ -199,6 +199,45 @@ def test_extract_rejects_non_pdf(client):
     assert r.status_code == 400
 
 
+def test_check_pdf_classifies_text_pdf(client):
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text(
+        (50, 50),
+        "This page has plenty of text in its layer to clear the 50-character "
+        "threshold for scanned-page detection. N = 147 undergraduate students.",
+        fontsize=10,
+    )
+    pdf = doc.tobytes()
+    doc.close()
+    r = client.post("/api/check-pdf", files={"pdf": ("x.pdf", pdf, "application/pdf")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["text_layer_present"] is True
+    assert body["total_pages"] == 1
+    assert body["total_text_chars"] > 0
+    assert body["scanned_pages"] == []
+
+
+def test_check_pdf_classifies_image_only_pdf(client):
+    import fitz
+    doc = fitz.open()
+    doc.new_page()                # blank page → no text layer
+    pdf = doc.tobytes()
+    doc.close()
+    r = client.post("/api/check-pdf", files={"pdf": ("scan.pdf", pdf, "application/pdf")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["text_layer_present"] is False
+    assert body["scanned_pages"] == [1]
+
+
+def test_check_pdf_rejects_non_pdf(client):
+    r = client.post("/api/check-pdf", files={"pdf": ("notes.txt", b"hi", "text/plain")})
+    assert r.status_code == 400
+
+
 def test_extract_returns_job_id_then_polls_to_done(client):
     """Submit → poll until status flips.  We mock the LLM call so the job
     completes near-instantly; the test then asserts the polling endpoint

@@ -316,7 +316,12 @@ function onProviderChange() {
   const conn = document.getElementById('connStatus');
   if (conn) conn.style.display = 'none';
 
-  // 5. Persist if we actually swapped providers
+  // 5. Re-evaluate the scanned-batch warning — the new provider may be
+  //    text-only (DeepSeek), which turns a soft "scans won't get highlights"
+  //    notice into a hard "extraction itself will fail" warning.
+  if (typeof renderScannedBatchWarning === 'function') renderScannedBatchWarning();
+
+  // 6. Persist if we actually swapped providers
   if (oldProvider && oldProvider !== provider) autoSaveSession();
 }
 
@@ -802,15 +807,43 @@ async function addFiles(files) {
     // Read into an ArrayBuffer immediately so the data is captured regardless
     // of what happens to the input element or file reference later.
     const buffer = await file.arrayBuffer();
-    state.selectedFiles.push({
+    const entry  = {
       name: file.name,
       size: file.size,
       buffer,                                // stable copy of the bytes
       blob: new Blob([buffer], { type: 'application/pdf' }),
-    });
+      probe: null,                           // filled in by _probePdf below
+      probing: true,
+    };
+    state.selectedFiles.push(entry);
     existing.add(key);
+    // Fire and forget: kick off the upfront text-layer probe.  Doesn't block
+    // adding more files; the per-file badge updates as results come in.
+    _probePdf(entry);
   }
   renderFileList();
+}
+
+/* Send the file's bytes to /api/check-pdf so we can tell the user upfront
+   whether the PDF is text-readable or scanned/image-only.  Result is stored
+   on the file entry so the badge in the upload list and the warning before
+   extraction both see it. */
+async function _probePdf(entry) {
+  try {
+    const fd = new FormData();
+    fd.append('pdf', entry.blob, entry.name);
+    const res = await fetchScoped('/api/check-pdf', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    entry.probe = await res.json();
+  } catch (err) {
+    // Probe is a hint, not a hard requirement — fall back to "unknown" and
+    // let extraction proceed.  Vision-mode extraction works regardless.
+    entry.probe = { error: String(err && err.message || err) };
+  } finally {
+    entry.probing = false;
+    renderFileList();
+    renderScannedBatchWarning();
+  }
 }
 
 function removeFile(index) {
@@ -846,6 +879,7 @@ function renderFileList() {
       <div class="file-list-item">
         <span class="file-icon">📄</span>
         <span class="file-name">${escHtml(f.name)}</span>
+        ${_renderProbeBadge(f)}
         <span class="file-size">${formatBytes(f.size)}</span>
         <button class="file-remove" onclick="removeFile(${i})" title="Remove">✕</button>
       </div>
@@ -853,6 +887,60 @@ function renderFileList() {
 
   renderCostEstimate();
   renderSizeWarning();
+  renderScannedBatchWarning();
+}
+
+/* Compact per-file badge:
+     · "Probing…"   while the upfront /api/check-pdf call is in flight
+     · "Text PDF"   green, when the PDF has a usable text layer
+     · "Scanned — vision only" amber, when image-only (no rect highlights)
+     · "Mixed"      when some pages are scanned and some aren't
+*/
+function _renderProbeBadge(file) {
+  if (file.probing)                  return '<span class="probe-badge probe-loading">Probing…</span>';
+  const p = file.probe;
+  if (!p || p.error)                 return '<span class="probe-badge probe-unknown" title="Could not inspect this PDF — vision extraction will still work">Unknown</span>';
+  const total   = p.total_pages   || 0;
+  const scanned = (p.scanned_pages || []).length;
+  if (scanned === 0)                 return '<span class="probe-badge probe-text" title="Has a machine-readable text layer">Text PDF</span>';
+  if (scanned === total)             return '<span class="probe-badge probe-scanned" title="Image-only PDF — vision extraction will still work, but page highlights cannot be drawn">Scanned · vision only</span>';
+  return `<span class="probe-badge probe-mixed" title="${scanned} of ${total} pages have no text layer — those pages won't get highlights">Mixed (${scanned}/${total} scanned)</span>`;
+}
+
+/* Top-of-list summary banner.  Shown when at least one selected file is
+   image-only OR when the user has picked a text-only model (DeepSeek) and
+   any selected file is scanned (in which case extraction itself will fail
+   on those pages, not just highlighting). */
+function renderScannedBatchWarning() {
+  const el = document.getElementById('scannedBatchWarning');
+  if (!el) return;
+  const files = state.selectedFiles || [];
+  const scanned = files.filter(f => f.probe && !f.probe.error
+                                 && (f.probe.scanned_pages || []).length > 0);
+  if (scanned.length === 0) { el.style.display = 'none'; return; }
+
+  const fullScans = scanned.filter(f => (f.probe.scanned_pages || []).length === f.probe.total_pages);
+  const provider  = state.provider;
+  const textOnly  = provider === 'deepseek' || state.useTextExtraction;
+
+  let msg;
+  if (textOnly && fullScans.length > 0) {
+    msg = `<strong>Text-extraction can't read ${fullScans.length} of ${scanned.length} ` +
+          `selected PDF${scanned.length !== 1 ? 's' : ''}.</strong> They appear to be ` +
+          `scans (no text layer). Switch to a vision model (e.g. GPT-4o or Gemini) ` +
+          `to extract from these — they'll work fine, but page highlights won't be available.`;
+    el.classList.remove('warning-soft');
+    el.classList.add('warning-hard');
+  } else {
+    msg = `<strong>${scanned.length} of ${files.length} selected PDF${files.length !== 1 ? 's are' : ' is'} ` +
+          `scanned</strong> (image-only). The vision model can still read ` +
+          `${scanned.length === 1 ? 'it' : 'them'}, but rect-based page highlights ` +
+          `won't be drawn for the scanned pages.`;
+    el.classList.remove('warning-hard');
+    el.classList.add('warning-soft');
+  }
+  el.innerHTML = `<span class="probe-warning-icon">&#9432;</span><div>${msg}</div>`;
+  el.style.display = 'flex';
 }
 
 /* ── Cost estimator ─────────────────────────────────────────────────────────
@@ -1311,8 +1399,9 @@ async function ensurePageImagesLoaded(paper) {
     const res  = await fetchScoped(`/api/jobs/${paper.jobId}/pages`);
     if (!res.ok) return;
     const data = await res.json();
-    paper.pageImages = data.page_images || [];
-    paper.highlights = data.highlights || [];   // [{page, snippet, field, source, rects}]
+    paper.pageImages   = data.page_images   || [];
+    paper.highlights   = data.highlights    || [];   // [{page, snippet, field, source, rects}]
+    paper.scannedPages = data.scanned_pages || [];   // 1-indexed pages with no usable text layer
     if (state.activePaperId === paper.id) {
       if (paper.entries && paper.entries.length > 0) renderEntry(paper);
       else showPageImage(paper, 1);
@@ -1950,16 +2039,86 @@ function displayPaper(paper) {
     nav.style.display = 'flex';
     renderEntry(paper);
   } else {
-    // Fallback: render raw text as a single formatted block
+    // Extraction couldn't be parsed into structured entries.  Surface the
+    // raw model response, warn the user, and let them either ignore the
+    // paper or fill the values in manually using a schema-aware scaffold.
     nav.style.display = 'none';
-    let parsed = null;
-    try { parsed = JSON.parse(paper.result); } catch {}
-    display.innerHTML =
-      parsed ? renderValueHtml(parsed) : `<pre class="raw-text">${escHtml(stripFences(paper.result))}</pre>`;
+    const hasContent = (paper.result || '').trim().length > 0;
+    if (hasContent) {
+      const presetLabel = state.activePreset?.title || 'paper';
+      display.innerHTML = `
+        <div class="extraction-failed-panel">
+          <div class="extraction-failed-warn">
+            <strong>We couldn't parse this response into structured entries.</strong>
+            The model returned text but it didn't match the expected ${escHtml(presetLabel)} schema.
+            You can fill in the values manually below — the raw response is shown for reference,
+            and the right-hand panel lets you flip through every page of the PDF.
+          </div>
+          <div class="extraction-failed-actions">
+            <button class="btn btn-primary" onclick="enterManualMode('${paper.id}')">
+              Fill in manually
+            </button>
+            <button class="btn btn-outline" onclick="retryPaper('${paper.id}')">
+              Re-run extraction
+            </button>
+          </div>
+          <details class="extraction-raw-details">
+            <summary>View raw model response</summary>
+            <pre class="raw-text">${escHtml(stripFences(paper.result))}</pre>
+          </details>
+        </div>`;
+    } else {
+      display.innerHTML = '<p class="rv-null">No data returned.</p>';
+    }
+    // Browse-all-pages mode kicks in automatically because evidencePages is empty.
+    paper.evidencePages = [];
+    paper.browseAllPagesIdx = 0;
+    updatePageNav(paper);
     showPageImage(paper, 1);
   }
 
   renderPaperSidebar();
+}
+
+/* Mark a paper as user-filled.  Builds an empty-but-typed scaffold (so the
+   existing renderEntry + override pipeline can edit it) and switches the
+   results panel into edit mode.  The original LLM response is preserved on
+   ``paper.result`` and exported alongside the human-entered data. */
+function enterManualMode(paperId) {
+  const paper = state.papers.find(p => p.id === paperId);
+  if (!paper) return;
+  paper.manualMode    = true;
+  paper.manualEntries = _buildManualScaffold(state.activePreset);
+  paper.entries       = paper.manualEntries;
+  paper.entryIndex    = 0;
+  paper.overrides     = {};   // start clean — every cell is the user's input
+  paper.evidencePages = [];   // forces browse-all-pages on the right
+  if (state.activePaperId === paper.id) renderEntry(paper);
+  renderPaperSidebar();
+}
+
+/* Empty-but-typed entry scaffold so the user can fill in values manually.
+   For the MASEM preset the shape matches the extraction schema exactly so
+   downstream tooling sees a familiar structure even when the LLM failed. */
+function _buildManualScaffold(activePreset) {
+  if (activePreset?.id === 'masem') {
+    const factor_loadings = {};
+    for (let f = 1; f <= 5; f++) {
+      for (let i = 1; i <= 20; i++) factor_loadings[`F${f}.${i}`] = null;
+    }
+    const factor_correlations = {};
+    for (let i = 1; i <= 4; i++) {
+      for (let j = i + 1; j <= 5; j++) factor_correlations[`R${i}.${j}`] = null;
+    }
+    return [{
+      sample_id: '', factor_loadings, factor_correlations,
+      pubyear: null, country: '', continent: '', lang: '', pubtype: null,
+      n: null, sex: null, age: null, clinical: null, res: null,
+      nfac: null, cfa: null, met: null, rot: null, notes: '',
+    }];
+  }
+  // Generic: a single empty entry — user can edit existing keys freely.
+  return [{}];
 }
 
 function retryPaper(id) {
@@ -2113,6 +2272,16 @@ function showPageImage(paper, pageNum) {
 
   // Render SVG highlight overlay for the displayed page (filtered by sub-view).
   renderHighlightOverlay(paper, displayedPage);
+
+  // If this page has no text layer, show an inline notice — the overlay
+  // can't draw rects against an image-only PDF.
+  const notice = document.getElementById('scannedPageNotice');
+  if (notice) {
+    const isScanned = displayedPage != null
+      && Array.isArray(paper.scannedPages)
+      && paper.scannedPages.includes(displayedPage);
+    notice.style.display = isScanned ? 'flex' : 'none';
+  }
 }
 
 /* Returns true if this evidence entry should be drawn given the active
@@ -2975,13 +3144,43 @@ function copyResult() {
 function downloadResult() {
   const p = getActivePaper();
   if (!p) return;
-  const blob = new Blob([p.result], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = p.filename.replace(/\.pdf$/i, '') + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
+  // When the user filled in values manually OR when we want to capture the
+  // evidence/extraction-failed flags, the bare LLM response isn't enough —
+  // wrap the export in a small envelope that preserves both the raw model
+  // output AND the post-edit/manual data.
+  const evidence = (p.evidenceTotal || 0) > 0;
+  const failed   = p.manualMode === true;
+  const payload = {
+    filename:           p.filename,
+    extraction_failed:  failed,
+    evidence_present:   evidence,
+    pages_processed:    p.pagesProcessed,
+    token_usage:        p.tokenUsage || null,
+    entries:            p.entries || null,
+    human_overrides:    _overrideList(p),
+    llm_raw_response:   p.result || '',
+  };
+  _downloadBlob(JSON.stringify(payload, null, 2),
+                p.filename.replace(/\.pdf$/i, '') + '.json',
+                'application/json');
+}
+
+/* Flatten paper.overrides ({entryIdx: {path: {original_value, final_value}}})
+   into a flat list suitable for JSON export. */
+function _overrideList(paper) {
+  const out = [];
+  for (const [entryIdx, fields] of Object.entries(paper.overrides || {})) {
+    for (const [fieldPath, ov] of Object.entries(fields)) {
+      out.push({
+        entry_index:    parseInt(entryIdx, 10),
+        field_path:     fieldPath,
+        original_value: ov.original_value,
+        final_value:    ov.final_value,
+        human_override: ov.human_override,
+      });
+    }
+  }
+  return out;
 }
 
 /* ── CSV export ─────────────────────────────────────────────────────────── */
@@ -3030,17 +3229,35 @@ function _toCsv(rows, columns) {
 }
 
 function _entriesFromPaper(paper) {
-  // Apply human overrides on top of original entries before exporting
-  if (!paper.entries || paper.entries.length === 0) return [];
-  const flat = paper.entries.map((e, i) => {
+  // Apply human overrides on top of original entries before exporting.
+  // Also annotate every row with two provenance flags so downstream consumers
+  // can filter / audit:
+  //   _extraction_failed  — true when the row is user-filled because the
+  //                         model's output couldn't be parsed (manual mode)
+  //   _evidence_present   — true when the model returned at least one
+  //                         evidence snippet (regardless of whether we
+  //                         could highlight it)
+  const failed   = paper.manualMode === true ? 'true' : 'false';
+  const evidence = (paper.evidenceTotal || 0) > 0 ? 'true' : 'false';
+  if (!paper.entries || paper.entries.length === 0) {
+    // Extraction failed AND user didn't fill in manually — emit a stub row
+    // so the export still records the run (with the raw response for audit).
+    return [{
+      _extraction_failed: 'true',
+      _evidence_present:  evidence,
+      _llm_raw_response:  paper.result || '',
+    }];
+  }
+  return paper.entries.map((e, i) => {
     const f = _flattenEntry(e);
     const ov = paper.overrides[i] || {};
     for (const [path, info] of Object.entries(ov)) {
       f[path] = info.final_value;
     }
+    f._extraction_failed = failed;
+    f._evidence_present  = evidence;
     return f;
   });
-  return flat;
 }
 
 function _downloadBlob(content, filename, type) {
@@ -3093,29 +3310,16 @@ function downloadAllPapers() {
     exported_at:  new Date().toISOString(),
     prompt:       state.generatedPrompt,
     model:        state.model,
-    papers: done.map(p => {
-      // Flatten overrides across all entries into a readable list
-      const overrideList = [];
-      for (const [entryIdx, fields] of Object.entries(p.overrides)) {
-        for (const [fieldPath, ov] of Object.entries(fields)) {
-          overrideList.push({
-            entry_index:    parseInt(entryIdx, 10),
-            field_path:     fieldPath,
-            original_value: ov.original_value,
-            final_value:    ov.final_value,
-            human_override: ov.human_override,
-          });
-        }
-      }
-      return {
-        filename:                p.filename,
-        pages_processed:         p.pagesProcessed,
-        token_usage:             p.tokenUsage || null,
-        entries:                 p.entries,
-        human_overrides:         overrideList,
-        original_model_response: p.result,
-      };
-    }),
+    papers: done.map(p => ({
+      filename:                p.filename,
+      extraction_failed:       p.manualMode === true,
+      evidence_present:        (p.evidenceTotal || 0) > 0,
+      pages_processed:         p.pagesProcessed,
+      token_usage:             p.tokenUsage || null,
+      entries:                 p.entries,
+      human_overrides:         _overrideList(p),
+      original_model_response: p.result,
+    })),
   };
 
   const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });

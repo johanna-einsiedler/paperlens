@@ -527,6 +527,9 @@
       <!-- Selected files list (populated by JS) -->
       <div class="file-list" id="fileList"></div>
 
+      <!-- Banner shown when one or more selected PDFs are scans (vision-only) -->
+      <div class="probe-warning" id="scannedBatchWarning" style="display:none"></div>
+
       <p class="upload-note" id="visionNote"></p>
 
       <!-- Parsing method toggle — shown for vision models only -->
@@ -682,6 +685,16 @@
                        preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"></svg>
                 </div>
                 <p id="pageDisplayNone">No page reference<br>found in this entry.</p>
+                <!-- Shown when the displayed page is image-only (scanned).
+                     The text layer is empty so highlight rectangles cannot
+                     be located, even though the model could read the page
+                     visually. -->
+                <div id="scannedPageNotice" class="scanned-page-notice" style="display:none">
+                  <span class="scanned-page-icon">&#128247;</span>
+                  This page appears to be a scan (no text layer) — highlight
+                  rectangles can't be drawn, but the data extracted from this
+                  page is still shown on the left.
+                </div>
               </div>
             </div>
 

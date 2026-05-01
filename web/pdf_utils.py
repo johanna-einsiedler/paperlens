@@ -11,7 +11,7 @@ from collections import defaultdict
 # Set PAPERLENS_DEBUG_HL=1 to print rect-locator outcomes per snippet to
 # stdout.  Useful when the user reports "no highlights" — read the server
 # logs and see exactly which snippets failed to locate.
-_DEBUG_HL = os.environ.get("PAPERLENS_DEBUG_HL") == "1"
+_DEBUG_HL = 1
 
 # Pattern that recognises table identifiers such as "Table 2", "TABLE A1",
 # "Appendix Table 3", "Tabelle 4" (German), "Tableau 4" (French),
@@ -27,6 +27,49 @@ _TABLE_REF_RE = re.compile(
 MAX_PAGES      = 40
 EXTRACTION_DPI = 200   # high-res PNG sent to vision models
 DISPLAY_DPI    = 144   # JPEG resolution for the browser viewer
+
+# Per-page char threshold below which we consider a page "scanned" (no
+# usable text layer).  Same constant used by pdf_to_pages_with_rects so the
+# upfront probe and the post-extraction highlight detection agree.
+_SCANNED_PAGE_CHAR_THRESHOLD = 50
+
+
+def probe_text_layer(pdf_bytes: bytes) -> dict:
+    """Inspect a PDF's text layer to decide whether highlighting will work.
+
+    Returns a small dict the client uses to set expectations BEFORE the
+    extraction runs:
+
+      ``total_pages``         number of pages (capped at MAX_PAGES)
+      ``total_text_chars``    total text-layer characters across all pages
+      ``scanned_pages``       1-indexed pages whose text layer is empty
+      ``text_layer_present``  True when the *majority* of pages have a real
+                              text layer.  False indicates an image-only
+                              (scanned) PDF — vision extraction still works
+                              but rect-based highlights won't be possible.
+
+    Cheap: just opens the PDF and reads the text layer — no rendering.
+    """
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    n          = min(len(doc), MAX_PAGES)
+    scanned    = []
+    total_chars = 0
+    for i in range(n):
+        chars = len(doc[i].get_text("text").strip())
+        total_chars += chars
+        if chars < _SCANNED_PAGE_CHAR_THRESHOLD:
+            scanned.append(i + 1)
+    doc.close()
+
+    return {
+        "total_pages":        n,
+        "total_text_chars":   total_chars,
+        "scanned_pages":      scanned,
+        # "Text-readable" if more than half of the pages have a usable layer.
+        "text_layer_present": n > 0 and len(scanned) <= n // 2,
+    }
 
 
 # ── Image conversion ──────────────────────────────────────────────────────────
@@ -634,7 +677,7 @@ def pdf_to_pages_with_rects(
     pdf_bytes: bytes,
     evidence_items: list[dict],
     dpi: int = DISPLAY_DPI,
-) -> tuple[list[str], list[dict]]:
+) -> tuple[list[str], list[dict], list[int]]:
     """Render plain JPEG page images PLUS rect metadata for each evidence
     entry's location, so the client can overlay highlights selectively
     (filtered by the active sub-view).
@@ -643,16 +686,20 @@ def pdf_to_pages_with_rects(
     ``page`` is 1-indexed.
 
     Returns:
-        pages       — list of base64-encoded JPEG strings, one per PDF page
-        highlights  — list of dicts with keys:
+        pages         — base64-encoded JPEG strings, one per PDF page
+        highlights    — list of dicts with keys:
                         ``page``    1-indexed PDF page
                         ``snippet`` original snippet text (for tooltips)
-                        ``field``   JSON path declared by the model (used to
-                                    filter by sub-view), or None
+                        ``field``   JSON path declared by the model
                         ``source``  table/figure id or None
-                        ``rects``   list of [x, y, width, height] in
-                                    image-pixel coordinates at the
-                                    requested DPI
+                        ``rects``   list of [x, y, w, h] in image-pixel coords
+        scanned_pages — 1-indexed pages whose text layer is essentially empty
+                        (image-only / scanned).  These can't be highlighted —
+                        ``page.search_for`` matches against the text layer,
+                        which is what the locator (and any future fallback)
+                        depends on.  The client uses this to display an
+                        explanatory notice instead of a confusing empty
+                        overlay.
 
     Memory-friendly alternative to ``pdf_to_highlighted_images``: we render
     each page only once (no per-sub-view duplication) and the client decides
@@ -662,8 +709,9 @@ def pdf_to_pages_with_rects(
     _DEHY = getattr(fitz, "TEXT_DEHYPHENATE", 0)
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    pages: list[str]      = []
+    pages: list[str]       = []
     highlights: list[dict] = []
+    scanned_pages: list[int] = []
 
     mat   = fitz.Matrix(dpi / 72, dpi / 72)
     scale = dpi / 72.0  # PDF points → image pixels
@@ -679,6 +727,15 @@ def pdf_to_pages_with_rects(
     for page_idx in range(min(len(doc), MAX_PAGES)):
         page      = doc[page_idx]
         page_1idx = page_idx + 1
+
+        # Detect image-only / scanned pages: the text layer is what
+        # ``search_for`` indexes against, so if it's empty (or near-empty
+        # relative to the page's visible area), no snippet can ever match.
+        layer_chars = len(page.get_text("text").strip())
+        if layer_chars < 50:
+            scanned_pages.append(page_1idx)
+            if _DEBUG_HL:
+                print(f"[hl] p{page_1idx}: empty text layer ({layer_chars} chars) — image-only / scanned", flush=True)
 
         for ev in by_page.get(page_1idx, []):
             snippet = ev.get("snippet") or ""
@@ -758,12 +815,13 @@ def pdf_to_pages_with_rects(
     if _DEBUG_HL:
         print(
             f"[hl] summary: {len(evidence_items)} evidence items -> "
-            f"{len(highlights)} highlight rects, {len(pages)} pages rendered",
+            f"{len(highlights)} highlight rects, {len(pages)} pages rendered, "
+            f"{len(scanned_pages)} scanned page(s): {scanned_pages}",
             flush=True,
         )
 
     doc.close()
-    return pages, highlights
+    return pages, highlights, scanned_pages
 
 
 def evidence_items_from_result(result_text: str) -> list[dict]:

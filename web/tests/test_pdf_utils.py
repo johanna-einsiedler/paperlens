@@ -214,7 +214,7 @@ def test_pdf_to_pages_with_rects_returns_pages_and_rects(native_pdf_bytes):
         {"page": 1, "snippet": "definitely not in the PDF",
          "field": "samples[0].notes", "source": None},
     ]
-    pages, highlights = pdf_utils.pdf_to_pages_with_rects(native_pdf_bytes, items)
+    pages, highlights, scanned_pages = pdf_utils.pdf_to_pages_with_rects(native_pdf_bytes, items)
     # 3 pages in the fixture
     assert len(pages) == 3
     # The two locatable snippets get rect entries; the third is silently dropped
@@ -229,6 +229,10 @@ def test_pdf_to_pages_with_rects_returns_pages_and_rects(native_pdf_bytes):
         for r in h["rects"]:
             assert len(r) == 4
             assert all(isinstance(v, (int, float)) and v >= 0 for v in r)
+    # scanned_pages is a list of 1-indexed pages with empty text layers — the
+    # fixture has variable text density across pages, so we just check shape.
+    assert isinstance(scanned_pages, list)
+    assert all(isinstance(p, int) for p in scanned_pages)
 
 
 def test_evidence_items_from_result_preserves_field_and_source():
@@ -253,6 +257,86 @@ def test_merge_snippet_dicts_dedupes_within_pages():
     merged = pdf_utils.merge_snippet_dicts(a, b)
     assert merged[1] == ["snippet A", "snippet B", "snippet C"]
     assert merged[2] == ["snippet D"]
+
+
+def test_probe_text_layer_classifies_text_pdf(native_pdf_bytes):
+    """A native text PDF should report text_layer_present=True with no
+    scanned pages."""
+    p = pdf_utils.probe_text_layer(native_pdf_bytes)
+    assert p["total_pages"] == 3
+    assert p["total_text_chars"] > 0
+    assert p["text_layer_present"] is True
+    assert isinstance(p["scanned_pages"], list)
+
+
+def test_probe_text_layer_classifies_image_only_pdf():
+    """A PDF whose pages have no text layer should be flagged as
+    image-only (text_layer_present=False, every page in scanned_pages)."""
+    import fitz
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page(width=595, height=842)   # blank pages — no text layer
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    p = pdf_utils.probe_text_layer(pdf_bytes)
+    assert p["total_pages"] == 3
+    assert p["text_layer_present"] is False
+    assert p["scanned_pages"] == [1, 2, 3]
+
+
+def test_probe_text_layer_classifies_mixed_pdf():
+    """Half-scanned, half-text PDF: majority decides text_layer_present."""
+    import fitz
+    doc = fitz.open()
+    p1 = doc.new_page(width=595, height=842)  # text page
+    p1.insert_text(
+        (50, 50),
+        "This page has plenty of text in its text layer to clear the "
+        "50-character threshold for scanned-page detection.",
+        fontsize=10,
+    )
+    doc.new_page(width=595, height=842)        # blank — counts as scanned
+    p3 = doc.new_page(width=595, height=842)
+    p3.insert_text(
+        (50, 50),
+        "Third page has its own substantial text layer well above threshold.",
+        fontsize=10,
+    )
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    p = pdf_utils.probe_text_layer(pdf_bytes)
+    assert p["total_pages"] == 3
+    assert p["scanned_pages"] == [2]
+    # 1 of 3 scanned → still text-readable overall
+    assert p["text_layer_present"] is True
+
+
+def test_pdf_to_pages_with_rects_flags_scanned_pages():
+    """A PDF page with no text layer (image-only / scanned) should be reported
+    in ``scanned_pages`` so the client can show a clear notice instead of a
+    confusingly-empty overlay."""
+    import fitz
+    doc = fitz.open()
+    # Page 1: image-only (no text inserted, no images either — empty page
+    # qualifies as 'no text layer')
+    doc.new_page(width=595, height=842)
+    # Page 2: native text — should NOT be flagged
+    p2 = doc.new_page(width=595, height=842)
+    p2.insert_text(
+        (50, 50),
+        "This page has a real text layer with plenty of words to clear the "
+        "50-character threshold used for scanned-page detection.",
+        fontsize=10,
+    )
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    pages, highlights, scanned_pages = pdf_utils.pdf_to_pages_with_rects(pdf_bytes, [])
+    assert len(pages) == 2
+    assert 1 in scanned_pages
+    assert 2 not in scanned_pages
 
 
 def test_pdf_to_highlighted_images_table_ref_in_body_finds_caption(native_pdf_bytes):

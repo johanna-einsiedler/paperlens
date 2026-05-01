@@ -40,6 +40,7 @@ from providers import extract_provider_message, extract_with_images, extract_wit
 # client can overlay sub-view-filtered highlights without re-rendering).
 _PAGE_IMAGES: dict[str, list[str]] = {}
 _PAGE_HIGHLIGHTS: dict[str, list[dict]] = {}
+_SCANNED_PAGES: dict[str, list[int]] = {}
 _LOCK = threading.Lock()
 
 
@@ -57,17 +58,30 @@ def get_page_highlights(job_id: str) -> list[dict] | None:
         return _PAGE_HIGHLIGHTS.get(job_id)
 
 
-def _set_page_images(job_id: str, images: list[str], highlights: list[dict] | None = None) -> None:
+def get_scanned_pages(job_id: str) -> list[int] | None:
+    with _LOCK:
+        return _SCANNED_PAGES.get(job_id)
+
+
+def _set_page_images(
+    job_id: str,
+    images: list[str],
+    highlights: list[dict] | None = None,
+    scanned_pages: list[int] | None = None,
+) -> None:
     with _LOCK:
         _PAGE_IMAGES[job_id] = images
         if highlights is not None:
             _PAGE_HIGHLIGHTS[job_id] = highlights
+        if scanned_pages is not None:
+            _SCANNED_PAGES[job_id] = scanned_pages
 
 
 def forget_page_images(job_id: str) -> None:
     with _LOCK:
         _PAGE_IMAGES.pop(job_id, None)
         _PAGE_HIGHLIGHTS.pop(job_id, None)
+        _SCANNED_PAGES.pop(job_id, None)
 
 
 class _Cancelled(Exception):
@@ -149,7 +163,7 @@ def _run_extraction(
             for s in snippets:
                 evidence_items.append({"page": page, "snippet": s, "field": None, "source": None})
 
-        page_images, highlights = pdf_to_pages_with_rects(pdf_bytes, evidence_items)
+        page_images, highlights, scanned_pages = pdf_to_pages_with_rects(pdf_bytes, evidence_items)
         # evidence_count keeps its prior semantic: snippets that have a usable
         # page number (highlightable in principle).  Rect-located highlights
         # are a strict subset, so this is always >= len(highlights).
@@ -158,6 +172,7 @@ def _run_extraction(
             job_id,
             [f"data:image/jpeg;base64,{b}" for b in page_images],
             highlights,
+            scanned_pages,
         )
 
         _check_cancelled(job_id)

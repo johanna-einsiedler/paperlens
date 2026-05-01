@@ -711,6 +711,120 @@ header p {
 }
 .evidence-notice-close:hover { color: #475569; }
 
+/* Shown above the page image when the current page has no text layer.
+   Sits between the image and the page nav so the user immediately sees
+   why the overlay is empty. */
+.scanned-page-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: #fef9c3;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #78350f;
+}
+.scanned-page-icon { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
+
+/* Per-file badge in the upload list — surfaced via the upfront /api/check-pdf
+   probe so the user knows what to expect before extraction runs. */
+.probe-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 500;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+.probe-badge.probe-loading { background: #f1f5f9; border-color: #e2e8f0; color: #64748b; }
+.probe-badge.probe-text    { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.probe-badge.probe-scanned { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.probe-badge.probe-mixed   { background: #fef3c7; border-color: #fde68a; color: #78350f; }
+.probe-badge.probe-unknown { background: #f8fafc; border-color: #e2e8f0; color: #64748b; }
+
+/* Banner shown above the file list when any selected PDF is image-only.
+   Two intensities — soft (informational) and hard (text-only model picked
+   but the file is a scan, so extraction itself will fail). */
+.probe-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.probe-warning.warning-soft {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #78350f;
+}
+.probe-warning.warning-hard {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+.probe-warning-icon { flex-shrink: 0; font-size: 14px; margin-top: 1px; opacity: 0.85; }
+
+/* Panel shown when the model response can't be parsed into structured
+   entries — gives the user a warning, the raw response, and a button to
+   start filling in values manually. */
+.extraction-failed-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: var(--radius-md);
+}
+.extraction-failed-warn {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #7c2d12;
+}
+.extraction-failed-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.extraction-raw-details {
+  background: #fff;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12.5px;
+}
+.extraction-raw-details summary {
+  cursor: pointer;
+  color: #92400e;
+  font-weight: 500;
+  user-select: none;
+}
+.extraction-raw-details .raw-text {
+  margin-top: 8px;
+  max-height: 360px;
+  overflow: auto;
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 10px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #44403c;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── Buttons ─────────────────────────────────────── */
 
 .btn-row {

@@ -383,6 +383,25 @@ async def adapt_prompt(payload: AdaptPromptIn) -> Any:
 
 # ── /api/extract — enqueue ───────────────────────────────────────────────────
 
+@app.post("/api/check-pdf")
+async def check_pdf(pdf: UploadFile = File(...)) -> dict:
+    """Inspect an uploaded PDF's text layer so the client can warn the user
+    upfront when a paper is scanned / image-only (vision extraction still
+    works, but rect-based highlights won't be available)."""
+    filename = pdf.filename or ""
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Please upload a PDF file (.pdf).")
+    try:
+        pdf_bytes = await pdf.read()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Failed to read PDF: {e}")
+    try:
+        from pdf_utils import probe_text_layer
+        return probe_text_layer(pdf_bytes)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Failed to inspect PDF: {e}")
+
+
 @app.post("/api/extract")
 async def extract(
     api_key: str = Form(""),
@@ -491,15 +510,19 @@ def get_job_pages(job_id: str) -> dict:
     row = db.get_job(job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job not found.")
-    images     = jobs_mod.get_page_images(job_id) or []
-    highlights = jobs_mod.get_page_highlights(job_id) or []
+    images        = jobs_mod.get_page_images(job_id) or []
+    highlights    = jobs_mod.get_page_highlights(job_id) or []
+    scanned_pages = jobs_mod.get_scanned_pages(job_id) or []
     # ``highlights`` is a list of {page, snippet, field, source, rects} —
     # the frontend overlays an SVG layer of yellow rectangles on top of
     # ``page_images``, filtered by the currently-selected sub-view (if any).
+    # ``scanned_pages`` lists 1-indexed pages with no usable text layer; the
+    # client uses this to explain WHY a given page can't be highlighted.
     return {
-        "job_id":      job_id,
-        "page_images": images,
-        "highlights":  highlights,
+        "job_id":        job_id,
+        "page_images":   images,
+        "highlights":    highlights,
+        "scanned_pages": scanned_pages,
     }
 
 
