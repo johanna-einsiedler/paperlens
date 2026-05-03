@@ -130,30 +130,164 @@ def test_get_preset_404_for_unknown(client):
 
 
 def test_masem_preset_declares_sub_views(client):
-    """The MASEM preset ships with three sub-tabs the frontend renders under
-    the active paper card.  Verify the contract so the JS doesn't blow up."""
+    """The MASEM preset ships with sub-tabs the frontend renders under
+    the active paper card.  Auto-generated from ``data_sources`` — the
+    umbrella ``masem`` preset is general MASEM, so its tabs are
+    ``corrmatrix`` + ``singlecorrs`` (not the TAS-20 loadings tabs)."""
     r = client.get("/api/presets/masem")
     body = r.json()
     sub_views = body.get("sub_views")
     assert isinstance(sub_views, list)
     assert len(sub_views) == 3
     ids = [s["id"] for s in sub_views]
-    assert ids == ["loadings", "correlations", "descriptives"]
+    assert ids == ["corrmatrix", "singlecorrs", "descriptives"]
     # Every sub-view has a label and either include_keys or exclude_keys
     for sv in sub_views:
         assert "label" in sv and sv["label"]
         assert ("include_keys" in sv) or ("exclude_keys" in sv)
-    # Loadings restricts to factor_loadings; descriptives excludes both tables
     by_id = {s["id"]: s for s in sub_views}
-    assert "factor_loadings"      in by_id["loadings"]["include_keys"]
-    assert "factor_correlations"  in by_id["correlations"]["include_keys"]
-    assert "factor_loadings"      in by_id["descriptives"]["exclude_keys"]
-    assert "factor_correlations"  in by_id["descriptives"]["exclude_keys"]
-    # Evidence-key narrowing: when on the Loadings sub-view, page-nav and
-    # rect overlays should be scoped strictly to ``factor_loadings`` (not
-    # also to ``sample_id`` / ``n``, which live in include_keys for data
-    # display only).  Same for correlations.
-    assert by_id["loadings"]["evidence_keys"]     == ["factor_loadings"]
-    assert by_id["correlations"]["evidence_keys"] == ["factor_correlations"]
+    assert "correlation_matrix"   in by_id["corrmatrix"]["include_keys"]
+    assert "single_correlations"  in by_id["singlecorrs"]["include_keys"]
+    assert "correlation_matrix"   in by_id["descriptives"]["exclude_keys"]
+    assert "single_correlations"  in by_id["descriptives"]["exclude_keys"]
+    # Evidence-key narrowing: highlights for each sub-view scoped strictly
+    # to the data source it's about.
+    assert by_id["corrmatrix"]["evidence_keys"]   == ["correlation_matrix"]
+    assert by_id["singlecorrs"]["evidence_keys"]  == ["single_correlations"]
     # Descriptives doesn't need narrowing — exclude_keys already does the job.
     assert "evidence_keys" not in by_id["descriptives"]
+
+
+# ── Variants (TAS-20 example, hidden from landing) ────────────────────────
+
+def test_landing_lists_only_umbrella_masem(client):
+    """The landing-list endpoint should surface only the parent ``masem``
+    preset; variant starters (e.g. ``masem-tas20``) are reachable via
+    the in-app builder but should not clutter the landing-screen
+    workflow picker."""
+    r = client.get("/api/presets")
+    ids = [p["id"] for p in r.json()["presets"]]
+    assert "masem" in ids
+    assert "masem-tas20" not in ids
+
+
+def test_variant_preset_still_fetchable_by_id(client):
+    """Hidden landing presets must still be loadable by id (the in-app
+    builder posts to /api/build-preset-prompt with the variant id)."""
+    r = client.get("/api/presets/masem-tas20")
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("landing_hidden") is True
+
+
+def test_umbrella_masem_is_general_scope(client):
+    """The umbrella ``masem`` preset is now the general MASEM workflow
+    (theoretical-constructs scope, correlation matrices + prose
+    correlations, no factor loadings by default)."""
+    r = client.get("/api/presets/masem")
+    body = r.json()
+    p = body["template_params"]
+    assert p["content_scope"] == "theoretical_constructs"
+    assert "correlation_matrix" in p["data_sources"]
+    assert "single_correlations" in p["data_sources"]
+    assert "factor_loadings" not in p["data_sources"]
+    # Rendered prompt has the correlation sections, not the factor
+    # loadings / correlations sections.
+    prompt = body["prompt"]
+    assert "## Correlation matrix" in prompt
+    assert "## Single correlations from prose" in prompt
+    assert "Factor loadings (`factor_loadings`)" not in prompt
+    # Sub-views match the general data sources.
+    sub_ids = [sv["id"] for sv in body["sub_views"]]
+    assert sub_ids == ["corrmatrix", "singlecorrs", "descriptives"]
+
+
+def test_tas20_variant_renders_with_item_texts(client):
+    """The TAS-20 sub-preset is concrete-items scope with item_texts
+    pre-baked and include_item_texts=True — the rendered prompt must
+    surface the item-text reference block so the model can match
+    reordered items."""
+    r = client.get("/api/presets/masem-tas20")
+    assert r.status_code == 200
+    body = r.json()
+    prompt = body["prompt"]
+    # Item-text reference block is included
+    assert "Reference item texts" in prompt
+    # First and last standard TAS-20 items appear verbatim
+    assert "I am often confused about what emotion I am feeling" in prompt
+    assert "Looking for hidden meanings in movies or plays distracts" in prompt
+    # Sub-views match TAS-20 (factor loadings + correlations)
+    sub_ids = [sv["id"] for sv in body["sub_views"]]
+    assert sub_ids == ["loadings", "correlations", "descriptives"]
+    # TAS-20-specific phrases the prompt must still emit
+    assert "Toronto Alexithymia Scale (TAS-20, 20 items) factor-analytic data" in prompt
+    assert "F1 = **DIF** (Difficulty Identifying Feelings)" in prompt
+    assert "F1 = items 1, 3, 6, 7, 9, 13, 14" in prompt
+    assert "Ignore any solution that includes items from measures other than the TAS-20." in prompt
+
+
+# ── /api/build-preset-prompt — guided builder render route ─────────────────
+
+def test_build_preset_prompt_default_matches_get(client):
+    """Posting an empty ``template_params`` should re-render the preset's
+    own defaults — i.e. produce the same prompt as ``GET /api/presets/<id>``."""
+    direct = client.get("/api/presets/masem").json()
+    built  = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem",
+        "template_params": {},
+    }).json()
+    assert built["prompt"]    == direct["prompt"]
+    assert built["sub_views"] == direct["sub_views"]
+
+
+def test_build_preset_prompt_overrides_data_sources(client):
+    """User-supplied ``data_sources`` overrides the preset's defaults so
+    the form can flip data sources on/off without picking a different
+    starter preset."""
+    r = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem",
+        "template_params": {
+            "data_sources": ["factor_loadings", "factor_correlations"],
+            "instrument_name":      "TAS-20",
+            "instrument_name_long": "Toronto Alexithymia Scale",
+            "n_items":               20,
+            "n_factors":             5,
+            "content_scope":         "concrete_items",
+        },
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert "## Factor loadings" in body["prompt"]
+    assert "## Factor correlations" in body["prompt"]
+    sub_ids = [sv["id"] for sv in body["sub_views"]]
+    assert sub_ids == ["loadings", "correlations", "descriptives"]
+
+
+def test_build_preset_prompt_404_for_unknown(client):
+    r = client.post("/api/build-preset-prompt",
+                    json={"preset_id": "does-not-exist", "template_params": {}})
+    assert r.status_code == 404
+
+
+def test_build_preset_prompt_400_for_inline_prompt_preset(client, tmp_path, monkeypatch):
+    """Presets that ship an inline ``prompt`` (no template file) cannot be
+    re-rendered via the builder — return 400 with a clear message."""
+    # Drop a quick preset with no template into the loader's directory
+    import presets_loader, server
+    # Use the existing preset dir but add a temporary file
+    pdir = presets_loader.PRESETS_DIR
+    inline = pdir / "_test_inline.json"
+    import json as _json
+    inline.write_text(_json.dumps({
+        "id":      "_test_inline",
+        "title":   "T",
+        "tagline": "t",
+        "mode":    "extraction",
+        "prompt":  "PROMPT BODY",
+    }))
+    try:
+        r = client.post("/api/build-preset-prompt",
+                        json={"preset_id": "_test_inline", "template_params": {}})
+        assert r.status_code == 400
+    finally:
+        inline.unlink(missing_ok=True)

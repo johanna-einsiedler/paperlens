@@ -1,70 +1,20 @@
-You are extracting Toronto Alexithymia Scale (TAS-20, 20 items) factor-analytic data from an academic paper for Meta-Analytic Structural Equation Modeling (MASEM).
+You are extracting ${instrument_name_long} ${preamble_data_qualifier}data from an academic paper for Meta-Analytic Structural Equation Modeling (MASEM).
 
 ## Goal
 
 For every distinct sample/group reported in the paper, extract:
 
-1. **Factor loadings** — item-level standardised factor loadings for items 1–20, allowing up to FIVE factors (F1–F5).
-2. **Factor correlations** — inter-factor (latent) correlations among up to 5 factors (the upper-triangle: 10 unique pairs).
-3. **Study + sample metadata** — coded according to a fixed scheme so the records are usable in a downstream meta-analytic database.
+${goal_items}
 
 Return EXACTLY ONE valid JSON object, parseable by `json.loads`. NO surrounding prose, NO markdown code fences, NO commentary.
 
 ## JSON schema
 
 ```json
-{
-  "samples": [
-    {
-      "sample_id": "string",
-
-      "factor_loadings": {
-        "F1.1":  number|null, "F1.2":  number|null, "F1.3":  number|null,
-        "F1.4":  number|null, "F1.5":  number|null, "F1.6":  number|null,
-        "F1.7":  number|null, "F1.8":  number|null, "F1.9":  number|null,
-        "F1.10": number|null, "F1.11": number|null, "F1.12": number|null,
-        "F1.13": number|null, "F1.14": number|null, "F1.15": number|null,
-        "F1.16": number|null, "F1.17": number|null, "F1.18": number|null,
-        "F1.19": number|null, "F1.20": number|null,
-
-        "F2.1":  number|null, "...":   "(F2.2 ... F2.20)",
-        "F3.1":  number|null, "...":   "(F3.2 ... F3.20)",
-        "F4.1":  number|null, "...":   "(F4.2 ... F4.20)",
-        "F5.1":  number|null, "...":   "(F5.2 ... F5.20)"
-      },
-
-      "factor_correlations": {
-        "R1.2": number|null, "R1.3": number|null, "R1.4": number|null, "R1.5": number|null,
-        "R2.3": number|null, "R2.4": number|null, "R2.5": number|null,
-        "R3.4": number|null, "R3.5": number|null,
-        "R4.5": number|null
-      },
-
-      "pubyear":   number|null,
-      "country":   "string|null",
-      "continent": "string|null",
-      "lang":      "string|null",
-      "pubtype":   "1|2|3|4|5|null",
-      "n":         "integer|null",
-      "sex":       "number 0..100 |null",
-      "age":       "number|null",
-      "clinical":  "0|1|2|null",
-      "res":       "integer >= 5 |null",
-      "nfac":      "integer 1..10 |null",
-      "cfa":       "0|1|null",
-      "met":       "1|2|3|4|null",
-      "rot":       "1|2|null",
-
-      "notes": "string"
-    }
-  ],
-  "evidence": [
-    {"snippet": "...", "page": 3, "source": "Table 1", "field": "samples[0].factor_loadings"}
-  ]
-}
+${json_schema}
 ```
 
-You MUST include all 100 loading keys (`F1.1`…`F5.20`) and all 10 correlation keys (`R1.2`…`R4.5`) on every sample, even if the values are null.
+${schema_invariants_line}
 
 ## Multiple samples
 
@@ -75,72 +25,14 @@ If the paper reports a "total" sample alongside subgroups, include each as its o
 If the grouping is unclear, output a single entry with `sample_id: "sample1"` and explain in `notes`.
 
 `sample_id` should be a short identifier derived from visible labels: `"total"`, `"boys"`, `"girls"`, `"clinical"`, `"nonclinical"`, `"english"`, `"french"`, `"sample1"`, `"sample2"`, etc. If no label is visible, use `"sample1"`.
+${factor_naming_section}
+${factor_loadings_section}
+${factor_correlations_section}
+${correlation_matrix_section}
+${single_correlations_section}
+${multiple_models_section}
 
-## Factor naming + item identification
-
-If the paper clearly uses the standard TAS-20 three-factor structure, map:
-- F1 = **DIF** (Difficulty Identifying Feelings)
-- F2 = **DDF** (Difficulty Describing Feelings)
-- F3 = **EOT** (Externally Oriented Thinking)
-
-Synonyms map to the same factor index:
-- "Difficulty identifying feelings" → DIF → F1
-- "Difficulty describing feelings"  → DDF → F2
-- "Externally oriented thinking"    → EOT → F3
-
-If the paper uses different naming or ordering, follow the paper's definition. For 4- or 5-factor solutions, do NOT invent meanings for F4/F5 unless explicitly defined; keep them as Factor 4 / Factor 5 and explain ambiguity in `notes`.
-
-Recognise TAS-20 items by item numbers 1–20 OR by recognisable item text fragments (e.g., "I am often confused about what emotion I am feeling…"). Use the item number as the canonical identifier (the `<item>` part of `F<factor>.<item>`).
-
-## Factor loadings (`factor_loadings`)
-
-Output keys for ALL items 1–20 across factors F1–F5 (`F1.1` through `F5.20`).
-
-Fill values:
-- Loading explicitly shown for an item-factor cell → record as a number (negative allowed).
-- Cell suppressed/blank/below-threshold within the reported solution → `0.0` (not null — the cell exists, the value is just below threshold).
-- Entire factor does NOT exist in the chosen solution (e.g. F4/F5 in a 3-factor model) → set ALL `F4.*` / `F5.*` to `null`.
-- Table genuinely cut off / not visible → `null` AND explain in `notes`.
-- Table reports only primary loadings (one factor per item) → enter the reported loading in that factor's key and set the other factors for that item to `0.0` (for factors that exist in the solution).
-
-**Do not impute or estimate values.**
-
-### Multi-level / spanning headers
-
-Tables may use multi-level headers (super-headings spanning multiple columns, group labels above factor columns, factor names as subheaders). Read the LOWEST-LEVEL header row that directly labels the numeric loading columns. Treat super-headings as structural grouping only; do not misinterpret them as separate variables.
-
-If the header structure is too ambiguous to recover column identities, extract row-wise as best as possible and explain the ambiguity in `notes`.
-
-### CFA-only fallback for the standard 3-factor structure
-
-If the results stem EXCLUSIVELY from a CFA with three factors AND the table doesn't explicitly label item→factor, you MAY assume the standard TAS-20 three-factor item assignment:
-- F1 = items 1, 3, 6, 7, 9, 13, 14
-- F2 = items 2, 4, 11, 12, 17
-- F3 = items 5, 8, 10, 15, 16, 18, 19, 20
-
-Use this ONLY to decide where to place a single reported loading per item when factor identity isn't otherwise recoverable. For CFA models with MORE or FEWER than three factors, do NOT assume any a priori item-to-factor assignment.
-
-## Factor correlations (`factor_correlations`)
-
-Output ALL 10 unique factor-pair correlations: `R1.2`, `R1.3`, `R1.4`, `R1.5`, `R2.3`, `R2.4`, `R2.5`, `R3.4`, `R3.5`, `R4.5`. Use the `R<i>.<j>` form with **i < j only** — do NOT duplicate symmetric pairs.
-
-Look in the results section for keywords near each other: `correl*` (correlated/correlation), `factors`, numeric values in [-1, 1], possibly an `r` indicator. Correlations may appear as either (a) the lower/upper triangle with `nfac × (nfac-1) / 2` unique correlations, or (b) the full symmetric correlation matrix. Either form is fine — only output the i<j pairs.
-
-Fill values:
-- Correlation explicitly reported → number (negative allowed; typically in [-1, 1]).
-- Correlation involves a factor that doesn't exist in this solution (e.g. R1.4 in a 3-factor model) → `null`.
-- Correlation simply not reported / suppressed / not visible → `null`.
-- ⚠️ **Orthogonal-rotation special case**: if the rotation method is one of `varimax`, `quartimax`, `equamax`, `orthomax`, `parsimax` (orthogonal — factors are uncorrelated by construction), set ALL existing-factor correlations to `0` (not `null`). Use `null` only if the value is missing/unreported, not when it's structurally zero.
-
-## Multiple models / rotations / methods
-
-If the paper reports MULTIPLE factor solutions for the same sample (EFA + CFA, rotated + unrotated, 2-factor + 3-factor, Model A + Model B):
-- Extract the solution with the HIGHEST number of factors.
-- Tied factor counts → prefer the one labelled main / final / preferred.
-- Still tied → prefer EFA over CFA, and oblique over orthogonal rotation.
-- Note the chosen solution and any alternatives in `notes`.
-
-Ignore any solution that includes items from measures other than the TAS-20.
+${instrument_filter_line}
 
 ## Sample metadata (coded scheme)
 
@@ -165,8 +57,8 @@ Each sample's record carries the following fields. **Fields documented as intege
   - `1` = clinical patients
   - `2` = mixed
   Null if unclear.
-- **`res`** — Number of Likert response options for the TAS-20 (integer ≥ 5). Standard TAS-20 uses 5; if no adaptation/translation note exists, default to `5`. Else null.
-- **`nfac`** — Number of factors in the chosen solution (integer 1–10). Must match the loadings/correlations you actually extracted (e.g. if all `F4.*` / `F5.*` are null, `nfac` is 3).
+${res_field_block}
+- **`nfac`** — Number of factors in the chosen solution (integer 1–10). Must match the loadings/correlations you actually extracted (e.g. if all ${nonexistent_factor_glob_example} are null, `nfac` is 3).
 - **`cfa`** —
   - `0` = EFA (exploratory factor analysis)
   - `1` = CFA (confirmatory factor analysis)

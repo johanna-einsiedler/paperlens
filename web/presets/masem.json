@@ -1,33 +1,27 @@
 {
   "id":                "masem",
   "title":             "MASEMiner",
-  "tagline":           "Extract factor loadings, inter-factor correlations, and study metadata from primary studies for Meta-Analytic Structural Equation Modeling",
-  "description":       "Tailored workflow for Meta-Analytic Structural Equation Modeling (MASEM) extraction from primary psychometric / factor-analytic studies. Pre-loaded with a vetted extraction template that produces, for every reported sample: (a) item-level standardised factor loadings, (b) inter-factor correlations, and (c) coded study + sample metadata (publication year, country, language, sample size, age, % female, clinical status, analysis & estimation method) suitable for downstream meta-analytic databases.",
+  "tagline":           "Extract correlation matrices, single correlations, and study metadata for Meta-Analytic Structural Equation Modeling",
+  "description":       "Domain-agnostic MASEMiner workflow.  Extracts variable-level correlation matrices and single correlations reported in body text, plus coded study metadata, suitable for downstream meta-analytic structural equation modeling.  Use the in-app builder to add factor loadings + correlations (psychometric MASEM) or to define variables / constructs of interest.  A TAS-20 example is one click away.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
-  "task_description":  "Extract TAS-20 (2003) factor-analytic data: item-level factor loadings (F1.1–F5.20), inter-factor correlations (R1.2–R4.5), and study/sample metadata (pubyear, country, continent, lang, pubtype, n, sex, age, clinical, res, nfac, cfa, met, rot) for every sample reported in the paper.",
-  "context":           "Papers report TAS-20 psychometric / factor-analytic studies. Standard three-factor structure: F1 = DIF, F2 = DDF, F3 = EOT. Output uses flat dotted keys (F1.1, R1.2) so the viewer auto-renders them as tables. Coded metadata fields use the fixed integer schemes specified in the prompt (e.g. cfa: 0=EFA, 1=CFA; rot: 1=orthogonal, 2=oblique).",
-  "prompt_file":       "masem.prompt.md",
+  "task_description":  "Extract scale-level / construct-level correlations from primary studies for MASEM.  Variables of interest are theoretical constructs (with synonyms) — count any reported correlation between two listed constructs, regardless of which scale was used to measure them.",
+  "context":           "General MASEM workflow. Reports the variable × variable correlation matrix(es) and single inline correlations from prose. The user is expected to define their theoretical constructs (with definitions and synonyms) before running.",
+  "prompt_template_file": "masem.template.md",
+  "template_params": {
+    "instrument_name":      "the target constructs",
+    "instrument_name_long": "structural-effects",
+    "n_items":              0,
+    "n_factors":            0,
+    "factor_naming":        [],
+    "cfa_item_assignment":  {},
+    "data_sources":         ["correlation_matrix", "single_correlations"],
+    "content_scope":        "theoretical_constructs",
+    "include_item_texts":   false,
+    "item_texts":           [],
+    "variables":            []
+  },
   "skip_to":           "setup",
-  "accent_color":      "#1d4a8c",
-  "sub_views": [
-    {
-      "id":            "loadings",
-      "label":         "Factor loadings",
-      "include_keys":  ["sample_id", "n", "factor_loadings"],
-      "evidence_keys": ["factor_loadings"]
-    },
-    {
-      "id":            "correlations",
-      "label":         "Factor correlations",
-      "include_keys":  ["sample_id", "n", "factor_correlations"],
-      "evidence_keys": ["factor_correlations"]
-    },
-    {
-      "id":           "descriptives",
-      "label":        "Descriptives",
-      "exclude_keys": ["factor_loadings", "factor_correlations"]
-    }
-  ]
+  "accent_color":      "#1d4a8c"
 }

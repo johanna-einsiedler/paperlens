@@ -809,6 +809,28 @@ header p {
   font-weight: 500;
   user-select: none;
 }
+/* "Re-running this paper…" notice shown in the result column while the
+   new job is in flight.  The right-hand page panel is intentionally
+   untouched, so the user keeps their PDF context. */
+.rerun-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.rerun-spinner {
+  display: inline-block;
+  font-size: 18px;
+  color: var(--primary);
+  animation: rerun-spin 1.2s linear infinite;
+}
+@keyframes rerun-spin { to { transform: rotate(360deg); } }
+
 .extraction-raw-details .raw-text {
   margin-top: 8px;
   max-height: 360px;
@@ -1831,6 +1853,20 @@ body.wide-mode .app {
   min-width: 0;
 }
 
+/* Per-sample sidebar rows (one per sample for multi-sample papers).
+   Slightly inset and tinted so adjacent samples for the same paper read
+   as a related cluster, while still being clickable independently. */
+.paper-item-sample {
+  padding-left: 22px;
+}
+.paper-sample-suffix {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.paper-item.active .paper-sample-suffix {
+  color: var(--primary);
+}
+
 /* ── Result column ───────────────────────────────── */
 
 .result-col {
@@ -1897,8 +1933,15 @@ body.wide-mode .app {
   font-weight: 600;
   color: var(--text-muted);
   white-space: nowrap;
-  min-width: 28px;
+  min-width: 56px;
   text-align: center;
+}
+
+/* When the currently-displayed page carries any sub-view-matched
+   highlights, tint the counter so the user can see at a glance which
+   pages have evidence as they flip through. */
+.page-evidence-nav.page-nav-on-evidence .page-nav-counter {
+  color: var(--primary);
 }
 
 /* Zoom controls */
@@ -2568,6 +2611,146 @@ kbd {
 }
 
 /* ── Parsing method toggle (step 6) ─────────────── */
+
+/* ── MASEMiner guided builder (step 3 alt view) ────────────────────────── */
+
+.masem-starter-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.masem-starter-card {
+  appearance: none;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.masem-starter-card:hover { border-color: var(--primary); }
+.masem-starter-card.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.masem-starter-label {
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.masem-starter-tagline {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.masem-checkbox-row,
+.masem-radio-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.masem-checkbox,
+.masem-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.masem-checkbox input,
+.masem-radio input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+#masemBuilder textarea {
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* "?"-icon tooltip used next to each data-source label.  The hover/focus
+   tip is rendered via a CSS pseudo-element from the ``data-tip`` attribute
+   so we don't need extra DOM. */
+.masem-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: help;
+  position: relative;
+}
+.masem-help:hover,
+.masem-help:focus { color: var(--primary); border-color: var(--primary); outline: none; }
+.masem-help::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: #fff;
+  font-weight: 400;
+  font-size: 11.5px;
+  line-height: 1.45;
+  padding: 7px 10px;
+  border-radius: 5px;
+  width: max-content;
+  max-width: 260px;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.masem-help::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #1f2937;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 10;
+}
+.masem-help:hover::after,
+.masem-help:focus::after,
+.masem-help:hover::before,
+.masem-help:focus::before { opacity: 1; }
+
+.masem-preview {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  max-height: 360px;
+  overflow: auto;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
 
 .parse-method-group {
   margin-top: 16px;

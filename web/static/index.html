@@ -54,10 +54,17 @@
   <div class="preset-banner" id="presetBanner" style="display:none">
     <svg class="preset-banner-mark" width="20" height="20" aria-hidden="true"><use href="#masemMark"/></svg>
     <span class="preset-banner-label">
-      <strong id="presetBannerTitle"></strong>&nbsp;mode &middot;
-      <span id="presetBannerTagline"></span>
+      <strong id="presetBannerTitle"></strong>
     </span>
-    <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to generic">Switch to generic</button>
+    <!-- Re-opens the guided MASEMiner builder without losing the upload
+         queue or any other state.  Hidden by default; shown only when
+         a parameterised MASEM preset is active. -->
+    <button class="preset-banner-clear" id="presetBannerCustomize"
+            onclick="reopenMasemBuilder()" style="display:none"
+            title="Reopen the guided builder to tweak data sources or variables">
+      Customise
+    </button>
+    <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to PaperLens">Switch to PaperLens</button>
   </div>
 
   <!-- Preset-specific landing pages (e.g. /maseminer).  JS shows exactly
@@ -389,6 +396,113 @@
         </div>
         <div class="btn-row">
           <button class="btn btn-ghost" onclick="goTo(2)">Back</button>
+        </div>
+      </div>
+
+      <!-- Guided MASEMiner builder — shown only when a parameterised
+           MASEM preset is active.  Lets the user pick a starter (TAS-20 /
+           Big Five / General), toggle data sources, edit variables, and
+           preview the rendered prompt before committing it. -->
+      <div id="masemBuilder" style="display:none">
+        <h2>Configure your MASEMiner extraction</h2>
+        <p class="subtitle">Pick a starter, then refine the data sources and variables for your meta-analysis.</p>
+
+        <!-- Starter cards -->
+        <div class="form-group">
+          <label class="parse-method-label">Starter</label>
+          <div class="masem-starter-row" id="masemStarterRow">
+            <!-- populated by masem-builder.js -->
+          </div>
+        </div>
+
+        <!-- Data sources -->
+        <div class="form-group">
+          <label class="parse-method-label">Data sources to extract</label>
+          <div class="masem-checkbox-row" id="masemDataSourcesRow">
+            <label class="masem-checkbox">
+              <input type="checkbox" name="ds-factor_loadings" data-source="factor_loadings" />
+              <span><strong>Factor loadings</strong>
+                <span class="masem-help" tabindex="0"
+                      data-tip="Item × factor coefficients reported in factor-analysis tables. Each cell tells you how strongly an item loads on a given latent factor.">?</span>
+              </span>
+            </label>
+            <label class="masem-checkbox">
+              <input type="checkbox" name="ds-factor_correlations" data-source="factor_correlations" />
+              <span><strong>Factor correlations</strong>
+                <span class="masem-help" tabindex="0"
+                      data-tip="Inter-factor (latent) correlations — how the factors themselves correlate with each other in an oblique solution.">?</span>
+              </span>
+            </label>
+            <label class="masem-checkbox">
+              <input type="checkbox" name="ds-correlation_matrix" data-source="correlation_matrix" />
+              <span><strong>Correlation matrices</strong>
+                <span class="masem-help" tabindex="0"
+                      data-tip="Tabular variable × variable correlation matrices reported in the paper (typically a numbered Table with Pearson r values).">?</span>
+              </span>
+            </label>
+            <label class="masem-checkbox">
+              <input type="checkbox" name="ds-single_correlations" data-source="single_correlations" />
+              <span><strong>Single correlations from prose</strong>
+                <span class="masem-help" tabindex="0"
+                      data-tip="Individual correlations stated as inline text rather than in a matrix (e.g. &quot;the correlation between X and Y was r = .42&quot;).">?</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Content scope -->
+        <div class="form-group">
+          <label class="parse-method-label">Content scope</label>
+          <div class="masem-radio-row" id="masemScopeRow">
+            <label class="masem-radio">
+              <input type="radio" name="scope" value="concrete_items" />
+              <span><strong>Concrete items</strong> &mdash; specific instrument items (e.g. TAS-20 items 1&ndash;20)</span>
+            </label>
+            <label class="masem-radio">
+              <input type="radio" name="scope" value="content_groups" />
+              <span><strong>Content groups</strong> &mdash; named scales / instruments (e.g. BFI-E, NEO-E, IPIP-E)</span>
+            </label>
+            <label class="masem-radio">
+              <input type="radio" name="scope" value="theoretical_constructs" />
+              <span><strong>Theoretical constructs</strong> &mdash; abstract constructs across operationalisations (e.g. Extraversion)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Variables (one-per-line text editor; format depends on scope) -->
+        <div class="form-group" id="masemVariablesGroup">
+          <label class="parse-method-label" for="masemVariablesInput">
+            Variables / scales / constructs to look for
+            <span class="optional" id="masemVariablesHint"></span>
+          </label>
+          <textarea id="masemVariablesInput" rows="6"
+                    placeholder="One per line. For groups/constructs you can also write 'Name | Definition | synonym1, synonym2'"></textarea>
+        </div>
+
+        <!-- Item texts (only relevant for concrete_items scope) -->
+        <div class="form-group" id="masemItemTextsGroup" style="display:none">
+          <label class="masem-checkbox" style="margin-bottom:8px">
+            <input type="checkbox" id="masemIncludeItemTexts" />
+            <span><strong>Include item texts in the prompt</strong> &mdash; so the model can recognise reordered or paraphrased items</span>
+          </label>
+          <label class="parse-method-label" for="masemItemTextsInput">Item texts (one per line, in original order)</label>
+          <textarea id="masemItemTextsInput" rows="6"
+                    placeholder="1. I am often confused about what emotion I am feeling.&#10;2. It is difficult for me to find the right words for my feelings.&#10;..."></textarea>
+        </div>
+
+        <!-- Live prompt preview -->
+        <div class="form-group">
+          <label class="parse-method-label">
+            Live preview
+            <span class="optional"><span id="masemPreviewLen">0</span> characters</span>
+          </label>
+          <pre id="masemPreviewBox" class="masem-preview"></pre>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-ghost" onclick="goTo(2)">Back</button>
+          <button class="btn btn-outline" onclick="masemBuilderEditRaw()">Edit raw prompt</button>
+          <button class="btn btn-primary" onclick="masemBuilderCommit()">Use this prompt</button>
         </div>
       </div>
 
@@ -747,9 +861,9 @@
                      visually. -->
                 <div id="scannedPageNotice" class="scanned-page-notice" style="display:none">
                   <span class="scanned-page-icon">&#128247;</span>
-                  This page appears to be a scan (no text layer) — highlight
-                  rectangles can't be drawn, but the data extracted from this
-                  page is still shown on the left.
+                  This page looks like a scan (little or no text layer) —
+                  highlight rectangles may be incomplete or misaligned.
+                  The data extracted from this page is still shown on the left.
                 </div>
               </div>
             </div>
@@ -880,5 +994,6 @@ The viewer renders any object containing a <code>_table</code> array as a real H
 </aside>
 
 <script src="/static/app.js"></script>
+<script src="/static/masem-builder.js"></script>
 </body>
 </html>

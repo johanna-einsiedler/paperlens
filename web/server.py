@@ -162,6 +162,15 @@ class AdaptPromptIn(BaseModel):
     base_url: str | None = None
 
 
+class BuildPresetPromptIn(BaseModel):
+    """Payload for the guided MASEMiner prompt builder.  ``preset_id`` picks
+    the underlying template (typically one of the ``masem-*`` variants);
+    ``template_params`` is the form's serialised state that overrides the
+    preset's default params."""
+    preset_id:       str
+    template_params: dict = {}
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _prompt_has_evidence_schema(prompt: str) -> bool:
@@ -320,6 +329,37 @@ def get_preset(preset_id: str) -> dict:
     if preset is None:
         raise HTTPException(status_code=404, detail="Preset not found.")
     return preset
+
+
+@app.post("/api/build-preset-prompt")
+def build_preset_prompt(payload: BuildPresetPromptIn) -> dict:
+    """Re-render a preset's template with user-supplied ``template_params``
+    (the guided MASEMiner builder form posts here on every change to keep
+    the live prompt preview in sync, then again on "Build" to commit the
+    final prompt + sub_views).
+
+    Merges the form values on top of the preset's defaults so the user
+    only has to send what they actually changed.  Returns the rendered
+    prompt + the auto-generated ``sub_views`` so the result panel can
+    pick up the right sub-tab set immediately."""
+    preset = presets_loader.get(payload.preset_id)
+    if preset is None:
+        raise HTTPException(status_code=404, detail="Preset not found.")
+    base_params = dict(preset.get("template_params") or {})
+    base_params.update(payload.template_params or {})
+    template = presets_loader.read_template_for(payload.preset_id)
+    if template is None:
+        raise HTTPException(
+            status_code=400,
+            detail="This preset does not use a parameterised template.",
+        )
+    prompt = presets_loader.render_template(template, base_params)
+    sub_views = presets_loader.build_sub_views(base_params.get("data_sources") or [])
+    return {
+        "prompt":          prompt,
+        "sub_views":       sub_views,
+        "template_params": base_params,
+    }
 
 
 # ── /api/test-connection ─────────────────────────────────────────────────────

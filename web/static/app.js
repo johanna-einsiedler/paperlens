@@ -537,8 +537,19 @@ function submitStep2() {
     goTo(state.step);
     return;
   }
-  // Preset path: prompt is already loaded, so skip section 3 (describe)
-  // and go straight to section 4 (review prompt).
+  // Preset path:
+  //   * Parameterised MASEMiner presets land on step 3 so the user can
+  //     visit the guided builder (refine data sources, variables, etc.)
+  //     before the prompt is committed.  Without this, submitStep2 used
+  //     to jump straight to step 5 because state.generatedPrompt was
+  //     already populated by applyPreset — bypassing the builder UX.
+  //   * Other (fixed-prompt) presets keep their old shortcut: prompt
+  //     was preset-loaded, no further input needed → skip to review.
+  if (state.activePreset
+      && typeof isMasemPreset === 'function' && isMasemPreset(state.activePreset)) {
+    goTo(3);
+    return;
+  }
   if (state.activePreset && state.generatedPrompt) {
     document.getElementById('promptSummaryText').textContent  = state.generatedPrompt;
     document.getElementById('promptSummaryModel').textContent = state.model;
@@ -642,6 +653,8 @@ function showStep3Choice() {
   document.getElementById('step3Choice').style.display   = '';
   document.getElementById('aiSection').style.display     = 'none';
   document.getElementById('manualSection').style.display = 'none';
+  const b = document.getElementById('masemBuilder');
+  if (b) b.style.display = 'none';
 }
 
 function setInputMode(mode) {
@@ -650,6 +663,8 @@ function setInputMode(mode) {
   document.getElementById('step3Choice').style.display   = 'none';
   document.getElementById('aiSection').style.display     = isManual ? 'none' : '';
   document.getElementById('manualSection').style.display = isManual ? ''     : 'none';
+  const b = document.getElementById('masemBuilder');
+  if (b) b.style.display = 'none';
 }
 
 function submitStep3() {
@@ -1445,7 +1460,10 @@ async function processPaper(paper) {
 
     paper.status            = 'done';
     paper.result            = result.result || '';
-    paper.pageImages        = [];
+    // IMPORTANT: don't blank pageImages here.  On first run it's already
+    // empty (will be filled by ensurePageImagesLoaded); on a re-run we
+    // want the previous PDF renderings to stay visible until the new
+    // ones arrive, so the right-hand panel doesn't flash empty.
     paper.pageImagesFetched = false;
     paper.pagesProcessed    = result.pages_processed || 0;
     paper.entries           = parseEntries(result.result);
@@ -1459,6 +1477,12 @@ async function processPaper(paper) {
       state.activePaperId = paper.id;
       displayPaper(paper);
       goTo(8);
+      ensurePageImagesLoaded(paper);
+    } else if (state.activePaperId === paper.id) {
+      // Active paper just completed (typically after a re-run) — re-render
+      // so the result column shows the new entries AND the "Re-run" header
+      // button reappears (it's hidden during pending/processing).
+      displayPaper(paper);
       ensurePageImagesLoaded(paper);
     } else {
       renderPaperSidebar();
@@ -1528,41 +1552,77 @@ async function ensurePageImagesLoaded(paper) {
 function renderPaperSidebar() {
   const sidebar  = document.getElementById('papersSidebar');
   const subViews = state.activePreset?.sub_views;
-  sidebar.innerHTML = state.papers.map(p => {
-    const isActive  = p.id === state.activePaperId;
+  const html = [];
+  for (const p of state.papers) {
+    const baseName  = escHtml(p.filename.replace(/\.pdf$/i, ''));
     const icon      = { pending: '○', processing: '⟳', done: '✓', error: '✕', cancelled: '⊘' }[p.status] || '·';
+    const isActiveP = p.id === state.activePaperId;
     const clickable = p.status === 'done' || p.status === 'error' || p.status === 'cancelled';
-    const cls       = ['paper-item', isActive ? 'active' : '', `status-${p.status}`].filter(Boolean).join(' ');
-    const onclick   = clickable ? `onclick="setActivePaper('${p.id}')"` : '';
     const phaseLabel = (p.status === 'processing' && p.phase)
       ? `<span class="paper-phase">${escHtml(p.phase)}</span>` : '';
-    // Per-paper Stop button while in flight
     const stopBtn = (p.status === 'pending' || p.status === 'processing')
       ? `<button class="paper-stop" onclick="event.stopPropagation(); cancelPaper('${p.id}')" title="Stop this paper">✕</button>`
       : '';
-    // Sub-tabs (preset-driven) — only on the active, finished paper
-    let subTabsHtml = '';
-    if (isActive && subViews?.length && p.status === 'done') {
-      const activeId = p.subView || subViews[0].id;
-      subTabsHtml = `<div class="paper-subtabs">${subViews.map(sv => `
-        <button class="paper-subtab ${sv.id === activeId ? 'active' : ''}"
-                onclick="event.stopPropagation(); setSubView('${escHtml(sv.id)}')"
-                title="${escHtml(sv.label)}">
-          ${escHtml(sv.label)}
-        </button>`).join('')}</div>`;
+
+    // Multi-sample papers expand into one row per sample so the user can
+    // see and jump to each sample directly from the overview, instead of
+    // clicking through numeric tabs hidden inside the result panel.
+    const entries = (p.status === 'done' && Array.isArray(p.entries)) ? p.entries : null;
+    const splitSamples = entries && entries.length > 1;
+
+    if (!splitSamples) {
+      const cls = ['paper-item', isActiveP ? 'active' : '', `status-${p.status}`]
+        .filter(Boolean).join(' ');
+      const onclick = clickable ? `onclick="setActivePaperEntry('${p.id}', 0)"` : '';
+      html.push(`
+        <div class="${cls}" ${onclick}>
+          <span class="paper-status-icon">${icon}</span>
+          <span class="paper-name-wrap">
+            <span class="paper-name">${baseName}</span>
+            ${phaseLabel}
+          </span>
+          ${stopBtn}
+        </div>`);
+      if (isActiveP && subViews?.length && p.status === 'done') {
+        html.push(_renderSidebarSubTabs(p, subViews));
+      }
+    } else {
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const rawSample  = entry && typeof entry.sample_id === 'string' ? entry.sample_id.trim() : '';
+        const sampleName = rawSample || `Sample ${i + 1}`;
+        const isActiveSample = isActiveP && p.entryIndex === i;
+        const cls = ['paper-item', 'paper-item-sample', isActiveSample ? 'active' : '', `status-${p.status}`]
+          .filter(Boolean).join(' ');
+        const onclick = `onclick="setActivePaperEntry('${p.id}', ${i})"`;
+        html.push(`
+          <div class="${cls}" ${onclick}>
+            <span class="paper-status-icon">${icon}</span>
+            <span class="paper-name-wrap">
+              <span class="paper-name">${baseName} <span class="paper-sample-suffix">&mdash; ${escHtml(sampleName)}</span></span>
+            </span>
+          </div>`);
+        if (isActiveSample && subViews?.length) {
+          html.push(_renderSidebarSubTabs(p, subViews));
+        }
+      }
     }
-    return `
-      <div class="${cls}" ${onclick}>
-        <span class="paper-status-icon">${icon}</span>
-        <span class="paper-name-wrap">
-          <span class="paper-name">${escHtml(p.filename.replace(/\.pdf$/i, ''))}</span>
-          ${phaseLabel}
-        </span>
-        ${stopBtn}
-      </div>
-      ${subTabsHtml}`;
-  }).join('');
+  }
+  sidebar.innerHTML = html.join('');
   updateRetryAllButton();
+}
+
+/* Renders the preset-driven sub-tabs (Loadings / Correlations / etc.) that
+   live underneath the active sidebar row.  Extracted so the multi-sample
+   rendering branch can reuse it without duplicating the markup. */
+function _renderSidebarSubTabs(paper, subViews) {
+  const activeId = paper.subView || subViews[0].id;
+  return `<div class="paper-subtabs">${subViews.map(sv => `
+    <button class="paper-subtab ${sv.id === activeId ? 'active' : ''}"
+            onclick="event.stopPropagation(); setSubView('${escHtml(sv.id)}')"
+            title="${escHtml(sv.label)}">
+      ${escHtml(sv.label)}
+    </button>`).join('')}</div>`;
 }
 
 /* ── Preset sub-views (e.g. MASEM Loadings/Correlations/Descriptives) ──── */
@@ -1704,17 +1764,19 @@ async function applyPreset(presetId) {
   // Banner — visible while preset is active
   const banner = document.getElementById('presetBanner');
   if (banner) {
-    // MASEMiner uses a two-tone "MASE / Miner" wordmark.  Other presets
-    // fall back to plain text so they don't pick up the navy/teal styling.
+    // The umbrella ``masem`` preset AND every variant (masem-tas20 etc.)
+    // all share the same MASEMiner brand wordmark in the banner.  Other
+    // (non-MASEM) presets fall back to plain text so they don't pick up
+    // the navy/teal styling.
     const titleEl = document.getElementById('presetBannerTitle');
-    if (preset.id === 'masem') {
+    const isMasem = typeof preset.id === 'string' && preset.id.startsWith('masem');
+    if (isMasem) {
       titleEl.innerHTML = '<span class="brand-mase">MASE</span><span class="brand-miner">Miner</span>';
       titleEl.classList.add('masem-wordmark');
     } else {
       titleEl.textContent = preset.title;
       titleEl.classList.remove('masem-wordmark');
     }
-    document.getElementById('presetBannerTagline').textContent = preset.tagline || '';
     banner.style.display = 'flex';
   }
 
@@ -1758,16 +1820,27 @@ async function applyPreset(presetId) {
   const modelBadge    = document.getElementById('modelBadge');
   if (promptDisplay && preset.prompt) promptDisplay.textContent = preset.prompt;
   if (modelBadge)                     modelBadge.textContent    = preset.default_model || preset.id;
-  // Skip the AI-generated vs Manual sub-choice on step 3 — the prompt is
-  // already loaded, so the manual section should be open by default if
-  // the user expands step 3.
-  if (preset.prompt) {
-    const choiceEl = document.getElementById('step3Choice');
-    const aiEl     = document.getElementById('aiSection');
-    const manEl    = document.getElementById('manualSection');
-    if (choiceEl) choiceEl.style.display = 'none';
-    if (aiEl)     aiEl.style.display     = 'none';
-    if (manEl)    manEl.style.display    = '';
+  // Step 3 layout differs by preset:
+  //  * MASEMiner (parameterised template) → guided builder form
+  //  * Other presets that ship a fully-formed prompt → manual-prompt panel
+  const choiceEl = document.getElementById('step3Choice');
+  const aiEl     = document.getElementById('aiSection');
+  const manEl    = document.getElementById('manualSection');
+  const builderEl = document.getElementById('masemBuilder');
+  const customiseBtn = document.getElementById('presetBannerCustomize');
+  if (typeof isMasemPreset === 'function' && isMasemPreset(preset)) {
+    if (choiceEl)  choiceEl.style.display  = 'none';
+    if (aiEl)      aiEl.style.display      = 'none';
+    if (manEl)     manEl.style.display     = 'none';
+    if (builderEl) builderEl.style.display = '';
+    if (customiseBtn) customiseBtn.style.display = '';
+    if (typeof openMasemBuilder === 'function') openMasemBuilder(preset.id);
+  } else if (preset.prompt) {
+    if (choiceEl)  choiceEl.style.display  = 'none';
+    if (aiEl)      aiEl.style.display      = 'none';
+    if (manEl)     manEl.style.display     = '';
+    if (builderEl) builderEl.style.display = 'none';
+    if (customiseBtn) customiseBtn.style.display = 'none';
   }
 
   // Land on the configured step.  For MASEMiner we go to step 2 (setup);
@@ -1985,8 +2058,22 @@ async function cancelBatch() {
 }
 
 function setActivePaper(id) {
+  // Backwards-compatible entry point — selects the first sample.
+  setActivePaperEntry(id, 0);
+}
+
+/* Click handler for sidebar rows.  Multi-sample papers split into one
+   row per sample, so the row carries both the paper id and the entry
+   index.  This sets both pieces of state and re-renders. */
+function setActivePaperEntry(id, idx) {
   const paper = state.papers.find(p => p.id === id);
-  if (!paper || (paper.status !== 'done' && paper.status !== 'error')) return;
+  if (!paper) return;
+  // Only navigate when the paper has reached a viewable state.
+  if (paper.status !== 'done' && paper.status !== 'error') return;
+  // Clamp entry index to whatever the paper currently has.
+  const total = Array.isArray(paper.entries) ? paper.entries.length : 0;
+  const safeIdx = total > 0 ? Math.min(Math.max(0, idx | 0), total - 1) : 0;
+  paper.entryIndex    = safeIdx;
   state.activePaperId = id;
   renderEvidenceWarning(paper);
   displayPaper(paper);
@@ -2147,6 +2234,23 @@ function displayPaper(paper) {
   const nav     = document.getElementById('entryNav');
   const display = document.getElementById('resultDisplay');
 
+  if (paper.status === 'pending' || paper.status === 'processing') {
+    // Re-run in progress — show a small "running" notice in the result
+    // column and leave the right-hand PDF panel untouched (the previous
+    // page image stays visible while the new job runs).
+    nav.style.display       = 'none';
+    display.dataset.paperId  = paper.id;
+    display.dataset.entryIdx = 0;
+    const phase = paper.phase ? ` &middot; ${escHtml(paper.phase)}` : '';
+    display.innerHTML = `
+      <div class="rerun-progress" role="status" aria-live="polite">
+        <span class="rerun-spinner" aria-hidden="true">&#10227;</span>
+        <span>Re-running this paper${phase}&hellip;</span>
+      </div>`;
+    renderPaperSidebar();
+    return;
+  }
+
   if (paper.status === 'error') {
     nav.style.display  = 'none';
     display.dataset.paperId  = paper.id;
@@ -2261,9 +2365,13 @@ function _buildManualScaffold(activePreset) {
 function retryPaper(id) {
   const paper = state.papers.find(p => p.id === id);
   if (!paper) return;
-  // Clear all previous-run state so the UI doesn't show stale data while
-  // the new run is in flight, and so the second result fully overwrites
-  // the first instead of mixing with it.
+  // Clear the result-side state so the new run replaces the old data.
+  // IMPORTANT: keep ``pageImages`` and ``scannedPages`` — the same PDF
+  // re-extracts to the same page renderings, so the right-hand panel
+  // should stay visible during the re-run instead of going blank.  We
+  // also keep ``browseAllPagesIdx`` so the user's current page survives
+  // the round-trip; highlights will be replaced when the new job's
+  // /pages endpoint returns.
   paper.status              = 'pending';
   paper.phase               = null;
   paper.error               = null;
@@ -2272,10 +2380,7 @@ function retryPaper(id) {
   paper.entries             = null;
   paper.entryIndex          = 0;
   paper.parsed              = null;
-  paper.pageImages          = [];
-  paper.pageImagesFetched   = false;
-  paper.highlights          = [];
-  paper.scannedPages        = [];
+  paper.highlights          = [];          // will be repopulated by the new run
   paper.evidencePages       = [];
   paper.evidencePageIdx     = 0;
   paper.evidenceCount       = null;
@@ -2287,6 +2392,10 @@ function retryPaper(id) {
   paper.manualEntries       = null;
   paper.evidenceWarningDismissed = false;
   paper.autoVisionFallback  = false;
+  // Mark page images stale so ensurePageImagesLoaded re-fetches the new
+  // job's overlay rects when the run completes.  ``pageImages`` itself
+  // stays in place visually until the new ones overwrite.
+  paper.pageImagesFetched   = false;
   renderPaperSidebar();
   if (state.activePaperId === paper.id) displayPaper(paper);
   processPaper(paper);
@@ -2309,37 +2418,44 @@ function renderEntry(paper) {
   const entry = paper.entries[paper.entryIndex];
   const total = paper.entries.length;
 
-  document.getElementById('entryCounter').textContent = `Entry ${paper.entryIndex + 1} of ${total}`;
-  document.getElementById('prevBtn').disabled = paper.entryIndex === 0;
-  document.getElementById('nextBtn').disabled = paper.entryIndex === total - 1;
+  // Sample label — prefer the model-extracted ``sample_id`` when present,
+  // otherwise fall back to "Sample N".  Same logic the sidebar uses, so
+  // both surfaces show the same name for each row.
+  const rawSample  = entry && typeof entry.sample_id === 'string' ? entry.sample_id.trim() : '';
+  const sampleName = rawSample || `Sample ${paper.entryIndex + 1}`;
+  document.getElementById('entryCounter').textContent = total > 1
+    ? `${sampleName} · ${paper.entryIndex + 1} of ${total}`
+    : sampleName;
+  // Inter-sample nav buttons are redundant when there's only one sample
+  // (the sidebar handles selection); hide them in that case.
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  prevBtn.style.display = total > 1 ? '' : 'none';
+  nextBtn.style.display = total > 1 ? '' : 'none';
+  prevBtn.disabled = paper.entryIndex === 0;
+  nextBtn.disabled = paper.entryIndex === total - 1;
 
-  // Multi-entry hint + tab strip — only useful when there's more than one
+  // The hint that used to tell users to "use numbered tabs to flip
+  // through entries" is now redundant — each sample has its own row in
+  // the left-hand overview.  Hide it.
   const hint  = document.getElementById('multiEntryHint');
-  const text  = document.getElementById('multiEntryText');
   const tabs  = document.getElementById('entryTabs');
-  if (hint && text) {
-    if (total > 1) {
-      hint.style.display = 'flex';
-      text.innerHTML = `This paper has <strong>${total} entries</strong> &mdash; use the buttons or numbered tabs to flip through all of them.`;
-    } else {
-      hint.style.display = 'none';
-    }
-  }
+  if (hint) hint.style.display = 'none';
+
   if (tabs) {
-    // Always show the tabs strip when at least one entry exists, so the
-    // "+ Add sample" / "Remove" controls are reachable even with a single
-    // entry (e.g. just-filled-in manual mode).
-    tabs.style.display = total >= 1 ? 'flex' : 'none';
-    const tabBtns = paper.entries.map((_, i) =>
-      `<button class="entry-tab ${i === paper.entryIndex ? 'active' : ''}" onclick="jumpToEntry(${i})" title="Entry ${i + 1}">${i + 1}</button>`
-    ).join('');
-    const addBtn = `<button class="entry-tab entry-tab-add" title="Add a new sample"
-                            onclick="addEntryToPaper('${paper.id}')">+</button>`;
+    // The strip used to also host numeric "1 2 3" tabs for sample
+    // navigation — those moved to the sidebar.  We keep only the
+    // "+ Add sample" / "− Remove sample" controls so the user can still
+    // grow / shrink the sample list, with text labels so they're
+    // discoverable on their own.
+    tabs.style.display = 'flex';
+    const addBtn = `<button class="entry-tab entry-tab-add" title="Append a new sample"
+                            onclick="addEntryToPaper('${paper.id}')">+ Add sample</button>`;
     const delBtn = total > 1
       ? `<button class="entry-tab entry-tab-del" title="Delete this sample"
-                onclick="removeActiveEntry('${paper.id}')">&minus;</button>`
+                onclick="removeActiveEntry('${paper.id}')">&minus; Remove sample</button>`
       : '';
-    tabs.innerHTML = tabBtns + addBtn + delBtn;
+    tabs.innerHTML = addBtn + delBtn;
   }
 
   // Reflect the current view-mode in the toggle buttons
@@ -2379,14 +2495,13 @@ function renderEntry(paper) {
     evidencePages     = entryPages.length ? entryPages
       : [...findAllEntryPages(paper.parsed)].sort((a, b) => a - b);
   }
-  paper.evidencePages     = evidencePages;
-  paper.evidencePageIdx   = 0;
-  paper.browseAllPagesIdx = 0;
-  updatePageNav(paper);
-  // If the entry has cited pages → show the first one (with highlights).
-  // Otherwise fall back to page 1 of the captured PDF so the user can flip
-  // through the whole document via the always-visible nav.
+  paper.evidencePages   = evidencePages;
+  paper.evidencePageIdx = 0;
+  // Open on the first cited page so the relevant content is what the
+  // user sees first, but the nav can flip through every page in the PDF.
   const initialPage = paper.evidencePages[0] ?? (paper.pageImages.length ? 1 : null);
+  paper.browseAllPagesIdx = initialPage ? (initialPage - 1) : 0;
+  updatePageNav(paper);
   showPageImage(paper, initialPage);
 }
 
@@ -2517,6 +2632,14 @@ function showPageImage(paper, pageNum) {
     label.textContent  = 'Page \u2014';
   }
 
+  // Keep the always-all-pages navigator counter in sync with whatever
+  // page actually got displayed (covers cell-click jumps, browse-all
+  // flips, and the initial-page seeding from renderEntry).
+  if (displayedPage != null) {
+    paper.browseAllPagesIdx = displayedPage - 1;
+    updatePageNav(paper);
+  }
+
   // Render SVG highlight overlay for the displayed page (filtered by sub-view).
   renderHighlightOverlay(paper, displayedPage);
 
@@ -2621,12 +2744,20 @@ function nextEntry() {
 
 /* Two modes for the page navigator:
    - if there are evidence pages cited by the entry, flip through those
-     (current behaviour — the cited pages are highlighted)
-   - if there are none, fall back to "browse every captured page" so the user
-     can still scroll through the source PDF page by page. */
+     The navigator now ALWAYS spans every captured PDF page so the user
+     can flip through the whole document.  ``evidencePages`` is still
+     used as a hint — the navigator opens on the first cited page so the
+     relevant content is what the user sees first — but it doesn't
+     restrict navigation.  Highlights remain filtered by the active
+     sub-view (so flipping to a non-evidence page just shows that page
+     unhighlighted, while flipping to an evidence page draws its rects).
+
+   ``paper.browseAllPagesIdx`` is the single 0-indexed cursor into
+   ``paper.pageImages``; ``evidencePageIdx`` is no longer used for
+   navigation but kept on the paper object for backwards compatibility
+   with serialised history payloads. */
 function _isBrowseAllMode(paper) {
-  return (paper.evidencePages?.length || 0) === 0
-      && (paper.pageImages?.length    || 0)  > 1;
+  return (paper.pageImages?.length || 0) > 1;
 }
 
 function updatePageNav(paper) {
@@ -2635,18 +2766,19 @@ function updatePageNav(paper) {
   const nextEl = document.getElementById('pageNavNext');
   const cntEl  = document.getElementById('pageNavCounter');
 
-  const browseAll = _isBrowseAllMode(paper);
-  const total     = browseAll ? paper.pageImages.length : paper.evidencePages.length;
-  const idx       = browseAll ? (paper.browseAllPagesIdx || 0) : paper.evidencePageIdx;
+  const total = paper.pageImages?.length || 0;
+  const idx   = paper.browseAllPagesIdx || 0;
 
   if (total > 1) {
     navEl.style.display = 'flex';
-    cntEl.textContent   = browseAll
-      ? `Page ${idx + 1} / ${total}`
-      : `${idx + 1}/${total}`;
+    cntEl.textContent   = `Page ${idx + 1} / ${total}`;
     prevEl.disabled     = idx === 0;
     nextEl.disabled     = idx === total - 1;
-    navEl.classList.toggle('page-nav-browse', browseAll);
+    // Mark the current page as "highlighted" if it carries any sub-view-
+    // matched rects, so the user can see at a glance which pages have
+    // evidence to look at.
+    const hasHl = Array.isArray(paper.evidencePages) && paper.evidencePages.includes(idx + 1);
+    navEl.classList.toggle('page-nav-on-evidence', hasHl);
   } else {
     navEl.style.display = 'none';
   }
@@ -2655,35 +2787,22 @@ function updatePageNav(paper) {
 function prevEvidencePage() {
   const p = getActivePaper();
   if (!p) return;
-  if (_isBrowseAllMode(p)) {
-    if ((p.browseAllPagesIdx || 0) === 0) return;
-    p.browseAllPagesIdx -= 1;
-    updatePageNav(p);
-    showPageImage(p, p.browseAllPagesIdx + 1);
-  } else {
-    if (p.evidencePageIdx === 0) return;
-    p.evidencePageIdx--;
-    updatePageNav(p);
-    showPageImage(p, p.evidencePages[p.evidencePageIdx]);
-  }
+  if ((p.browseAllPagesIdx || 0) === 0) return;
+  p.browseAllPagesIdx = (p.browseAllPagesIdx || 0) - 1;
+  updatePageNav(p);
+  showPageImage(p, p.browseAllPagesIdx + 1);
 }
 
 function nextEvidencePage() {
   const p = getActivePaper();
   if (!p) return;
-  if (_isBrowseAllMode(p)) {
-    const max = p.pageImages.length - 1;
-    if ((p.browseAllPagesIdx || 0) >= max) return;
-    p.browseAllPagesIdx = (p.browseAllPagesIdx || 0) + 1;
-    updatePageNav(p);
-    showPageImage(p, p.browseAllPagesIdx + 1);
-  } else {
-    if (p.evidencePageIdx >= p.evidencePages.length - 1) return;
-    p.evidencePageIdx++;
-    updatePageNav(p);
-    showPageImage(p, p.evidencePages[p.evidencePageIdx]);
-  }
+  const max = (p.pageImages?.length || 1) - 1;
+  if ((p.browseAllPagesIdx || 0) >= max) return;
+  p.browseAllPagesIdx = (p.browseAllPagesIdx || 0) + 1;
+  updatePageNav(p);
+  showPageImage(p, p.browseAllPagesIdx + 1);
 }
+
 
 /* ──────────────────────────────────────────────────────────
    JSON parsing helpers

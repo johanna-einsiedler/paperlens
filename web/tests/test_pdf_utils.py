@@ -313,6 +313,44 @@ def test_probe_text_layer_classifies_mixed_pdf():
     assert p["text_layer_present"] is True
 
 
+def test_probe_text_layer_classifies_ocr_scan_as_scanned():
+    """Real-world feedback case: scanned papers that have had OCR run on
+    them (either by the user or by the journal before download) acquire
+    a machine-generated text layer.  The old char-count heuristic
+    treated those as native text PDFs and routed them through the
+    text-extraction path, which gave poor / hallucinated results.
+
+    The new check looks for a near-full-page image — the visual signal
+    that the page is fundamentally a raster scan, regardless of whether
+    a text layer has been overlaid on top."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    # Insert a full-page image (a plain white pixmap is enough to make
+    # ``page.get_image_info`` report a page-spanning bbox).
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 595, 842))
+    pix.set_rect(pix.irect, (255, 255, 255))
+    page.insert_image(page.rect, pixmap=pix)
+    # Add an OCR-style text layer on top with plenty of characters so
+    # the old char-count heuristic would have classified this as text.
+    page.insert_text(
+        (50, 50),
+        "This page has a full-page raster image with an OCR-generated "
+        "text layer overlaid on top — the typical shape of a scanned "
+        "journal article that was OCR'd before download.",
+        fontsize=10,
+    )
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    p = pdf_utils.probe_text_layer(pdf_bytes)
+    assert p["total_pages"] == 1
+    # Even though the text layer has well over 50 chars, the page is
+    # dominated by a full-page image — must be flagged as scanned.
+    assert p["scanned_pages"] == [1]
+    assert p["text_layer_present"] is False
+
+
 def test_pdf_to_pages_with_rects_flags_scanned_pages():
     """A PDF page with no text layer (image-only / scanned) should be reported
     in ``scanned_pages`` so the client can show a clear notice instead of a
