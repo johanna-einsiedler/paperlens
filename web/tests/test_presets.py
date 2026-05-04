@@ -202,28 +202,73 @@ def test_umbrella_masem_is_general_scope(client):
     assert sub_ids == ["corrmatrix", "singlecorrs", "descriptives"]
 
 
-def test_tas20_variant_renders_with_item_texts(client):
-    """The TAS-20 sub-preset is concrete-items scope with item_texts
-    pre-baked and include_item_texts=True — the rendered prompt must
-    surface the item-text reference block so the model can match
-    reordered items."""
+def test_tas20_variant_renders_without_pre_baked_item_texts(client):
+    """The TAS-20 sub-preset sets up the structural scaffold (factor
+    loadings + factor correlations, DIF/DDF/EOT factor names, the
+    standard CFA item-to-factor fallback) but does NOT ship the
+    verbatim TAS-20 item content — those are copyrighted and users
+    paste their own copy into section C of the builder if they want
+    semantic-content matching."""
     r = client.get("/api/presets/masem-tas20")
     assert r.status_code == 200
     body = r.json()
     prompt = body["prompt"]
-    # Item-text reference block is included
-    assert "Reference item texts" in prompt
-    # First and last standard TAS-20 items appear verbatim
-    assert "I am often confused about what emotion I am feeling" in prompt
-    assert "Looking for hidden meanings in movies or plays distracts" in prompt
-    # Sub-views match TAS-20 (factor loadings + correlations)
-    sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["loadings", "correlations", "descriptives"]
-    # TAS-20-specific phrases the prompt must still emit
+    # The TAS-20 SCAFFOLD is in the prompt
     assert "Toronto Alexithymia Scale (TAS-20, 20 items) factor-analytic data" in prompt
     assert "F1 = **DIF** (Difficulty Identifying Feelings)" in prompt
     assert "F1 = items 1, 3, 6, 7, 9, 13, 14" in prompt
     assert "Ignore any solution that includes items from measures other than the TAS-20." in prompt
+    # But the verbatim copyrighted item content is OUT
+    assert "I am often confused about what emotion I am feeling" not in prompt
+    assert "Looking for hidden meanings in movies or plays distracts" not in prompt
+    assert "Reference item texts" not in prompt
+    # Sub-views match TAS-20 (factor loadings + correlations)
+    sub_ids = [sv["id"] for sv in body["sub_views"]]
+    assert sub_ids == ["loadings", "correlations", "descriptives"]
+
+
+def test_tas20_variant_includes_user_supplied_item_texts(client):
+    """Users paste their own item texts into section C of the builder.
+    When that posts back through /api/build-preset-prompt with the
+    TAS-20 starter, the rendered prompt must surface those item texts
+    in the reference block."""
+    r = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem-tas20",
+        "template_params": {
+            "item_texts": [
+                "User-pasted item 1",
+                "User-pasted item 20",
+            ],
+            "include_item_texts": True,
+        },
+    })
+    assert r.status_code == 200
+    prompt = r.json()["prompt"]
+    assert "Reference item texts" in prompt
+    assert "User-pasted item 1" in prompt
+    assert "User-pasted item 20" in prompt
+
+
+def test_study_characteristics_block_renders_when_provided(client):
+    """The new section D in the builder feeds free-form study context
+    into the rendered prompt under "## About these studies".  Empty
+    text → no block emitted."""
+    # No D-text → no block
+    r1 = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem", "template_params": {},
+    })
+    assert "## About these studies" not in r1.json()["prompt"]
+    # With D-text → block appears
+    r2 = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem",
+        "template_params": {
+            "study_characteristics_text":
+                "Studies are mostly Korean and Japanese TAS-20 versions.",
+        },
+    })
+    body = r2.json()
+    assert "## About these studies" in body["prompt"]
+    assert "Korean and Japanese TAS-20 versions" in body["prompt"]
 
 
 # ── /api/build-preset-prompt — guided builder render route ─────────────────

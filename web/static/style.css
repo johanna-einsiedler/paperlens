@@ -2647,26 +2647,79 @@ kbd {
   line-height: 1.4;
 }
 
-.masem-checkbox-row,
-.masem-radio-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* A/B data-source cards.  Multi-select toggle buttons styled like
+   selectable cards (matches the brand-mark feel in the screenshot). */
+.masem-source-cards-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
 }
-.masem-checkbox,
-.masem-radio {
+.masem-source-card {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
+  appearance: none;
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
   font-size: 13px;
   color: var(--text);
-  line-height: 1.5;
-  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
-.masem-checkbox input,
-.masem-radio input {
-  margin-top: 3px;
+.masem-source-card:hover { border-color: var(--primary); }
+.masem-source-card.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: 0 0 0 2px rgba(29, 74, 140, 0.08);
+}
+.masem-source-icon {
   flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-light);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+}
+.masem-source-card.active .masem-source-icon {
+  background: #fff;
+}
+.masem-source-body {
+  flex: 1;
+  min-width: 0;
+}
+.masem-source-title {
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text);
+}
+.masem-source-card.active .masem-source-title { color: var(--primary); }
+.masem-source-tagline {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* Hint paragraph shown below each section header in the builder. */
+.masem-hint {
+  margin: -2px 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.masem-hint code {
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11.5px;
+  background: var(--bg);
+  border-radius: 3px;
+  padding: 1px 4px;
 }
 
 #masemBuilder textarea {

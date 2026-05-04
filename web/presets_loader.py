@@ -109,6 +109,7 @@ _OPTIONAL_PLACEHOLDERS = (
     "multiple_models_section",
     "res_field_block",
     "schema_invariants_line",
+    "study_characteristics_block",
 )
 
 
@@ -182,11 +183,14 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     )
 
     # First item-text used as the verbatim example in section "Factor
-    # naming + item identification" (paraphrase: "I am often confused…").
+    # naming + item identification".  When the user supplied item_texts
+    # we use their first one; otherwise fall back to a generic
+    # placeholder so we never leak copyrighted instrument content into
+    # the prompt.
     item_texts = p.get("item_texts") or []
     item_text_example = (
         _shorten_item_text(item_texts[0]) if (item_texts and p.get("include_item_texts", False))
-        else "I am often confused about what emotion I am feeling"
+        else "a recognisable item phrase from the instrument"
     )
 
     # Examples that reference factor indices that don't exist in this
@@ -289,6 +293,14 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     # preamble reads naturally for correlation-only presets.
     preamble_data_qualifier = "factor-analytic " if fl_active else ""
 
+    # Free-form study-context paragraph the user typed into section D
+    # of the guided builder.  Rendered as a small "## About these
+    # studies" block right after the preamble; absent when the user
+    # didn't fill section D in.
+    study_characteristics_block = _render_study_characteristics_block(
+        p.get("study_characteristics_text") or "",
+    )
+
     return {
         "n_loading_keys":              n_loading_keys,
         "n_corr_pairs":                n_corr_pairs,
@@ -322,6 +334,7 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
         "goal_items":                  goal_items,
         "json_schema":                 json_schema,
         "preamble_data_qualifier":     preamble_data_qualifier,
+        "study_characteristics_block": study_characteristics_block,
     }
 
 
@@ -522,6 +535,16 @@ def _render_item_texts_block(items: list, include: bool) -> str:
         "`<item>` index.  Note any reorderings or paraphrases in `notes`."
     )
     return "\n".join(lines)
+
+
+def _render_study_characteristics_block(text: str) -> str:
+    """Optional "About these studies" paragraph the user filled into
+    section D of the guided builder.  Empty input → empty block (no
+    extra heading dropped into the prompt)."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+    return f"\n## About these studies\n\n{cleaned}\n"
 
 
 def _render_instrument_filter(scope: str, instrument_name: str) -> str:

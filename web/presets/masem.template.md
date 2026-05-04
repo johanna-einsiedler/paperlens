@@ -1,5 +1,5 @@
 You are extracting ${instrument_name_long} ${preamble_data_qualifier}data from an academic paper for Meta-Analytic Structural Equation Modeling (MASEM).
-
+${study_characteristics_block}
 ## Goal
 
 For every distinct sample/group reported in the paper, extract:

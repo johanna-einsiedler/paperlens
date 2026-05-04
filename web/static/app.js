@@ -3060,17 +3060,30 @@ function isDottedNumericTable(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
   const keys = Object.keys(obj);
   if (keys.length < 4) return false;
+  // Tolerate a small number of stray non-matching keys (e.g. the model
+  // sometimes emits an abbreviated ``"...": null`` placeholder for empty
+  // factor columns instead of enumerating each F4.* / F5.* explicitly).
+  // A single such stray used to flip the entire dict to the flat
+  // "numgrid" fallback layout.  We now require ≥75 % of the keys to
+  // match the dotted regex, which keeps generic dicts from being
+  // misclassified while making the table renderer robust to common
+  // model abbreviations.
   const groups = new Set();
   const items  = new Set();
+  let matches = 0;
   for (const k of keys) {
     const m = k.match(_DOTTED_KEY_RE);
-    if (!m) return false;
+    if (!m) continue;
     const v = obj[k];
-    if (v !== null && typeof v !== 'number') return false;
+    if (v !== null && typeof v !== 'number') continue;
     groups.add(m[1]);
     items.add(parseInt(m[2], 10));
+    matches++;
   }
-  return groups.size >= 2 && items.size >= 2;
+  return matches >= 4
+      && groups.size >= 2
+      && items.size  >= 2
+      && matches >= keys.length * 0.75;
 }
 
 /* Resolve an entry-relative path like ``factor_loadings`` or

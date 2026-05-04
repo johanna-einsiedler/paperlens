@@ -400,14 +400,14 @@
       </div>
 
       <!-- Guided MASEMiner builder — shown only when a parameterised
-           MASEM preset is active.  Lets the user pick a starter (TAS-20 /
-           Big Five / General), toggle data sources, edit variables, and
-           preview the rendered prompt before committing it. -->
+           MASEM preset is active.  Four sections (A/B data-source cards
+           + C identification + D study context) drive the rendered
+           prompt; user can preview it live and commit it. -->
       <div id="masemBuilder" style="display:none">
         <h2>Configure your MASEMiner extraction</h2>
-        <p class="subtitle">Pick a starter, then refine the data sources and variables for your meta-analysis.</p>
+        <p class="subtitle">Pick what to extract (A/B), name what the model should look for (C), optionally describe the studies (D).</p>
 
-        <!-- Starter cards -->
+        <!-- Optional starter shortcut -->
         <div class="form-group">
           <label class="parse-method-label">Starter</label>
           <div class="masem-starter-row" id="masemStarterRow">
@@ -415,79 +415,65 @@
           </div>
         </div>
 
-        <!-- Data sources -->
+        <!-- A + B: data-source cards (multi-select) -->
         <div class="form-group">
-          <label class="parse-method-label">Data sources to extract</label>
-          <div class="masem-checkbox-row" id="masemDataSourcesRow">
-            <label class="masem-checkbox">
-              <input type="checkbox" name="ds-factor_loadings" data-source="factor_loadings" />
-              <span><strong>Factor loadings</strong>
-                <span class="masem-help" tabindex="0"
-                      data-tip="Item × factor coefficients reported in factor-analysis tables. Each cell tells you how strongly an item loads on a given latent factor.">?</span>
-              </span>
-            </label>
-            <label class="masem-checkbox">
-              <input type="checkbox" name="ds-factor_correlations" data-source="factor_correlations" />
-              <span><strong>Factor correlations</strong>
-                <span class="masem-help" tabindex="0"
-                      data-tip="Inter-factor (latent) correlations — how the factors themselves correlate with each other in an oblique solution.">?</span>
-              </span>
-            </label>
-            <label class="masem-checkbox">
-              <input type="checkbox" name="ds-correlation_matrix" data-source="correlation_matrix" />
-              <span><strong>Correlation matrices</strong>
-                <span class="masem-help" tabindex="0"
-                      data-tip="Tabular variable × variable correlation matrices reported in the paper (typically a numbered Table with Pearson r values).">?</span>
-              </span>
-            </label>
-            <label class="masem-checkbox">
-              <input type="checkbox" name="ds-single_correlations" data-source="single_correlations" />
-              <span><strong>Single correlations from prose</strong>
-                <span class="masem-help" tabindex="0"
-                      data-tip="Individual correlations stated as inline text rather than in a matrix (e.g. &quot;the correlation between X and Y was r = .42&quot;).">?</span>
-              </span>
-            </label>
+          <label class="parse-method-label">What to extract</label>
+          <div class="masem-source-cards-row">
+            <button class="masem-source-card" id="masemSourceA" type="button"
+                    onclick="_toggleMasemSource('A')"
+                    aria-pressed="false">
+              <div class="masem-source-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+              </div>
+              <div class="masem-source-body">
+                <div class="masem-source-title">A: Direct correlation information</div>
+                <div class="masem-source-tagline">Correlation matrices, single correlations</div>
+              </div>
+            </button>
+            <button class="masem-source-card" id="masemSourceB" type="button"
+                    onclick="_toggleMasemSource('B')"
+                    aria-pressed="false">
+              <div class="masem-source-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="14" width="3" height="7" rx="0.5"/><rect x="10.5" y="9" width="3" height="12" rx="0.5"/><rect x="17" y="4" width="3" height="17" rx="0.5"/></svg>
+              </div>
+              <div class="masem-source-body">
+                <div class="masem-source-title">B: Reconstructed information</div>
+                <div class="masem-source-tagline">Factor loadings, factor correlations</div>
+              </div>
+            </button>
           </div>
         </div>
 
-        <!-- Content scope -->
+        <!-- C: identification information -->
         <div class="form-group">
-          <label class="parse-method-label">Content scope</label>
-          <div class="masem-radio-row" id="masemScopeRow">
-            <label class="masem-radio">
-              <input type="radio" name="scope" value="concrete_items" />
-              <span><strong>Concrete items</strong> &mdash; specific instrument items (e.g. TAS-20 items 1&ndash;20)</span>
-            </label>
-            <label class="masem-radio">
-              <input type="radio" name="scope" value="content_groups" />
-              <span><strong>Content groups</strong> &mdash; named scales / instruments (e.g. BFI-E, NEO-E, IPIP-E)</span>
-            </label>
-            <label class="masem-radio">
-              <input type="radio" name="scope" value="theoretical_constructs" />
-              <span><strong>Theoretical constructs</strong> &mdash; abstract constructs across operationalisations (e.g. Extraversion)</span>
-            </label>
-          </div>
+          <label class="parse-method-label" for="masemCInput">
+            C: Identification information
+            <span class="optional">(item labels, scales, constructs)</span>
+          </label>
+          <p class="masem-hint">One per line. For groups / constructs you can write <code>Name | Definition | synonym1, synonym2</code> for richer matching.  For TAS-20 (or any concrete-items workflow), paste the verbatim item texts in their original order — the model will use them to match reordered or paraphrased items.</p>
+          <textarea id="masemCInput" rows="7"
+                    placeholder="e.g.
+Extraversion | Big Five trait of sociability and assertiveness | Surgency
+Conscientiousness | Self-discipline and dutifulness | Industriousness
+
+— OR —
+1. I am often confused about what emotion I am feeling.
+2. It is difficult for me to find the right words for my feelings.
+…"></textarea>
         </div>
 
-        <!-- Variables (one-per-line text editor; format depends on scope) -->
-        <div class="form-group" id="masemVariablesGroup">
-          <label class="parse-method-label" for="masemVariablesInput">
-            Variables / scales / constructs to look for
-            <span class="optional" id="masemVariablesHint"></span>
+        <!-- D: study + analysis characteristics (optional free-form context) -->
+        <div class="form-group">
+          <label class="parse-method-label" for="masemDInput">
+            D: Study &amp; analysis characteristics
+            <span class="optional">(N, country, language, method, etc. — optional)</span>
           </label>
-          <textarea id="masemVariablesInput" rows="6"
-                    placeholder="One per line. For groups/constructs you can also write 'Name | Definition | synonym1, synonym2'"></textarea>
-        </div>
-
-        <!-- Item texts (only relevant for concrete_items scope) -->
-        <div class="form-group" id="masemItemTextsGroup" style="display:none">
-          <label class="masem-checkbox" style="margin-bottom:8px">
-            <input type="checkbox" id="masemIncludeItemTexts" />
-            <span><strong>Include item texts in the prompt</strong> &mdash; so the model can recognise reordered or paraphrased items</span>
-          </label>
-          <label class="parse-method-label" for="masemItemTextsInput">Item texts (one per line, in original order)</label>
-          <textarea id="masemItemTextsInput" rows="6"
-                    placeholder="1. I am often confused about what emotion I am feeling.&#10;2. It is difficult for me to find the right words for my feelings.&#10;..."></textarea>
+          <p class="masem-hint">Optional free-form description of the studies in this batch (e.g. typical sample size, the languages / countries involved, the analysis methods commonly used).  Helps the model contextualise borderline values.  Leave empty if you don't need it.</p>
+          <textarea id="masemDInput" rows="4"
+                    placeholder="e.g.
+Studies are mostly Korean and Japanese TAS-20 versions.
+N typically 200–600, university or community samples.
+Estimation method is mostly principal component analysis with varimax rotation."></textarea>
         </div>
 
         <!-- Live prompt preview -->
