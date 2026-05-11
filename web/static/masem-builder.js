@@ -20,11 +20,25 @@ const _MASEM_STARTERS = [
     tagline: 'Pre-filled for Toronto Alexithymia Scale meta-analyses (factor loadings + inter-factor correlations).' },
 ];
 
+/* Available prompt templates the form can render against.  The
+   ``file`` field is sent to /api/build-preset-prompt as
+   ``prompt_template_file`` — when null, the preset's own default
+   template is used. */
+const _MASEM_TEMPLATES = [
+  { id: 'default', label: 'Default',
+    tagline: 'The original MASEMiner prompt with factor-naming + reference-item blocks.',
+    file: null },
+  { id: 'timo',    label: "Timo's Template",
+    tagline: 'Stepwise extraction procedure with strict evidence rules and inference principles.',
+    file: 'masem-timo.template.md' },
+];
+
 const _MASEM_BUILDER_STATE = {
-  starter: null,        // active starter preset id
-  params:  {},          // current template_params (live form state)
-  presetCache: {},      // id → fetched preset detail (avoids re-GET on starter switch)
-  previewTimer: null,   // debounce timer for re-render after typing
+  starter: null,            // active starter preset id
+  templateId: 'default',    // active prompt-template id (from _MASEM_TEMPLATES)
+  params:  {},              // current template_params (live form state)
+  presetCache: {},          // id → fetched preset detail (avoids re-GET on starter switch)
+  previewTimer: null,       // debounce timer for re-render after typing
 };
 
 /* Returns true when the active preset is one of the parameterised
@@ -45,6 +59,7 @@ async function openMasemBuilder(presetId) {
   document.getElementById('aiSection').style.display      = 'none';
   document.getElementById('manualSection').style.display  = 'none';
   document.getElementById('masemBuilder').style.display   = '';
+  _renderMasemTemplateCards();
   _renderMasemStarterCards();
 
   // Default starter: TAS-20.  The umbrella ``masem`` preset is general
@@ -59,6 +74,36 @@ async function openMasemBuilder(presetId) {
     ? 'masem-tas20'
     : presetId;
   await _selectMasemStarter(startId, /*isUserClick=*/ false);
+}
+
+/* Render the prompt-template selector cards.  Switching templates does
+   NOT change form values — it just swaps which template file the
+   backend renders against on the next preview refresh. */
+function _renderMasemTemplateCards() {
+  const row = document.getElementById('masemTemplateRow');
+  if (!row) return;
+  const active = _MASEM_BUILDER_STATE.templateId;
+  row.innerHTML = _MASEM_TEMPLATES.map(t => `
+    <button type="button"
+            class="masem-template-card ${t.id === active ? 'active' : ''}"
+            onclick="_selectMasemTemplate('${t.id}')">
+      <div class="masem-starter-label">${escHtml(t.label)}</div>
+      <div class="masem-starter-tagline">${escHtml(t.tagline)}</div>
+    </button>`).join('');
+}
+
+/* Switch to a different prompt template.  Doesn't touch starter or
+   form values — just triggers a preview re-render against the new
+   template body. */
+function _selectMasemTemplate(templateId) {
+  if (!_MASEM_TEMPLATES.some(t => t.id === templateId)) return;
+  _MASEM_BUILDER_STATE.templateId = templateId;
+  _renderMasemTemplateCards();
+  if (_MASEM_BUILDER_STATE.previewTimer) {
+    clearTimeout(_MASEM_BUILDER_STATE.previewTimer);
+    _MASEM_BUILDER_STATE.previewTimer = null;
+  }
+  _doRefreshMasemPreview();
 }
 
 /* Render the three "starter" cards at the top of the form.  Highlights
@@ -106,129 +151,136 @@ async function _selectMasemStarter(presetId, isUserClick) {
   await _doRefreshMasemPreview();
 }
 
-/* The two data-source cards (A: direct correlations / B: reconstructed)
-   each turn ON or OFF a pair of underlying ``data_sources`` keys.  This
-   is just a UX simplification — the prompt-renderer still consumes the
-   four canonical keys (factor_loadings / factor_correlations /
-   correlation_matrix / single_correlations). */
-const _SOURCE_CARD_GROUPS = {
-  A: ["correlation_matrix", "single_correlations"],
-  B: ["factor_loadings",    "factor_correlations"],
-};
+/* This preset is factor-loadings-focused — data_sources is hard-wired
+   so users don't have to think about it. */
+const _FIXED_DATA_SOURCES = ["factor_loadings", "factor_correlations"];
 
 /* Mirror the working params into the form widgets. */
 function _populateBuilderForm(params) {
-  // A/B card pressed-state derives from data_sources.
-  const sources = new Set(params.data_sources || []);
-  for (const card of ["A", "B"]) {
-    const active = _SOURCE_CARD_GROUPS[card].some(k => sources.has(k));
-    const el = document.getElementById("masemSource" + card);
-    if (el) {
-      el.classList.toggle("active", active);
-      el.setAttribute("aria-pressed", active ? "true" : "false");
-    }
-  }
-  // Section C — combined identification list.  We serialise variables
-  // (with | syntax) AND item texts into the same textarea, since they
-  // express the same intent ("here's what to look for") and switching
-  // between them is just a matter of A vs B card selection.
-  document.getElementById('masemCInput').value = _serialiseSectionC(params);
-  // Section D — free-form study context.
-  document.getElementById('masemDInput').value = params.study_characteristics_text || '';
+  // Compact scalar row — scale name / item count / max-factor count.
+  const scaleName = params.scale_name
+                 || params.instrument_name
+                 || params.instrument_name_long
+                 || '';
+  const scaleEl = document.getElementById('masemScaleName');
+  if (scaleEl) scaleEl.value = scaleName === 'the target scale' ? '' : scaleName;
+  const nItemsEl = document.getElementById('masemNItems');
+  if (nItemsEl) nItemsEl.value = (params.n_items != null) ? params.n_items : '';
+  const nFactorsEl = document.getElementById('masemNFactorsMax');
+  if (nFactorsEl) nFactorsEl.value = (params.n_factors_max != null)
+                                       ? params.n_factors_max
+                                       : (params.n_factors != null ? params.n_factors : '');
+
+  // Item labels textarea — serialise item_texts back as "1: text".
+  document.getElementById('masemCInput').value = _serialiseItemTexts(params.item_texts || []);
+
+  // Factor labels textarea — serialise factor_naming back to one line
+  // per factor in the user-friendly "1. F1 = ABBR (Long name)" format.
+  document.getElementById('masemFactorLabelsInput').value
+    = _serialiseFactorLabels(params.factor_naming || []);
 }
 
-/* Pick whichever of (variables, item_texts) is non-empty and emit it as
-   the textarea body.  When both are present (rare), prefer item_texts
-   since they represent more concrete content. */
-function _serialiseSectionC(params) {
-  const items = params.item_texts || [];
-  if (items.length) return items.join('\n');
-  const vars = params.variables || [];
-  return vars.map(v => {
-    if (typeof v === 'string') return v;
-    if (!v || typeof v !== 'object') return '';
-    const parts = [v.name || ''];
-    if (v.definition) parts.push(v.definition);
-    if (Array.isArray(v.synonyms) && v.synonyms.length) parts.push(v.synonyms.join(', '));
-    return parts.join(' | ');
+/* Serialise a list of item texts back into the textarea body as
+   ``1: <text>`` per line, matching the input format. */
+function _serialiseItemTexts(items) {
+  if (!Array.isArray(items) || !items.length) return '';
+  return items.map((t, i) => `${i + 1}: ${t}`).join('\n');
+}
+
+/* Parse the item-labels textarea into a list of item texts in order.
+   Strips a leading ``1:`` / ``1.`` / ``1)`` numbering if present. */
+function _parseItemTexts(text) {
+  const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  return lines.map(l => l.replace(/^\s*\d+\s*[:.)]\s*/, '').trim()).filter(Boolean);
+}
+
+/* Serialise the structured factor_naming list back into a textarea body.
+   Accepts either string entries or {abbrev, name} objects. */
+function _serialiseFactorLabels(naming) {
+  if (!Array.isArray(naming) || !naming.length) return '';
+  return naming.map((f, i) => {
+    const n = i + 1;
+    if (typeof f === 'string') return `${n}. F${n} = ${f}`;
+    if (f && typeof f === 'object') {
+      const abbr = f.abbrev || f.abbreviation || '';
+      const name = f.name   || f.long_name    || '';
+      if (abbr && name) return `${n}. F${n} = ${abbr} (${name})`;
+      if (abbr)         return `${n}. F${n} = ${abbr}`;
+      if (name)         return `${n}. F${n} = ${name}`;
+    }
+    return '';
   }).filter(Boolean).join('\n');
 }
 
-/* Parse section C into either variables (with optional | syntax) OR
-   item_texts, depending on what the active data sources call for.
-   * If B is active (reconstructed information / factor analysis), the
-     content scope is "concrete items" and each line is treated as an
-     item text in original order.
-   * Otherwise (A only, direct correlations), each line is a
-     variable / scale / construct name with optional definition +
-     synonyms via the |-separated syntax. */
-function _parseSectionC(text, dataSources) {
+/* Parse the factor-labels textarea into a structured list.  Each line is
+   expected to look like ``1. F1 = DIF (Difficulty Identifying Feelings)``
+   but we accept anything — we strip the leading number/Fn= prefix and
+   try to split an ``ABBR (Long name)`` tail. */
+function _parseFactorLabels(text) {
+  const out = [];
   const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
-  const fl = dataSources.includes('factor_loadings')
-          || dataSources.includes('factor_correlations');
-  if (fl) {
-    // Lines feed item_texts.  We strip a leading "1. " / "12) "
-    // numbering if the user pasted a numbered list.
-    const cleaned = lines.map(l => l.replace(/^\s*\d+[.)]\s+/, ''));
-    return { item_texts: cleaned, include_item_texts: cleaned.length > 0,
-             variables: [] };
+  for (const raw of lines) {
+    // Strip a leading numbering like "1." / "1)" / "1 -" / "F1 =".
+    let body = raw.replace(/^\s*\d+\s*[.)\-]\s*/, '')
+                  .replace(/^\s*F?\d+\s*[=:]\s*/i, '')
+                  .trim();
+    if (!body) continue;
+    // ``ABBR (Long name)`` → split into abbrev + name.
+    const m = body.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
+    if (m) out.push({ abbrev: m[1].trim(), name: m[2].trim() });
+    else   out.push({ abbrev: body,        name: '' });
   }
-  const variables = [];
-  for (const line of lines) {
-    const parts = line.split('|').map(p => p.trim());
-    const entry = { name: parts[0] };
-    if (parts[1]) entry.definition = parts[1];
-    if (parts[2]) entry.synonyms = parts[2].split(',').map(s => s.trim()).filter(Boolean);
-    variables.push(entry);
-  }
-  return { variables, item_texts: [], include_item_texts: false };
+  return out;
 }
 
-/* Toggle one of the A/B data-source cards.  Each card maps to a pair of
-   underlying data_sources keys; toggling the card flips both keys
-   on/off together.  Refreshes the live preview after every click. */
-function _toggleMasemSource(card) {
-  const el = document.getElementById('masemSource' + card);
-  if (!el) return;
-  const wasActive = el.classList.contains('active');
-  const willBeActive = !wasActive;
-  el.classList.toggle('active', willBeActive);
-  el.setAttribute('aria-pressed', willBeActive ? 'true' : 'false');
-
-  const p = _MASEM_BUILDER_STATE.params;
-  const keys = new Set(p.data_sources || []);
-  for (const k of _SOURCE_CARD_GROUPS[card]) {
-    if (willBeActive) keys.add(k);
-    else              keys.delete(k);
-  }
-  p.data_sources = Array.from(keys);
-  // Scope follows: B (factor analysis) → concrete items; A only →
-  // theoretical constructs.  Keeps the prompt's wording aligned with
-  // what's actually being asked of the model.
-  const fl = p.data_sources.includes('factor_loadings')
-          || p.data_sources.includes('factor_correlations');
-  p.content_scope = fl ? 'concrete_items' : 'theoretical_constructs';
-  // Re-parse section C in case the meaning of the textarea changed.
-  Object.assign(p, _parseSectionC(document.getElementById('masemCInput').value, p.data_sources));
-  _refreshMasemPreview();
-}
 
 /* Read the current form values back into ``_MASEM_BUILDER_STATE.params``,
-   preserving fields the form doesn't expose (n_items, factor_naming,
-   cfa_item_assignment, etc.) — those come from the starter's defaults
-   and can be tuned later via JSON edits if needed. */
+   preserving fields the form doesn't expose (cfa_item_assignment, etc.)
+   — those come from the starter's defaults and can be tuned later via
+   JSON edits if needed. */
 function _readFormIntoParams() {
   const p = _MASEM_BUILDER_STATE.params;
-  // data_sources is updated synchronously by _toggleMasemSource — we
-  // don't try to derive it from DOM here (the cards' .active class is
-  // the cosmetic layer; p.data_sources is the source of truth).
-  // Sections C and D are textareas, so we re-read them on every render.
-  Object.assign(p, _parseSectionC(document.getElementById('masemCInput').value, p.data_sources || []));
-  p.study_characteristics_text = document.getElementById('masemDInput').value || '';
-  // Scope follows from data_sources (same logic as _toggleMasemSource).
-  const fl = (p.data_sources || []).includes('factor_loadings')
-          || (p.data_sources || []).includes('factor_correlations');
-  p.content_scope = fl ? 'concrete_items' : 'theoretical_constructs';
+  // Compact scalar row.
+  const scaleEl = document.getElementById('masemScaleName');
+  if (scaleEl) {
+    const v = (scaleEl.value || '').trim();
+    if (v) {
+      p.scale_name = v;
+      p.instrument_name = v;
+      p.instrument_name_long = v;
+    } else {
+      p.scale_name = 'the target scale';
+      p.instrument_name = 'the target scale';
+      p.instrument_name_long = 'the target scale';
+    }
+  }
+  const nItemsEl = document.getElementById('masemNItems');
+  if (nItemsEl) {
+    const n = parseInt(nItemsEl.value, 10);
+    if (Number.isFinite(n) && n > 0) p.n_items = n;
+  }
+  const nFactorsEl = document.getElementById('masemNFactorsMax');
+  if (nFactorsEl) {
+    const n = parseInt(nFactorsEl.value, 10);
+    if (Number.isFinite(n) && n > 0) {
+      p.n_factors_max = n;
+      p.n_factors = n;
+    }
+  }
+  // Data sources are fixed for this preset — every run extracts factor
+  // loadings + factor correlations.  Scope follows: factor-loadings
+  // workflows = concrete items.
+  p.data_sources  = _FIXED_DATA_SOURCES.slice();
+  p.content_scope = 'concrete_items';
+  // Item labels textarea → item_texts list.
+  const items = _parseItemTexts(document.getElementById('masemCInput').value);
+  p.item_texts         = items;
+  p.include_item_texts = items.length > 0;
+  // Drop legacy fields the simplified builder no longer surfaces.
+  p.variables                  = [];
+  p.study_characteristics_text = '';
+  // Factor labels textarea → factor_naming list.
+  p.factor_naming = _parseFactorLabels(document.getElementById('masemFactorLabelsInput').value);
 }
 
 /* Debounced re-render of the prompt preview after any form change.
@@ -245,13 +297,16 @@ async function _doRefreshMasemPreview() {
   _readFormIntoParams();
   const presetId = _MASEM_BUILDER_STATE.starter;
   if (!presetId) return;
+  const tplSpec = _MASEM_TEMPLATES.find(t => t.id === _MASEM_BUILDER_STATE.templateId);
+  const tplFile = tplSpec && tplSpec.file ? tplSpec.file : null;
   try {
     const res = await fetchScoped('/api/build-preset-prompt', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        preset_id:       presetId,
-        template_params: _MASEM_BUILDER_STATE.params,
+        preset_id:            presetId,
+        template_params:      _MASEM_BUILDER_STATE.params,
+        prompt_template_file: tplFile,
       }),
     });
     if (!res.ok) {
@@ -300,10 +355,15 @@ function _commitMasemBuilderToState(prompt) {
 function _attachMasemBuilderListeners() {
   if (_attachMasemBuilderListeners._attached) return;
   _attachMasemBuilderListeners._attached = true;
-  ['masemCInput', 'masemDInput'].forEach(id => {
+  const ids = [
+    'masemScaleName', 'masemNItems', 'masemNFactorsMax',
+    'masemCInput', 'masemFactorLabelsInput',
+  ];
+  ids.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener('input', _refreshMasemPreview);
+    el.addEventListener('input',  _refreshMasemPreview);
+    el.addEventListener('change', _refreshMasemPreview);
   });
 }
 
@@ -315,7 +375,7 @@ async function masemBuilderCommit() {
   await _doRefreshMasemPreview();
   const prompt = document.getElementById('masemPreviewBox').textContent || '';
   if (!prompt.trim()) {
-    showToast('Could not build a prompt — pick at least one data source.');
+    showToast('Could not build a prompt — please fill in the scale name.');
     return;
   }
   // _doRefreshMasemPreview already mirrored the prompt into state.

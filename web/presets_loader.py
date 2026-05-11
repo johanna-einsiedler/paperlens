@@ -98,9 +98,12 @@ _OPTIONAL_PLACEHOLDERS = (
     # Inner blocks (used inside section bodies)
     "factor_naming_block",
     "factor_synonyms_block",
+    "factor_labels_block",
     "cfa_assignment_block",
     "item_texts_block",
-    # Section-level placeholders (used in the top-level template)
+    "item_labels_block",
+    "item_labels_inline",
+    # Section-level placeholders (used in the legacy template)
     "factor_naming_section",
     "factor_loadings_section",
     "factor_correlations_section",
@@ -176,11 +179,19 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     factor_naming    = p.get("factor_naming") or []
     factor_naming_block    = _render_factor_naming_block(factor_naming)
     factor_synonyms_block  = _render_factor_synonyms_block(factor_naming)
+    factor_labels_block    = _render_factor_labels_block(factor_naming)
     cfa_assignment_block   = _render_cfa_assignment_block(p.get("cfa_item_assignment") or {})
-    item_texts_block       = _render_item_texts_block(
-        p.get("item_texts") or [],
-        bool(p.get("include_item_texts", False)),
-    )
+    # Item-labels: the new (post-v2) template uses ``item_labels`` in two
+    # places — an inline phrase ("Recognizable text fragments of the
+    # items below") and a list block at the end of the section.  Always
+    # build both regardless of include_item_texts (which was the old
+    # template's gating flag) — the new template renders them
+    # unconditionally when the list is non-empty.
+    item_texts_list        = p.get("item_texts") or []
+    include_items          = bool(item_texts_list)
+    item_texts_block       = _render_item_texts_block(item_texts_list, include_items)
+    item_labels_block      = _render_item_labels_block(item_texts_list)
+    item_labels_inline     = " of the items listed below" if item_texts_list else ""
 
     # First item-text used as the verbatim example in section "Factor
     # naming + item identification".  When the user supplied item_texts
@@ -302,6 +313,13 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     )
 
     return {
+        # Aliases for the new (post-v2) template's placeholder names.
+        # The internal canonical names (instrument_name, n_factors,
+        # n_corr_pairs) keep their existing meaning everywhere else.
+        "scale_name":                  p.get("scale_name") or p.get("instrument_name") or "the target instrument",
+        "n_factors_max":               n_factors,
+        "n_factors_pairs":             n_corr_pairs,
+        # Canonical derived values
         "n_loading_keys":              n_loading_keys,
         "n_corr_pairs":                n_corr_pairs,
         "n_factors_word":              n_factors_word,
@@ -310,8 +328,11 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
         "correlations_key_list":       correlations_key_list,
         "factor_naming_block":         factor_naming_block,
         "factor_synonyms_block":       factor_synonyms_block,
+        "factor_labels_block":         factor_labels_block,
         "cfa_assignment_block":        cfa_assignment_block,
         "item_texts_block":            item_texts_block,
+        "item_labels_block":           item_labels_block,
+        "item_labels_inline":          item_labels_inline,
         "item_text_example":           item_text_example,
         "nonexistent_factors_example":      nonexistent_factors_example,
         "nonexistent_factor_glob_example":  nonexistent_factor_glob_example,
@@ -460,6 +481,51 @@ def _render_factor_naming_block(naming: list) -> str:
                 lines.append(f"- F{i} = **{name}**")
         else:
             lines.append(f"- F{i} = **{entry}**")
+    return "\n".join(lines)
+
+
+def _render_factor_labels_block(naming: list) -> str:
+    """Render the ``${factor_labels_block}`` placeholder used by the new
+    MASEMiner template — a numbered list of ``F<i> = **<abbrev>** (<name>)``
+    lines.  Format matches the format the user pastes into the builder's
+    factor-labels textarea:
+
+        1. F1 = **DIF** (Difficulty Identifying Feelings)
+        2. F2 = **DDF** (Difficulty Describing Feelings)
+        3. F3 = **EOT** (Externally Oriented Thinking)
+
+    When ``naming`` is empty, falls back to a generic "F1, F2, F3, …"
+    description so the surrounding sentence still reads naturally."""
+    if not naming:
+        return "- Use `F1`, `F2`, `F3`, … as factor identifiers in the order the paper presents them, without any a-priori semantic labels."
+    lines = []
+    for i, entry in enumerate(naming, 1):
+        if isinstance(entry, dict):
+            abbrev = (entry.get("abbrev") or "").strip()
+            name   = (entry.get("name") or "").strip()
+            if abbrev and name:
+                lines.append(f"{i}. F{i} = **{abbrev}** ({name})")
+            elif abbrev:
+                lines.append(f"{i}. F{i} = **{abbrev}**")
+            elif name:
+                lines.append(f"{i}. F{i} = **{name}**")
+        elif isinstance(entry, str) and entry.strip():
+            lines.append(f"{i}. F{i} = {entry.strip()}")
+    return "\n".join(lines)
+
+
+def _render_item_labels_block(items: list) -> str:
+    """Render the ``${item_labels_block}`` placeholder used by the new
+    MASEMiner template — a numbered list of item texts in the format
+    ``<i>: <text>``.  When ``items`` is empty, returns an empty string
+    so the surrounding paragraph reads naturally without a block."""
+    cleaned = [str(x).strip() for x in items if str(x).strip()]
+    if not cleaned:
+        return ""
+    lines = ["", "### Reference item texts", ""]
+    for i, txt in enumerate(cleaned, 1):
+        lines.append(f"{i}: {txt}")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -1066,6 +1132,29 @@ def read_template_for(preset_id: str) -> str | None:
             return None
         return _read_sibling(tpl_file, path)
     return None
+
+
+def read_template_by_filename(name: str) -> str | None:
+    """Return the raw template body for a sibling template file in
+    ``PRESETS_DIR``, with the same path-traversal guard as the preset
+    loader.  Used when the builder UI lets the user switch templates
+    independently of the active preset (e.g. "Default" vs. "Timo's
+    Template" for the MASEMiner workflow)."""
+    if not isinstance(name, str) or not name:
+        return None
+    # Restrict to plain filenames inside the presets dir — no
+    # subdirectories, no traversal.
+    if "/" in name or "\\" in name or name.startswith("."):
+        return None
+    candidate = (PRESETS_DIR / name).resolve()
+    try:
+        candidate.relative_to(PRESETS_DIR.resolve())
+    except ValueError:
+        return None
+    try:
+        return candidate.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 # Public alias so the server route can re-use the renderer without

@@ -405,7 +405,17 @@
            prompt; user can preview it live and commit it. -->
       <div id="masemBuilder" style="display:none">
         <h2>Configure your MASEMiner extraction</h2>
-        <p class="subtitle">Pick what to extract (A/B), name what the model should look for (C), optionally describe the studies (D).</p>
+        <p class="subtitle">Fill in the scale, item count, max factors, item labels, and factor labels — the prompt is built from these.</p>
+
+        <!-- Template style selector — swaps the underlying prompt
+             template the form fills in.  Independent of the starter
+             (which only controls pre-fill content). -->
+        <div class="form-group">
+          <label class="parse-method-label">Prompt template</label>
+          <div class="masem-template-row" id="masemTemplateRow">
+            <!-- populated by masem-builder.js -->
+          </div>
+        </div>
 
         <!-- Optional starter shortcut -->
         <div class="form-group">
@@ -415,65 +425,59 @@
           </div>
         </div>
 
-        <!-- A + B: data-source cards (multi-select) -->
+        <!-- Compact scale / size / max-factor row (drives [scale_name],
+             [n_items], [n_factors_max] in the prompt template) -->
         <div class="form-group">
-          <label class="parse-method-label">What to extract</label>
-          <div class="masem-source-cards-row">
-            <button class="masem-source-card" id="masemSourceA" type="button"
-                    onclick="_toggleMasemSource('A')"
-                    aria-pressed="false">
-              <div class="masem-source-icon" aria-hidden="true">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
-              </div>
-              <div class="masem-source-body">
-                <div class="masem-source-title">A: Direct correlation information</div>
-                <div class="masem-source-tagline">Correlation matrices, single correlations</div>
-              </div>
-            </button>
-            <button class="masem-source-card" id="masemSourceB" type="button"
-                    onclick="_toggleMasemSource('B')"
-                    aria-pressed="false">
-              <div class="masem-source-icon" aria-hidden="true">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="14" width="3" height="7" rx="0.5"/><rect x="10.5" y="9" width="3" height="12" rx="0.5"/><rect x="17" y="4" width="3" height="17" rx="0.5"/></svg>
-              </div>
-              <div class="masem-source-body">
-                <div class="masem-source-title">B: Reconstructed information</div>
-                <div class="masem-source-tagline">Factor loadings, factor correlations</div>
-              </div>
-            </button>
+          <label class="parse-method-label">Scale &amp; dimensions</label>
+          <div class="masem-scalar-row">
+            <label class="masem-scalar">
+              <span class="masem-scalar-label">Scale name</span>
+              <input type="text" id="masemScaleName"
+                     placeholder="e.g. Toronto Alexithymia Scale (TAS-20)" />
+              <span class="masem-scalar-hint">Full name + abbreviation</span>
+            </label>
+            <label class="masem-scalar masem-scalar-narrow">
+              <span class="masem-scalar-label">Number of items</span>
+              <input type="number" id="masemNItems" min="1" max="200" step="1"
+                     placeholder="e.g. 20" />
+              <span class="masem-scalar-hint">Items in the scale</span>
+            </label>
+            <label class="masem-scalar masem-scalar-narrow">
+              <span class="masem-scalar-label">Max factors</span>
+              <input type="number" id="masemNFactorsMax" min="1" max="10" step="1"
+                     placeholder="e.g. 5" />
+              <span class="masem-scalar-hint">Highest factor count considered</span>
+            </label>
           </div>
         </div>
 
-        <!-- C: identification information -->
+        <!-- Item labels — drives [item_labels] in the rendered template. -->
         <div class="form-group">
           <label class="parse-method-label" for="masemCInput">
-            C: Identification information
-            <span class="optional">(item labels, scales, constructs)</span>
+            Item labels
+            <span class="optional">(one item per line, starting with item number)</span>
           </label>
-          <p class="masem-hint">One per line. For groups / constructs you can write <code>Name | Definition | synonym1, synonym2</code> for richer matching.  For TAS-20 (or any concrete-items workflow), paste the verbatim item texts in their original order — the model will use them to match reordered or paraphrased items.</p>
-          <textarea id="masemCInput" rows="7"
+          <p class="masem-hint">Paste the verbatim item texts in their original order so the model can match items that are reordered or paraphrased in the source paper. Format: <code>1: item text</code> per line. Leave empty if you don't have the item texts handy (e.g. copyrighted instruments).</p>
+          <textarea id="masemCInput" rows="9"
                     placeholder="e.g.
-Extraversion | Big Five trait of sociability and assertiveness | Surgency
-Conscientiousness | Self-discipline and dutifulness | Industriousness
-
-— OR —
-1. I am often confused about what emotion I am feeling.
-2. It is difficult for me to find the right words for my feelings.
+1: I am often confused about what emotion I am feeling.
+2: It is difficult for me to find the right words for my feelings.
+3: I have physical sensations that even doctors don't understand.
 …"></textarea>
         </div>
 
-        <!-- D: study + analysis characteristics (optional free-form context) -->
+        <!-- Factor labels — drives [factor_labels] in the rendered template. -->
         <div class="form-group">
-          <label class="parse-method-label" for="masemDInput">
-            D: Study &amp; analysis characteristics
-            <span class="optional">(N, country, language, method, etc. — optional)</span>
+          <label class="parse-method-label" for="masemFactorLabelsInput">
+            Factor labels
+            <span class="optional">(common labels for the factors — optional)</span>
           </label>
-          <p class="masem-hint">Optional free-form description of the studies in this batch (e.g. typical sample size, the languages / countries involved, the analysis methods commonly used).  Helps the model contextualise borderline values.  Leave empty if you don't need it.</p>
-          <textarea id="masemDInput" rows="4"
+          <p class="masem-hint">One factor per line.  Free format — typical pattern is <code>1. F1 = <b>DIF</b> (Difficulty Identifying Feelings)</code>.  Used by the model to recognise factors that the paper names differently.  Leave empty for blank-slate / unknown-structure runs.</p>
+          <textarea id="masemFactorLabelsInput" rows="4"
                     placeholder="e.g.
-Studies are mostly Korean and Japanese TAS-20 versions.
-N typically 200–600, university or community samples.
-Estimation method is mostly principal component analysis with varimax rotation."></textarea>
+1. F1 = DIF (Difficulty Identifying Feelings)
+2. F2 = DDF (Difficulty Describing Feelings)
+3. F3 = EOT (Externally Oriented Thinking)"></textarea>
         </div>
 
         <!-- Live prompt preview -->

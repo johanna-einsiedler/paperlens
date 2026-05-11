@@ -132,28 +132,29 @@ def test_get_preset_404_for_unknown(client):
 def test_masem_preset_declares_sub_views(client):
     """The MASEM preset ships with sub-tabs the frontend renders under
     the active paper card.  Auto-generated from ``data_sources`` — the
-    umbrella ``masem`` preset is general MASEM, so its tabs are
-    ``corrmatrix`` + ``singlecorrs`` (not the TAS-20 loadings tabs)."""
+    umbrella ``masem`` preset is now a factor-loadings starter (the
+    same shape as TAS-20 but with blank defaults), so its tabs are
+    ``loadings`` + ``correlations`` + ``descriptives``."""
     r = client.get("/api/presets/masem")
     body = r.json()
     sub_views = body.get("sub_views")
     assert isinstance(sub_views, list)
     assert len(sub_views) == 3
     ids = [s["id"] for s in sub_views]
-    assert ids == ["corrmatrix", "singlecorrs", "descriptives"]
+    assert ids == ["loadings", "correlations", "descriptives"]
     # Every sub-view has a label and either include_keys or exclude_keys
     for sv in sub_views:
         assert "label" in sv and sv["label"]
         assert ("include_keys" in sv) or ("exclude_keys" in sv)
     by_id = {s["id"]: s for s in sub_views}
-    assert "correlation_matrix"   in by_id["corrmatrix"]["include_keys"]
-    assert "single_correlations"  in by_id["singlecorrs"]["include_keys"]
-    assert "correlation_matrix"   in by_id["descriptives"]["exclude_keys"]
-    assert "single_correlations"  in by_id["descriptives"]["exclude_keys"]
+    assert "factor_loadings"      in by_id["loadings"]["include_keys"]
+    assert "factor_correlations"  in by_id["correlations"]["include_keys"]
+    assert "factor_loadings"      in by_id["descriptives"]["exclude_keys"]
+    assert "factor_correlations"  in by_id["descriptives"]["exclude_keys"]
     # Evidence-key narrowing: highlights for each sub-view scoped strictly
     # to the data source it's about.
-    assert by_id["corrmatrix"]["evidence_keys"]   == ["correlation_matrix"]
-    assert by_id["singlecorrs"]["evidence_keys"]  == ["single_correlations"]
+    assert by_id["loadings"]["evidence_keys"]     == ["factor_loadings"]
+    assert by_id["correlations"]["evidence_keys"] == ["factor_correlations"]
     # Descriptives doesn't need narrowing — exclude_keys already does the job.
     assert "evidence_keys" not in by_id["descriptives"]
 
@@ -180,48 +181,48 @@ def test_variant_preset_still_fetchable_by_id(client):
     assert body.get("landing_hidden") is True
 
 
-def test_umbrella_masem_is_general_scope(client):
-    """The umbrella ``masem`` preset is now the general MASEM workflow
-    (theoretical-constructs scope, correlation matrices + prose
-    correlations, no factor loadings by default)."""
+def test_umbrella_masem_is_blank_factor_loadings_starter(client):
+    """The umbrella ``masem`` preset is now a blank factor-loadings
+    starter — same prompt shape as TAS-20 but without any pre-filled
+    factor names, item texts, or CFA mapping.  Users fill those in via
+    the in-app builder."""
     r = client.get("/api/presets/masem")
     body = r.json()
     p = body["template_params"]
-    assert p["content_scope"] == "theoretical_constructs"
-    assert "correlation_matrix" in p["data_sources"]
-    assert "single_correlations" in p["data_sources"]
-    assert "factor_loadings" not in p["data_sources"]
-    # Rendered prompt has the correlation sections, not the factor
-    # loadings / correlations sections.
+    assert "factor_loadings" in p["data_sources"]
+    assert "factor_correlations" in p["data_sources"]
+    # No factor labels / CFA mapping baked in — those come from the form.
+    assert p.get("factor_naming") in ([], None)
+    assert p.get("cfa_item_assignment") in ({}, None)
+    # No item texts pre-baked (copyrighted for known scales like TAS-20;
+    # general starter must ship empty so users paste their own).
+    assert p.get("item_texts") in ([], None)
+    # Rendered prompt uses the generic scale-name placeholder verbiage.
     prompt = body["prompt"]
-    assert "## Correlation matrix" in prompt
-    assert "## Single correlations from prose" in prompt
-    assert "Factor loadings (`factor_loadings`)" not in prompt
-    # Sub-views match the general data sources.
+    assert "the target scale" in prompt or "target scale" in prompt
+    # Sub-views match the default factor-loadings data sources.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["corrmatrix", "singlecorrs", "descriptives"]
+    assert sub_ids == ["loadings", "correlations", "descriptives"]
 
 
-def test_tas20_variant_renders_without_pre_baked_item_texts(client):
-    """The TAS-20 sub-preset sets up the structural scaffold (factor
-    loadings + factor correlations, DIF/DDF/EOT factor names, the
-    standard CFA item-to-factor fallback) but does NOT ship the
-    verbatim TAS-20 item content — those are copyrighted and users
-    paste their own copy into section C of the builder if they want
-    semantic-content matching."""
+def test_tas20_variant_renders_with_pre_baked_scaffold(client):
+    """The TAS-20 sub-preset ships the full TAS-20 scaffold: scale name,
+    DIF/DDF/EOT factor labels, the standard CFA item-to-factor mapping,
+    and the 20 item texts (so the model can recognise items that are
+    reordered or paraphrased in the source paper)."""
     r = client.get("/api/presets/masem-tas20")
     assert r.status_code == 200
     body = r.json()
     prompt = body["prompt"]
-    # The TAS-20 SCAFFOLD is in the prompt
-    assert "Toronto Alexithymia Scale (TAS-20, 20 items) factor-analytic data" in prompt
+    # Scale + factor scaffold
+    assert "Toronto Alexithymia Scale (TAS-20)" in prompt
     assert "F1 = **DIF** (Difficulty Identifying Feelings)" in prompt
-    assert "F1 = items 1, 3, 6, 7, 9, 13, 14" in prompt
-    assert "Ignore any solution that includes items from measures other than the TAS-20." in prompt
-    # But the verbatim copyrighted item content is OUT
-    assert "I am often confused about what emotion I am feeling" not in prompt
-    assert "Looking for hidden meanings in movies or plays distracts" not in prompt
-    assert "Reference item texts" not in prompt
+    assert "F2 = **DDF** (Difficulty Describing Feelings)" in prompt
+    assert "F3 = **EOT** (Externally Oriented Thinking)" in prompt
+    # Item-text reference block + first + last items
+    assert "Reference item texts" in prompt
+    assert "I am often confused about what emotion I am feeling." in prompt
+    assert "Looking for hidden meanings in movies or plays distracts from their enjoyment." in prompt
     # Sub-views match TAS-20 (factor loadings + correlations)
     sub_ids = [sv["id"] for sv in body["sub_views"]]
     assert sub_ids == ["loadings", "correlations", "descriptives"]
