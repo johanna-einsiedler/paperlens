@@ -99,9 +99,12 @@ _OPTIONAL_PLACEHOLDERS = (
     "factor_naming_block",
     "factor_synonyms_block",
     "factor_labels_block",
+    "factor_labels_list",
+    "factor_key_mapping",
     "cfa_assignment_block",
     "item_texts_block",
     "item_labels_block",
+    "item_labels_list",
     "item_labels_inline",
     # Section-level placeholders (used in the legacy template)
     "factor_naming_section",
@@ -191,6 +194,9 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     include_items          = bool(item_texts_list)
     item_texts_block       = _render_item_texts_block(item_texts_list, include_items)
     item_labels_block      = _render_item_labels_block(item_texts_list)
+    item_labels_list       = _render_item_labels_list(item_texts_list)
+    factor_labels_list     = _render_factor_labels_list(factor_naming)
+    factor_key_mapping     = _render_factor_key_mapping(n_factors)
     item_labels_inline     = " of the items listed below" if item_texts_list else ""
 
     # First item-text used as the verbatim example in section "Factor
@@ -329,9 +335,12 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
         "factor_naming_block":         factor_naming_block,
         "factor_synonyms_block":       factor_synonyms_block,
         "factor_labels_block":         factor_labels_block,
+        "factor_labels_list":          factor_labels_list,
+        "factor_key_mapping":          factor_key_mapping,
         "cfa_assignment_block":        cfa_assignment_block,
         "item_texts_block":            item_texts_block,
         "item_labels_block":           item_labels_block,
+        "item_labels_list":            item_labels_list,
         "item_labels_inline":          item_labels_inline,
         "item_text_example":           item_text_example,
         "nonexistent_factors_example":      nonexistent_factors_example,
@@ -511,6 +520,65 @@ def _render_factor_labels_block(naming: list) -> str:
                 lines.append(f"{i}. F{i} = **{name}**")
         elif isinstance(entry, str) and entry.strip():
             lines.append(f"{i}. F{i} = {entry.strip()}")
+    return "\n".join(lines)
+
+
+def _render_item_labels_list(items: list) -> str:
+    """Render the plain ``${item_labels_list}`` placeholder used by the
+    v3 MASEMiner template — a flat numbered list of ``<i>: <text>``
+    lines with NO heading and NO surrounding blank lines (the template
+    adds its own).  Returns "" when ``items`` is empty so the SCALE
+    SPECIFICATION block just shows the descriptive line."""
+    cleaned = [str(x).strip() for x in items if str(x).strip()]
+    if not cleaned:
+        return ""
+    return "\n".join(f"{i}: {txt}" for i, txt in enumerate(cleaned, 1))
+
+
+def _render_factor_labels_list(naming: list) -> str:
+    """Render the plain ``${factor_labels_list}`` placeholder used by
+    the v3 MASEMiner template — ``F<i> = <abbrev> (<name>)`` lines
+    with NO leading numbering and NO ``**bold**`` markers.  Empty
+    when no naming is supplied."""
+    if not naming:
+        return ""
+    lines: list[str] = []
+    for i, entry in enumerate(naming, 1):
+        if isinstance(entry, dict):
+            abbrev = (entry.get("abbrev") or "").strip()
+            name   = (entry.get("name")   or "").strip()
+            if abbrev and name:
+                lines.append(f"F{i} = {abbrev} ({name})")
+            elif abbrev:
+                lines.append(f"F{i} = {abbrev}")
+            elif name:
+                lines.append(f"F{i} = {name}")
+        elif isinstance(entry, str) and entry.strip():
+            lines.append(f"F{i} = {entry.strip()}")
+    return "\n".join(lines)
+
+
+# Roman numerals used in the auto-generated factor-key mapping block.
+# Capped at 10 (any larger n_factors_max is treated as exceptional and
+# falls back to plain "Factor <n>" for the trailing entries).
+_ROMAN_NUMERALS = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+
+
+def _render_factor_key_mapping(n_factors_max: int) -> str:
+    """Render the ``${factor_key_mapping}`` block — one mapping line
+    per factor up to ``n_factors_max`` translating common
+    factor-label variants in the source paper into the JSON factor
+    keys F1..Fn. """
+    if n_factors_max <= 0:
+        return ""
+    lines: list[str] = [
+        "Map factor labels in the paper to JSON factor keys by factor position/number:"
+    ]
+    for i in range(1, n_factors_max + 1):
+        roman = _ROMAN_NUMERALS[i - 1] if i <= len(_ROMAN_NUMERALS) else str(i)
+        lines.append(
+            f"- F-{roman}, F{roman}, Factor {roman}, Factor {i}, Component {i} -> F{i}"
+        )
     return "\n".join(lines)
 
 
@@ -1132,29 +1200,6 @@ def read_template_for(preset_id: str) -> str | None:
             return None
         return _read_sibling(tpl_file, path)
     return None
-
-
-def read_template_by_filename(name: str) -> str | None:
-    """Return the raw template body for a sibling template file in
-    ``PRESETS_DIR``, with the same path-traversal guard as the preset
-    loader.  Used when the builder UI lets the user switch templates
-    independently of the active preset (e.g. "Default" vs. "Timo's
-    Template" for the MASEMiner workflow)."""
-    if not isinstance(name, str) or not name:
-        return None
-    # Restrict to plain filenames inside the presets dir — no
-    # subdirectories, no traversal.
-    if "/" in name or "\\" in name or name.startswith("."):
-        return None
-    candidate = (PRESETS_DIR / name).resolve()
-    try:
-        candidate.relative_to(PRESETS_DIR.resolve())
-    except ValueError:
-        return None
-    try:
-        return candidate.read_text(encoding="utf-8")
-    except OSError:
-        return None
 
 
 # Public alias so the server route can re-use the renderer without

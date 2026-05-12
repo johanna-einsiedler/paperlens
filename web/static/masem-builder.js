@@ -20,22 +20,8 @@ const _MASEM_STARTERS = [
     tagline: 'Pre-filled for Toronto Alexithymia Scale meta-analyses (factor loadings + inter-factor correlations).' },
 ];
 
-/* Available prompt templates the form can render against.  The
-   ``file`` field is sent to /api/build-preset-prompt as
-   ``prompt_template_file`` — when null, the preset's own default
-   template is used. */
-const _MASEM_TEMPLATES = [
-  { id: 'default', label: 'Default',
-    tagline: 'The original MASEMiner prompt with factor-naming + reference-item blocks.',
-    file: null },
-  { id: 'timo',    label: "Timo's Template",
-    tagline: 'Stepwise extraction procedure with strict evidence rules and inference principles.',
-    file: 'masem-timo.template.md' },
-];
-
 const _MASEM_BUILDER_STATE = {
   starter: null,            // active starter preset id
-  templateId: 'default',    // active prompt-template id (from _MASEM_TEMPLATES)
   params:  {},              // current template_params (live form state)
   presetCache: {},          // id → fetched preset detail (avoids re-GET on starter switch)
   previewTimer: null,       // debounce timer for re-render after typing
@@ -59,7 +45,6 @@ async function openMasemBuilder(presetId) {
   document.getElementById('aiSection').style.display      = 'none';
   document.getElementById('manualSection').style.display  = 'none';
   document.getElementById('masemBuilder').style.display   = '';
-  _renderMasemTemplateCards();
   _renderMasemStarterCards();
 
   // Default starter: TAS-20.  The umbrella ``masem`` preset is general
@@ -74,36 +59,6 @@ async function openMasemBuilder(presetId) {
     ? 'masem-tas20'
     : presetId;
   await _selectMasemStarter(startId, /*isUserClick=*/ false);
-}
-
-/* Render the prompt-template selector cards.  Switching templates does
-   NOT change form values — it just swaps which template file the
-   backend renders against on the next preview refresh. */
-function _renderMasemTemplateCards() {
-  const row = document.getElementById('masemTemplateRow');
-  if (!row) return;
-  const active = _MASEM_BUILDER_STATE.templateId;
-  row.innerHTML = _MASEM_TEMPLATES.map(t => `
-    <button type="button"
-            class="masem-template-card ${t.id === active ? 'active' : ''}"
-            onclick="_selectMasemTemplate('${t.id}')">
-      <div class="masem-starter-label">${escHtml(t.label)}</div>
-      <div class="masem-starter-tagline">${escHtml(t.tagline)}</div>
-    </button>`).join('');
-}
-
-/* Switch to a different prompt template.  Doesn't touch starter or
-   form values — just triggers a preview re-render against the new
-   template body. */
-function _selectMasemTemplate(templateId) {
-  if (!_MASEM_TEMPLATES.some(t => t.id === templateId)) return;
-  _MASEM_BUILDER_STATE.templateId = templateId;
-  _renderMasemTemplateCards();
-  if (_MASEM_BUILDER_STATE.previewTimer) {
-    clearTimeout(_MASEM_BUILDER_STATE.previewTimer);
-    _MASEM_BUILDER_STATE.previewTimer = null;
-  }
-  _doRefreshMasemPreview();
 }
 
 /* Render the three "starter" cards at the top of the form.  Highlights
@@ -297,16 +252,13 @@ async function _doRefreshMasemPreview() {
   _readFormIntoParams();
   const presetId = _MASEM_BUILDER_STATE.starter;
   if (!presetId) return;
-  const tplSpec = _MASEM_TEMPLATES.find(t => t.id === _MASEM_BUILDER_STATE.templateId);
-  const tplFile = tplSpec && tplSpec.file ? tplSpec.file : null;
   try {
     const res = await fetchScoped('/api/build-preset-prompt', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        preset_id:            presetId,
-        template_params:      _MASEM_BUILDER_STATE.params,
-        prompt_template_file: tplFile,
+        preset_id:       presetId,
+        template_params: _MASEM_BUILDER_STATE.params,
       }),
     });
     if (!res.ok) {

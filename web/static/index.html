@@ -407,16 +407,6 @@
         <h2>Configure your MASEMiner extraction</h2>
         <p class="subtitle">Fill in the scale, item count, max factors, item labels, and factor labels — the prompt is built from these.</p>
 
-        <!-- Template style selector — swaps the underlying prompt
-             template the form fills in.  Independent of the starter
-             (which only controls pre-fill content). -->
-        <div class="form-group">
-          <label class="parse-method-label">Prompt template</label>
-          <div class="masem-template-row" id="masemTemplateRow">
-            <!-- populated by masem-builder.js -->
-          </div>
-        </div>
-
         <!-- Optional starter shortcut -->
         <div class="form-group">
           <label class="parse-method-label">Starter</label>
@@ -753,11 +743,23 @@
 
           <!-- Re-run THIS paper.  Wipes the previous result and reprocesses
                using the current prompt + provider config.  Always available
-               for done/error states; hidden while a job is in flight. -->
-          <button class="btn btn-outline btn-sm" id="rerunActiveBtn" onclick="rerunActivePaper()" style="display:none"
-                  title="Re-extract this paper. The previous result will be replaced.">
-            &#8635; Re-run
-          </button>
+               for done/error states; hidden while a job is in flight.
+               When the previous run used text mode, the UI swaps to two
+               buttons (text / vision) so the user can compare a vision
+               re-run against the text-only result. -->
+          <div class="rerun-group" id="rerunGroup" style="display:none">
+            <button class="btn btn-outline btn-sm" id="rerunActiveBtn"
+                    onclick="rerunActivePaper()"
+                    title="Re-extract this paper. The previous result will be replaced.">
+              &#8635; Re-run
+            </button>
+            <button class="btn btn-outline btn-sm" id="rerunVisionBtn"
+                    onclick="rerunActivePaperWithMode('vision')"
+                    style="display:none"
+                    title="Re-extract this paper using the vision (image) pipeline instead of text extraction.">
+              &#8635; Re-run &middot; VLM
+            </button>
+          </div>
 
           <!-- Retry-all-failed button — only visible when there are errored papers -->
           <button class="btn btn-outline btn-sm" id="retryAllBtn" onclick="retryAllFailed()" style="display:none">
@@ -818,8 +820,13 @@
           <!-- Entry result + page image side by side -->
           <div class="entry-layout">
 
-            <div class="result-col" id="resultDisplay">
-              <!-- formatted entry rendered by JS -->
+            <div class="result-col">
+              <!-- Confidence-badge row — populated by JS when the model
+                   emits an extraction_confidence object for this sample. -->
+              <div class="confidence-row" id="confidenceRow" style="display:none"></div>
+              <div id="resultDisplay">
+                <!-- formatted entry rendered by JS -->
+              </div>
             </div>
 
             <div class="page-display-col">

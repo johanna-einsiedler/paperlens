@@ -1878,6 +1878,72 @@ body.wide-mode .app {
   overflow-y: auto;
 }
 
+/* ── Split re-run group (text + vision) ──────────── */
+.rerun-group {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* ── Extraction-confidence badge row ─────────────── */
+/* Shown above the parsed sample data when the model emits an
+   `extraction_confidence` block (high / medium / low per category). */
+.confidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.confidence-row-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1px solid;
+}
+.confidence-badge-label {
+  font-weight: 500;
+  opacity: 0.85;
+}
+.confidence-badge-value {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.confidence-badge.confidence-high {
+  background: #e7f7ec;
+  border-color: #2f9e54;
+  color: #1c6a37;
+}
+.confidence-badge.confidence-medium {
+  background: #fdf5d3;
+  border-color: #c79412;
+  color: #7d5a02;
+}
+.confidence-badge.confidence-low {
+  background: #fde7e7;
+  border-color: #c93434;
+  color: #8a1f1f;
+}
+.confidence-badge.confidence-unknown {
+  background: #eef0f3;
+  border-color: #b8bec8;
+  color: #4a5260;
+}
+
 /* ── Page image column ───────────────────────────── */
 
 .page-display-col .pages-panel {
@@ -2614,13 +2680,11 @@ kbd {
 
 /* ── MASEMiner guided builder (step 3 alt view) ────────────────────────── */
 
-.masem-template-row,
 .masem-starter-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
-.masem-template-card,
 .masem-starter-card {
   appearance: none;
   background: var(--card);
@@ -2633,9 +2697,7 @@ kbd {
   font-size: 13px;
   transition: border-color 0.12s, background 0.12s;
 }
-.masem-template-card:hover,
 .masem-starter-card:hover { border-color: var(--primary); }
-.masem-template-card.active,
 .masem-starter-card.active {
   border-color: var(--primary);
   background: var(--primary-light);

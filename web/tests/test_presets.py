@@ -206,33 +206,42 @@ def test_umbrella_masem_is_blank_factor_loadings_starter(client):
 
 
 def test_tas20_variant_renders_with_pre_baked_scaffold(client):
-    """The TAS-20 sub-preset ships the full TAS-20 scaffold: scale name,
-    DIF/DDF/EOT factor labels, the standard CFA item-to-factor mapping,
+    """The TAS-20 sub-preset ships the full TAS-20 scaffold inside the
+    SCALE SPECIFICATION header: scale name, DIF/DDF/EOT factor labels,
     and the 20 item texts (so the model can recognise items that are
     reordered or paraphrased in the source paper)."""
     r = client.get("/api/presets/masem-tas20")
     assert r.status_code == 200
     body = r.json()
     prompt = body["prompt"]
-    # Scale + factor scaffold
-    assert "Toronto Alexithymia Scale (TAS-20)" in prompt
-    assert "F1 = **DIF** (Difficulty Identifying Feelings)" in prompt
-    assert "F2 = **DDF** (Difficulty Describing Feelings)" in prompt
-    assert "F3 = **EOT** (Externally Oriented Thinking)" in prompt
-    # Item-text reference block + first + last items
-    assert "Reference item texts" in prompt
-    assert "I am often confused about what emotion I am feeling." in prompt
-    assert "Looking for hidden meanings in movies or plays distracts from their enjoyment." in prompt
+    # SCALE SPECIFICATION header + values
+    assert "# SCALE SPECIFICATION" in prompt
+    assert "[scale_name]: Toronto Alexithymia Scale (TAS-20)" in prompt
+    assert "[n_items]: 20" in prompt
+    assert "[n_factors_max]: 5" in prompt
+    # Factor labels (plain format, no bold/numbering prefix)
+    assert "F1 = DIF (Difficulty Identifying Feelings)" in prompt
+    assert "F2 = DDF (Difficulty Describing Feelings)" in prompt
+    assert "F3 = EOT (Externally Oriented Thinking)" in prompt
+    # Factor-key mapping auto-generated for the 5 factors
+    assert "F-I, FI, Factor I, Factor 1, Component 1 -> F1" in prompt
+    assert "F-V, FV, Factor V, Factor 5, Component 5 -> F5" in prompt
+    # Item-text list — first numbered line + last item
+    assert "1: I am often confused about what emotion I am feeling." in prompt
+    assert "20: Looking for hidden meanings in movies or plays distracts from their enjoyment." in prompt
+    # The new template adds the confidence-self-assessment step
+    assert "## STEP 9: Self-assess extraction confidence" in prompt
+    assert '"extraction_confidence"' in prompt
     # Sub-views match TAS-20 (factor loadings + correlations)
     sub_ids = [sv["id"] for sv in body["sub_views"]]
     assert sub_ids == ["loadings", "correlations", "descriptives"]
 
 
 def test_tas20_variant_includes_user_supplied_item_texts(client):
-    """Users paste their own item texts into section C of the builder.
+    """Users paste their own item texts into the Item labels textarea.
     When that posts back through /api/build-preset-prompt with the
     TAS-20 starter, the rendered prompt must surface those item texts
-    in the reference block."""
+    in the SCALE SPECIFICATION block."""
     r = client.post("/api/build-preset-prompt", json={
         "preset_id": "masem-tas20",
         "template_params": {
@@ -245,31 +254,31 @@ def test_tas20_variant_includes_user_supplied_item_texts(client):
     })
     assert r.status_code == 200
     prompt = r.json()["prompt"]
-    assert "Reference item texts" in prompt
-    assert "User-pasted item 1" in prompt
-    assert "User-pasted item 20" in prompt
+    assert "[item_labels]:" in prompt
+    assert "1: User-pasted item 1" in prompt
+    assert "2: User-pasted item 20" in prompt
 
 
-def test_study_characteristics_block_renders_when_provided(client):
-    """The new section D in the builder feeds free-form study context
-    into the rendered prompt under "## About these studies".  Empty
-    text → no block emitted."""
-    # No D-text → no block
-    r1 = client.post("/api/build-preset-prompt", json={
+def test_extraction_confidence_block_in_default_prompt(client):
+    """The new default template instructs the model to self-assess its
+    extraction confidence for loadings / correlations / metadata and
+    emit an ``extraction_confidence`` object in every sample."""
+    r = client.post("/api/build-preset-prompt", json={
         "preset_id": "masem", "template_params": {},
     })
-    assert "## About these studies" not in r1.json()["prompt"]
-    # With D-text → block appears
-    r2 = client.post("/api/build-preset-prompt", json={
-        "preset_id": "masem",
-        "template_params": {
-            "study_characteristics_text":
-                "Studies are mostly Korean and Japanese TAS-20 versions.",
-        },
-    })
-    body = r2.json()
-    assert "## About these studies" in body["prompt"]
-    assert "Korean and Japanese TAS-20 versions" in body["prompt"]
+    body = r.json()
+    prompt = body["prompt"]
+    # Step 9 + the three required category keys appear in the prompt
+    assert "## STEP 9: Self-assess extraction confidence" in prompt
+    assert "``factor_loadings``" in prompt
+    assert "``factor_correlations``" in prompt
+    assert "``metadata``" in prompt
+    # The output-schema example carries the extraction_confidence block
+    assert '"extraction_confidence"' in prompt
+    # The three category-value strings the model must use
+    assert '"high"' in prompt
+    assert '"medium"' in prompt
+    assert '"low"' in prompt
 
 
 # ── /api/build-preset-prompt — guided builder render route ─────────────────
@@ -294,8 +303,9 @@ def test_build_preset_prompt_overrides_data_sources(client):
         "preset_id": "masem",
         "template_params": {
             "data_sources": ["factor_loadings", "factor_correlations"],
-            "instrument_name":      "TAS-20",
-            "instrument_name_long": "Toronto Alexithymia Scale",
+            "scale_name":            "Toronto Alexithymia Scale (TAS-20)",
+            "instrument_name":       "Toronto Alexithymia Scale (TAS-20)",
+            "instrument_name_long":  "Toronto Alexithymia Scale (TAS-20)",
             "n_items":               20,
             "n_factors":             5,
             "content_scope":         "concrete_items",
@@ -303,8 +313,12 @@ def test_build_preset_prompt_overrides_data_sources(client):
     })
     assert r.status_code == 200
     body = r.json()
-    assert "## Factor loadings" in body["prompt"]
-    assert "## Factor correlations" in body["prompt"]
+    prompt = body["prompt"]
+    # The new template structures loadings + correlations as Step 5 + 6.
+    assert "## STEP 5: Extract factor loadings" in prompt
+    assert "## STEP 6: Extract factor correlations" in prompt
+    # Scale-specification values flow through to the prompt body.
+    assert "[scale_name]: Toronto Alexithymia Scale (TAS-20)" in prompt
     sub_ids = [sv["id"] for sv in body["sub_views"]]
     assert sub_ids == ["loadings", "correlations", "descriptives"]
 

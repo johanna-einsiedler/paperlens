@@ -582,8 +582,15 @@ def _expand_to_table_region(page, anchor_rects: list) -> list | None:
     cover the full table body.
 
     Strategy: find the bounding box of the anchor rects, then collect all text
-    blocks below it (within the same column band) until we hit a gap > 1.5 ×
-    average block height or a new section heading (all-caps short line).
+    blocks below it (within the same column band).  Stop when any of:
+      * vertical gap > 2.5 × the running average row height,
+      * the block looks like a new section heading (short all-caps / "Note"),
+      * the block looks like prose (many words, few digits, much taller than
+        a typical table row),
+      * we've already eaten more than ~80 % of the page height below the
+        caption (safety cap so a tightly-packed table followed by
+        Discussion text never sweeps the whole column).
+
     Returns a list of fitz.Rect covering the expanded region, or None if
     expansion is not possible.
     """
@@ -606,26 +613,64 @@ def _expand_to_table_region(page, anchor_rects: list) -> list | None:
     below = [b for b in blocks if b[1] >= anchor_union.y1 - 2]
     if not below:
         return None
-
     # Sort top-to-bottom
     below.sort(key=lambda b: b[1])
 
-    # Walk blocks downward, stopping at a large vertical gap or section heading
-    avg_height = sum(b[3] - b[1] for b in below[:8]) / max(len(below[:8]), 1)
-    table_rects = list(anchor_rects)
+    # Hard safety cap: never expand past ~80 % of the remaining page height.
+    page_rect       = page.rect
+    page_height     = page_rect.y1 - page_rect.y0
+    remaining_below = page_rect.y1 - anchor_union.y1
+    max_expand_y    = anchor_union.y1 + min(remaining_below * 0.80,
+                                            page_height * 0.65)
+
+    # Seed avg row height from the first few blocks below.
+    seed        = below[:8]
+    avg_height  = sum(b[3] - b[1] for b in seed) / max(len(seed), 1)
+    table_rects: list = list(anchor_rects)
     prev_bottom = anchor_union.y1
+    row_heights: list[float] = []
+
+    def _looks_like_prose(text: str) -> bool:
+        """Heuristic: long block of running prose (many words, few digits,
+        contains terminal punctuation).  Tables almost never look this way
+        even when tightly packed."""
+        words = text.split()
+        if len(words) < 25:
+            return False
+        digit_chars = sum(1 for c in text if c.isdigit())
+        digit_frac  = digit_chars / max(len(text), 1)
+        if digit_frac > 0.05:
+            return False
+        # Sentences end with . ! ? — prose usually has at least a couple.
+        sentence_terminators = sum(text.count(c) for c in ".!?")
+        return sentence_terminators >= 2
 
     for b in below:
-        gap = b[1] - prev_bottom
-        text = b[4].strip()
-        # Stop on large gap (new section)
+        gap   = b[1] - prev_bottom
+        text  = b[4].strip()
+        block_height = b[3] - b[1]
+        # Hard cap on cumulative expansion height.
+        if b[3] > max_expand_y:
+            break
+        # Stop on large gap (new section).
         if gap > max(avg_height * 2.5, 20):
             break
-        # Stop if this looks like a new section heading: short, all-caps or starts "Note"
+        # New-section / "Note" heading.
         words = text.split()
         if len(words) <= 6 and (text == text.upper() or text.startswith("Note")):
             break
+        # Block much taller than typical accumulated rows → likely a
+        # paragraph below the table.
+        if row_heights:
+            row_heights_sorted = sorted(row_heights)
+            median_h = row_heights_sorted[len(row_heights_sorted) // 2]
+            if block_height > max(median_h * 4.0, 36) and len(words) >= 20:
+                break
+        # Prose-block detector (catches tightly-spaced Discussion text).
+        if _looks_like_prose(text):
+            break
         table_rects.append(fitz.Rect(b[0], b[1], b[2], b[3]))
+        row_heights.append(block_height)
         prev_bottom = b[3]
 
     if len(table_rects) <= len(anchor_rects):

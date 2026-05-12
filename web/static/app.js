@@ -1396,17 +1396,27 @@ async function processPaper(paper) {
   paper.status = 'processing';
   renderPaperSidebar();
 
-  // Per-paper routing.  Default is text (set globally), but if the upfront
-  // probe says this PDF has no usable text layer we force vision — text
-  // extraction would just return an empty document.  The user's explicit
-  // pick (state.useTextExtraction = false via the radio) still wins, since
-  // they may have a reason to use vision on a text-readable PDF.
-  let useText = state.useTextExtraction;
-  if (useText && paper.probe && !paper.probe.error
-      && paper.probe.text_layer_present === false) {
-    useText = false;
-    paper.autoVisionFallback = true;   // surfaced in the UI as a small note
+  // Per-paper routing.  Priority:
+  //   1. ``paper.forceMode`` — explicit per-paper override set by the
+  //      split "Re-run · text" / "Re-run · vision" buttons.  Wins
+  //      unconditionally so the user can always force either mode.
+  //   2. Otherwise the global ``state.useTextExtraction`` flag, with an
+  //      auto-fallback to vision when the upfront probe says the PDF
+  //      has no usable text layer (text extraction would return empty).
+  let useText;
+  if (paper.forceMode === 'text')   useText = true;
+  else if (paper.forceMode === 'vision') useText = false;
+  else {
+    useText = state.useTextExtraction;
+    if (useText && paper.probe && !paper.probe.error
+        && paper.probe.text_layer_present === false) {
+      useText = false;
+      paper.autoVisionFallback = true;   // surfaced in the UI as a small note
+    }
   }
+  // Record the mode actually used so the result UI can show the
+  // appropriate re-run buttons (split vs. single) afterwards.
+  paper.lastModeUsed = useText ? 'text' : 'vision';
 
   const form = new FormData();
   form.append('api_key',             state.apiKey);
@@ -2225,10 +2235,21 @@ function displayPaper(paper) {
   // Show the "Re-run" header button whenever this paper isn't currently
   // being processed.  Hidden during 'pending' / 'processing' to avoid
   // letting the user fire a second job on top of the first.
-  const rerunBtn = document.getElementById('rerunActiveBtn');
-  if (rerunBtn) {
-    rerunBtn.style.display = (paper.status === 'done' || paper.status === 'error')
-      ? '' : 'none';
+  // When the previous run used text mode, surface BOTH text + vision
+  // re-run buttons so the user can compare against a vision re-run
+  // (typical fix path when the text-layer parse missed values that a
+  // VLM would catch from the table image).
+  const rerunGroup  = document.getElementById('rerunGroup');
+  const rerunBtn    = document.getElementById('rerunActiveBtn');
+  const rerunVisBtn = document.getElementById('rerunVisionBtn');
+  const visible = (paper.status === 'done' || paper.status === 'error');
+  if (rerunGroup) rerunGroup.style.display = visible ? '' : 'none';
+  if (visible && paper.lastModeUsed === 'text') {
+    if (rerunBtn)    rerunBtn.innerHTML       = '&#8635; Re-run · text';
+    if (rerunVisBtn) rerunVisBtn.style.display = '';
+  } else {
+    if (rerunBtn)    rerunBtn.innerHTML       = '&#8635; Re-run';
+    if (rerunVisBtn) rerunVisBtn.style.display = 'none';
   }
 
   const nav     = document.getElementById('entryNav');
@@ -2403,15 +2424,92 @@ function retryPaper(id) {
 
 /* "Re-run" button on the results header — re-extracts the currently-active
    paper, replacing its previous result.  Confirms before discarding edits
-   the user has already made (overrides), since those will be lost. */
+   the user has already made (overrides), since those will be lost.
+
+   When called by the primary "Re-run" / "Re-run · text" button, the
+   per-paper ``forceMode`` is cleared, so processPaper picks the mode
+   from the global default + probe (same as the original first run).
+   The split "Re-run · VLM" button calls ``rerunActivePaperWithMode``
+   instead. */
 function rerunActivePaper() {
+  rerunActivePaperWithMode(null);
+}
+
+/* Re-run the active paper, optionally forcing a specific extraction
+   mode for this run.  ``mode`` is one of:
+     - ``'text'``    → force text-layer extraction
+     - ``'vision'``  → force the VLM (image) pipeline
+     - ``null``      → use the global default (with probe fallback) */
+function rerunActivePaperWithMode(mode) {
   const p = getActivePaper();
   if (!p) return;
   const hasEdits = p.overrides && Object.keys(p.overrides).length > 0;
   if (hasEdits && !confirm(
     'Re-run this paper? Your manual edits to the previous result will be discarded.'
   )) return;
+  p.forceMode = (mode === 'text' || mode === 'vision') ? mode : null;
   retryPaper(p.id);
+}
+
+/* Mapping from the human-readable label shown next to each badge to the
+   model-emitted key in ``extraction_confidence``.  Keeping these
+   parallel arrays (rather than a hash) preserves the display order:
+   loadings → correlations → metadata. */
+const _CONFIDENCE_CATEGORIES = [
+  { key: 'factor_loadings',     label: 'Loadings' },
+  { key: 'factor_correlations', label: 'Correlations' },
+  { key: 'metadata',            label: 'Metadata' },
+];
+
+/* Render the confidence-badge row above the parsed entry.  Reads
+   ``entry.extraction_confidence`` (object with one rating per category)
+   and emits one coloured pill per known category.  Hides the row
+   entirely when the entry has no confidence block — old runs and
+   non-MASEM presets stay clean. */
+function _renderConfidenceBadges(entry) {
+  const row = document.getElementById('confidenceRow');
+  if (!row) return;
+  const conf = entry && entry.extraction_confidence;
+  if (!conf || typeof conf !== 'object') {
+    row.style.display = 'none';
+    row.innerHTML     = '';
+    return;
+  }
+  const parts = [`<span class="confidence-row-label">Confidence</span>`];
+  let hadAny = false;
+  for (const cat of _CONFIDENCE_CATEGORIES) {
+    const raw   = conf[cat.key];
+    const level = _normaliseConfidence(raw);
+    if (raw == null && level === 'unknown') continue;  // skip categories the model omitted
+    hadAny = true;
+    const displayValue = (typeof raw === 'string' && raw.trim()) ? raw.trim() : '—';
+    parts.push(`
+      <span class="confidence-badge confidence-${level}" title="${escHtml(cat.label)}: ${escHtml(displayValue)}">
+        <span class="confidence-badge-label">${escHtml(cat.label)}</span>
+        <span class="confidence-badge-value">${escHtml(displayValue)}</span>
+      </span>
+    `);
+  }
+  if (!hadAny) {
+    row.style.display = 'none';
+    row.innerHTML     = '';
+    return;
+  }
+  row.style.display = '';
+  row.innerHTML     = parts.join('');
+}
+
+/* Map a free-form confidence value (string, possibly with case/spacing
+   variation) to one of the four CSS classes the badge palette knows
+   about.  Falls back to ``unknown`` for anything unrecognised so the
+   grey pill flags it without crashing the render. */
+function _normaliseConfidence(v) {
+  if (typeof v !== 'string') return 'unknown';
+  const s = v.trim().toLowerCase();
+  if (s === 'high'   || s === 'h') return 'high';
+  if (s === 'medium' || s === 'med' || s === 'm') return 'medium';
+  if (s === 'low'    || s === 'l') return 'low';
+  return 'unknown';
 }
 
 function renderEntry(paper) {
@@ -2471,9 +2569,21 @@ function renderEntry(paper) {
   display.dataset.paperId  = paper.id;
   display.dataset.entryIdx = paper.entryIndex;
 
+  // Confidence badges above the rendered entry — driven by the
+  // `extraction_confidence` block the model emits per sample.  Hidden
+  // when absent so old/unconfigured runs are unaffected.
+  _renderConfidenceBadges(entry);
+
   // Sub-view filter (preset-driven, e.g. MASEM Loadings/Correlations/Descriptives)
   const subView       = _activeSubViewFor(paper);
-  const filteredEntry = subView ? _filterEntryBySubView(entry, subView) : entry;
+  let   filteredEntry = subView ? _filterEntryBySubView(entry, subView) : entry;
+  // The confidence block is surfaced as coloured badges above — strip
+  // it from the parsed-data render so it doesn't appear twice.
+  if (filteredEntry && typeof filteredEntry === 'object' && !Array.isArray(filteredEntry)
+      && 'extraction_confidence' in filteredEntry) {
+    const { extraction_confidence: _drop, ...rest } = filteredEntry;
+    filteredEntry = rest;
+  }
 
   if (paper.viewMode === 'raw') {
     // Raw mode — show the verbatim model output, untouched

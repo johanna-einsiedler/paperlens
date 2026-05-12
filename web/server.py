@@ -166,13 +166,9 @@ class BuildPresetPromptIn(BaseModel):
     """Payload for the guided MASEMiner prompt builder.  ``preset_id`` picks
     the underlying template (typically one of the ``masem-*`` variants);
     ``template_params`` is the form's serialised state that overrides the
-    preset's default params.  ``prompt_template_file`` is an optional
-    override letting the UI swap the template body independently of the
-    preset (used by the "Template style" selector — e.g. "Default" vs.
-    "Timo's Template")."""
-    preset_id:            str
-    template_params:      dict = {}
-    prompt_template_file: str | None = None
+    preset's default params."""
+    preset_id:       str
+    template_params: dict = {}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -351,17 +347,7 @@ def build_preset_prompt(payload: BuildPresetPromptIn) -> dict:
         raise HTTPException(status_code=404, detail="Preset not found.")
     base_params = dict(preset.get("template_params") or {})
     base_params.update(payload.template_params or {})
-    if payload.prompt_template_file:
-        template = presets_loader.read_template_by_filename(
-            payload.prompt_template_file
-        )
-        if template is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Template file not found: {payload.prompt_template_file}",
-            )
-    else:
-        template = presets_loader.read_template_for(payload.preset_id)
+    template = presets_loader.read_template_for(payload.preset_id)
     if template is None:
         raise HTTPException(
             status_code=400,
