@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.pyo
 *.pyd
@@ -35,3 +36,13 @@ web/uv.lock
 
 #Claude Environment
 .claude/
+
+# Local SQLite (job state — never commit)
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Local research data / sample PDFs (don't ship in deploy)
+data/
+*.pdf
