@@ -304,8 +304,22 @@ header p {
 .option-card:active { transform: translateY(0); }
 
 .option-icon {
-  font-size: 38px;
+  /* Two-colour SVGs replace the previous emoji.  ``currentColor`` is the
+     navy primary; the accent stroke/fill colour is hard-coded as the
+     metalens teal so the icons stay on-brand regardless of where the
+     card is rendered. */
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mpl-navy-900);
   line-height: 1;
+}
+.option-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .option-card h3 {
@@ -331,7 +345,7 @@ header p {
   border-style: dashed;
 }
 
-.option-card-load .option-icon { font-size: 26px; flex-shrink: 0; }
+.option-card-load .option-icon { width: 26px; height: 26px; flex-shrink: 0; }
 .option-card-load-text { flex: 1; min-width: 0; }
 .option-card-load h3 { font-size: 14px; }
 .option-card-load p  { font-size: 12.5px; margin-top: 3px; }
