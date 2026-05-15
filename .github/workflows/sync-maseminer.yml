@@ -1,0 +1,56 @@
+name: Sync to public maseminer repo
+
+# Triggered automatically on a version tag push (recommended workflow:
+# `git tag v0.3.1 && git push origin v0.3.1`).  Also exposed as a manual
+# dispatch for documentation/overlay-only fixes that don't warrant a tag.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag or commit to publish (defaults to current HEAD)'
+        required: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    concurrency:
+      # Don't let two release pushes race each other to force-push main.
+      group: maseminer-sync
+      cancel-in-progress: false
+    steps:
+      - name: Checkout paperlens at requested ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Stage public tree
+        run: bash .github/scripts/build-maseminer-tree.sh "$RUNNER_TEMP/maseminer-stage"
+
+      - name: Leak check (no fly.toml / sqlite / dev requirements)
+        run: |
+          set -e
+          STAGE="$RUNNER_TEMP/maseminer-stage"
+          forbidden=$(find "$STAGE" \( \
+              -name 'fly.toml' -o \
+              -name 'paperlens.sqlite3' -o \
+              -name 'requirements-dev.txt' -o \
+              -name 'uv.lock' -o \
+              -name '_archive_*' -o \
+              -name '.DS_Store' \
+            \) -print)
+          if [[ -n "$forbidden" ]]; then
+            echo "::error::leak check failed — forbidden files in staged tree:" >&2
+            echo "$forbidden" >&2
+            exit 1
+          fi
+
+      - name: Push to public maseminer repo
+        env:
+          DEPLOY_KEY:          ${{ secrets.MASEMINER_DEPLOY_KEY }}
+          MASEMINER_REPO_SSH:  ${{ vars.MASEMINER_REPO_SSH }}
+        run: bash .github/scripts/push-maseminer.sh "$RUNNER_TEMP/maseminer-stage"
