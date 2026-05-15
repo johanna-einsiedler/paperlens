@@ -1765,6 +1765,18 @@ async function cancelPaper(paperId) {
    or via the "Pre-built workflows" modal on the landing screen. */
 
 async function applyPreset(presetId) {
+  // MASEMiner has its own dedicated entry point with branded chrome
+  // (logo + navy/teal palette).  When a user picks any masem* preset
+  // from the generic landing, forward to /maseminer so they land on
+  // the branded hero instead of just re-skinning the current page.
+  // Skipped when we're already on /maseminer to avoid a reload loop.
+  if (typeof presetId === 'string'
+      && presetId.startsWith('masem')
+      && window.location.pathname !== '/maseminer') {
+    window.location.href = '/maseminer';
+    return true;
+  }
+
   let preset;
   try {
     const res = await fetchScoped(`/api/presets/${encodeURIComponent(presetId)}`);
