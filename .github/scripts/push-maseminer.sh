@@ -17,8 +17,23 @@ if [[ $# -lt 1 ]]; then
 fi
 
 DEST="$1"
-TAG="${GITHUB_REF_NAME:-manual-$(date +%Y%m%d-%H%M%S)}"
 REMOTE="${MASEMINER_REPO_SSH:-}"
+
+# Decide what to call this release and whether to push a version tag.
+#   * Tag-triggered run  (refs/tags/v1.2.3)        → TAG="v1.2.3", push tag.
+#   * Manual / branch run (refs/heads/main, etc.)  → TAG=snapshot label,
+#                                                    do NOT push a tag (avoids
+#                                                    "matches more than one"
+#                                                    when the would-be tag name
+#                                                    clashes with the branch).
+GITHUB_REF="${GITHUB_REF:-}"
+if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+  TAG="${GITHUB_REF#refs/tags/}"
+  PUSH_TAG=1
+else
+  TAG="${GITHUB_REF_NAME:-snapshot}-$(date +%Y%m%d-%H%M%S)"
+  PUSH_TAG=0
+fi
 
 if [[ -z "$REMOTE" ]]; then
   echo "Error: MASEMINER_REPO_SSH env var is required " \
@@ -44,11 +59,16 @@ git config user.name  "maseminer-sync"
 git add -A
 git commit -q -m "Release $TAG"
 git remote add origin "$REMOTE"
-git push --force origin main
+# Qualified refspec — never relies on git's name-resolution between
+# branches and tags, so we don't trip "matches more than one".
+git push --force origin "refs/heads/main:refs/heads/main"
 
-# Mirror the version tag onto the public repo so users can pin
-# ``remotes::install_github('<owner>/maseminer@v0.3.1')`` etc.
-git tag -f "$TAG"
-git push --force origin "$TAG"
-
-echo "Pushed $TAG to $REMOTE (main + tag)"
+if [[ "$PUSH_TAG" == "1" ]]; then
+  # Mirror the version tag onto the public repo so users can pin
+  # ``remotes::install_github('<owner>/maseminer@v0.3.1')`` etc.
+  git tag -f "$TAG"
+  git push --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+  echo "Pushed $TAG to $REMOTE (main + tag)"
+else
+  echo "Pushed snapshot $TAG to $REMOTE (main only — no tag for non-tag-triggered runs)"
+fi
