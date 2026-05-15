@@ -11,7 +11,7 @@ Self-contained tool for extracting factor loadings, inter-factor correlations, a
 ## Run it (Python)
 
 ```bash
-git clone https://github.com/<owner>/maseminer.git
+git clone https://github.com/{{OWNER}}/maseminer.git
 cd maseminer
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -51,11 +51,11 @@ The same schema the hosted PaperLens version emits — outputs are interchangeab
 
 ## Citing the version you used
 
-The file `VERSION` in this checkout contains the release tag (e.g. `v0.3.1`). Cite that exact string for reproducibility.
+You are reading **MASEMiner version `{{VERSION}}`**.  The same string lives in the `VERSION` file at the repo root — cite that exact string for reproducibility.
 
 ```
-Einsiedler, J. (2026). MASEMiner (version v0.3.1) [Computer software].
-https://github.com/<owner>/maseminer
+Einsiedler, J. (2026). MASEMiner (version {{VERSION}}) [Computer software].
+https://github.com/{{OWNER}}/maseminer
 ```
 
 ## Consuming the output in R

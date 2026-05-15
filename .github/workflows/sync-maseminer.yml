@@ -29,6 +29,11 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Stage public tree
+        env:
+          # Passed through so the build script can extract the owner
+          # for {{OWNER}} substitution in README.md / LOCAL.md.  Same
+          # value as the push step's variable (not a secret).
+          MASEMINER_REPO_SSH: ${{ vars.MASEMINER_REPO_SSH }}
         run: bash .github/scripts/build-maseminer-tree.sh "$RUNNER_TEMP/maseminer-stage"
 
       - name: Leak check (no fly.toml / sqlite / dev requirements)

@@ -78,6 +78,34 @@ cp "$OVERLAY/.gitignore" "$DEST/.gitignore"
 # ── Write VERSION so users can cite the exact release ─────────────────────
 echo "$TAG" > "$DEST/VERSION"
 
+# ── Substitute {{VERSION}} and {{OWNER}} placeholders in overlay docs ─────
+# Owner preference order:
+#   1. parse from MASEMINER_REPO_SSH (e.g. git@github.com:owner/maseminer.git)
+#   2. GITHUB_REPOSITORY_OWNER set by GitHub Actions runner
+#   3. literal "<owner>" so a local dry-run shows where the substitution
+#      would go, rather than silently injecting an unrelated value.
+OWNER=""
+if [[ -n "${MASEMINER_REPO_SSH:-}" ]]; then
+  _tail="${MASEMINER_REPO_SSH#*:}"     # owner/repo.git
+  OWNER="${_tail%/*}"                  # owner
+fi
+if [[ -z "$OWNER" ]]; then
+  OWNER="${GITHUB_REPOSITORY_OWNER:-<owner>}"
+fi
+
+# Use perl for portable in-place edits (works on both GNU and BSD sed
+# environments — ubuntu-latest runners + local macOS dry-runs).  Values
+# are passed via env so they can never break the substitution syntax,
+# and \Q...\E disables regex metacharacters in the search side.
+for f in "$DEST/README.md" "$DEST/LOCAL.md"; do
+  [[ -f "$f" ]] || continue
+  OWNER="$OWNER" TAG="$TAG" perl -pi -e '
+    s/\Q{{OWNER}}\E/$ENV{OWNER}/g;
+    s/\Q{{VERSION}}\E/$ENV{TAG}/g;
+  ' "$f"
+done
+
 echo "Staged maseminer tree at: $DEST"
 echo "Version: $TAG"
+echo "Owner:   $OWNER"
 echo "File count: $(find "$DEST" -type f | wc -l | tr -d ' ')"
