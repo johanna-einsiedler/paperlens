@@ -1874,6 +1874,9 @@ async function startPresetFromLanding(presetId) {
 
 function clearPreset() {
   if (!state.activePreset) return;
+  // In MASEMiner-only mode (local distribution) there is no generic
+  // PaperLens to clear back to — keep the active preset and branding.
+  if (window.__MASEMINER_ONLY__) return;
   // Reset URL so a refresh doesn't re-apply
   if (window.history && window.history.replaceState) {
     const url = new URL(window.location.href);
@@ -1961,6 +1964,21 @@ async function loadServerConfig() {
     const data = await res.json();
     if (typeof data.max_batch_papers === 'number') config.maxBatchPapers = data.max_batch_papers;
     if (typeof data.max_pdf_bytes    === 'number') config.maxPdfBytes    = data.max_pdf_bytes;
+    // MASEMiner-only deployments (local distribution) swap the page
+    // chrome so users never see PaperLens branding.  Hosted PaperLens
+    // leaves ``maseminer_only`` false and this whole block is a no-op.
+    if (data.maseminer_only) {
+      window.__MASEMINER_ONLY__ = true;
+      const title = data.app_title || 'MASEMiner';
+      const tagline = data.app_tagline || '';
+      document.title = title;
+      const t = document.getElementById('appTitle');
+      const g = document.getElementById('appTagline');
+      if (t) t.textContent = title;
+      if (g && tagline) g.textContent = tagline;
+      const altBtn = document.getElementById('genericPaperlensBtn');
+      if (altBtn) altBtn.style.display = 'none';
+    }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');
     if (hint) {

@@ -621,6 +621,45 @@ def test_config_endpoint_respects_env_var(client, monkeypatch):
     assert r.json()["max_batch_papers"] == 5
 
 
+def test_config_endpoint_default_paperlens_branding(client):
+    """Hosted-app behaviour: ``maseminer_only`` is false unless the env
+    var is set, and the branding payload says PaperLens."""
+    r = client.get("/api/config")
+    body = r.json()
+    assert body["maseminer_only"] is False
+    assert body["app_title"]      == "PaperLens"
+    assert "PaperLens".lower() not in body["app_tagline"].lower()  # tagline is generic
+
+
+def test_config_endpoint_flips_to_maseminer_when_env_var_set(client, monkeypatch):
+    """Local-distribution behaviour: PAPERLENS_MASEMINER_ONLY=1 makes the
+    config endpoint report MASEMiner branding so the frontend can swap
+    the page title."""
+    monkeypatch.setenv("PAPERLENS_MASEMINER_ONLY", "1")
+    r = client.get("/api/config")
+    body = r.json()
+    assert body["maseminer_only"] is True
+    assert body["app_title"] == "MASEMiner"
+    assert "factor" in body["app_tagline"].lower()
+
+
+def test_root_redirects_to_maseminer_when_env_var_set(client, monkeypatch):
+    """In MASEMiner-only mode, ``/`` 307-redirects to ``/maseminer`` so
+    local researchers never see the generic PaperLens landing."""
+    monkeypatch.setenv("PAPERLENS_MASEMINER_ONLY", "1")
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/maseminer"
+
+
+def test_root_renders_index_when_env_var_unset(client):
+    """Hosted-app behaviour unchanged: ``/`` returns the index HTML, no
+    redirect, when the env var isn't set."""
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 200
+    assert "<!doctype html" in r.text.lower() or "<html" in r.text.lower()
+
+
 def test_extract_rejects_batch_over_limit(client, monkeypatch):
     """Once the cap is hit, the next paper in the same batch_id is refused."""
     monkeypatch.setenv("PAPERLENS_MAX_BATCH_PAPERS", "2")

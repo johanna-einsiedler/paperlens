@@ -70,6 +70,15 @@ def _max_pdf_bytes() -> int:
         return 50 * 1024 * 1024
 
 
+def _maseminer_only() -> bool:
+    """When truthy in the environment, the app boots in MASEMiner-only mode:
+    ``/`` redirects to ``/maseminer``, the page title swaps to "MASEMiner",
+    and the "Switch back to generic PaperLens" affordances are hidden.
+    Used by the public ``maseminer`` local-run distribution; the hosted
+    PaperLens app leaves this unset and serves both audiences."""
+    return _os.environ.get("PAPERLENS_MASEMINER_ONLY", "").strip().lower() in ("1", "true", "yes")
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     db.init()
@@ -96,8 +105,14 @@ _NO_CACHE_HEADERS = {
 }
 
 
-@app.get("/")
-def index() -> FileResponse:
+@app.get("/", response_model=None)
+def index() -> FileResponse | RedirectResponse:
+    # In MASEMiner-only deployments the root URL bounces straight to the
+    # dedicated landing — local researchers shouldn't see PaperLens chrome
+    # they don't need.  307 (not 301) so a future rebuild can flip the
+    # flag back off without browsers caching the redirect forever.
+    if _maseminer_only():
+        return RedirectResponse(url="/maseminer", status_code=307)
     # Prevent the browser from serving a stale index that points to an outdated
     # bundle.  Static assets are still mounted above with their own headers.
     return FileResponse(STATIC_DIR / "index.html", headers=_NO_CACHE_HEADERS)
@@ -305,11 +320,21 @@ def check_evidence_schema(payload: CheckSchemaIn) -> dict:
 
 @app.get("/api/config")
 def get_config() -> dict:
-    """Server-side limits the frontend should respect.  Read at page load so the
-    UI can render 'up to N papers per batch' and refuse oversize uploads early."""
+    """Server-side limits + branding the frontend should respect.  Read at
+    page load so the UI can render 'up to N papers per batch', refuse
+    oversize uploads early, and swap the app title in MASEMiner-only
+    deployments."""
+    masem_only = _maseminer_only()
     return {
         "max_batch_papers": _max_batch_papers(),
         "max_pdf_bytes":    _max_pdf_bytes(),
+        "maseminer_only":   masem_only,
+        "app_title":        "MASEMiner" if masem_only else "PaperLens",
+        "app_tagline": (
+            "Local extraction of factor loadings, correlations, and study metadata from PDFs."
+            if masem_only else
+            "AI-powered data extraction and labeling for academic papers"
+        ),
     }
 
 
