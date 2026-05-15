@@ -234,6 +234,13 @@ header {
   text-align: center;
 }
 
+.header-logo {
+  display: block;
+  width: 140px;
+  height: 140px;
+  margin: 0 auto 18px;
+}
+
 header h1 {
   font-size: 26px;
   font-weight: 700;
