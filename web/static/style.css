@@ -72,6 +72,49 @@ body.mpl-no-sidebar #mplSidebar {
   display: none;
 }
 
+/* ── MASEMiner-only chrome ──────────────────────────────────────
+   Activated by JS adding ``body.is-maseminer`` whenever the page
+   is the dedicated /maseminer entry or the locked-down local
+   distribution.  Switches the global palette tokens to the
+   navy/teal-blue family from the MASEMiner logo and hides the
+   MetaPaperLens app header (the logo PNG inside the hero carries
+   the brand identity instead). */
+body.is-maseminer {
+  /* MASEMiner palette — sampled from the supplied logo:
+     deep navy + crisp teal-blue accent, white canvas. */
+  --mpl-navy-900:  #122a4d;
+  --mpl-navy-800:  #1d4a8c;
+  --mpl-teal-700:  #2d8aa3;
+  --mpl-teal-300:  #9ec9d5;
+  --mpl-teal-200:  #cbe4eb;
+  --mpl-mint-100:  #eef6f9;
+  --mpl-canvas:    #ffffff;
+
+  /* Re-derive the semantic tokens so any component reading
+     --primary / --bg / --text picks up the new colour world. */
+  --primary:       #1d4a8c;
+  --primary-dark:  #122a4d;
+  --primary-light: #eef6f9;
+  --bg:            #ffffff;
+  --card:          #ffffff;
+  --border:        #d3dde8;
+  --border-focus:  #5cb8c8;
+  --text:          #122a4d;
+  --text-muted:    #5a6b85;
+}
+
+/* In MASEMiner mode the global <header> would say "MetaPaperLens"
+   (or duplicate the logo); hide it so the masemLanding hero is the
+   only top-of-page chrome. */
+body.is-maseminer > .app > header {
+  display: none;
+}
+/* And shave the top padding the app reserved for the now-hidden
+   header so the hero sits at the top of the viewport. */
+body.is-maseminer .app {
+  padding-top: 24px;
+}
+
 .app {
   max-width: 760px;
   margin: 0 auto;
@@ -1475,8 +1518,10 @@ header p {
   text-align: center;
 }
 
-/* Stacked brand logo: visual mark above the two-tone wordmark, treated
-   as one unit (no separate text headline). */
+/* Stacked brand logo: the supplied PNG is an all-in-one mark + wordmark
+   so we just centre it.  Old .preset-hero-mark / .masem-wordmark rules
+   stay below for the preset-banner mini-mark which still uses the
+   inline SVG #masemMark. */
 .preset-hero-logo {
   display: flex;
   flex-direction: column;
@@ -1484,14 +1529,21 @@ header p {
   gap: 10px;
   margin: 4px 0 18px;
 }
+.masem-logo-img {
+  display: block;
+  max-width: 360px;
+  width: 100%;
+  height: auto;
+}
 .preset-hero-mark {
   flex-shrink: 0;
   width: 120px;
   height: 120px;
 }
 
-/* Two-tone "MASE/Miner" wordmark — ``MASE`` in dark navy, ``Miner`` in
-   teal, matching the SVG mark above. */
+/* Two-tone "MASE/Miner" wordmark — legacy, used by the older inline
+   wordmark span treatment.  Kept for the preset-banner label and any
+   downstream callers. */
 .masem-wordmark .brand-mase  { color: #1d4a8c; font-weight: 800; letter-spacing: 0.01em; }
 .masem-wordmark .brand-miner { color: #5cb8c8; font-weight: 600; }
 .preset-hero-logo .preset-hero-title { margin: 0; line-height: 1; }

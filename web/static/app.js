@@ -2003,10 +2003,16 @@ async function loadServerConfig() {
     // Hide the MetaPaperLens left sidebar on the MASEMiner entry
     // points (both the dedicated /maseminer URL and the locked-down
     // local distribution).  MASEMiner has its own hero + branding
-    // and shouldn't carry the MetaPaperLens chrome.
+    // and shouldn't carry the MetaPaperLens chrome.  ``is-maseminer``
+    // also flips the page chrome to the MASEMiner blue/white palette
+    // and hides the global MetaPaperLens header (#appTitle / tagline)
+    // — the PNG logo at the top of the masemLanding hero carries the
+    // brand identity in MASEMiner mode.
     const onMaseminerPath = window.location.pathname === '/maseminer';
     if (data.maseminer_only || onMaseminerPath) {
       document.body.classList.add('mpl-no-sidebar');
+      document.body.classList.add('is-maseminer');
+      document.title = 'MASEMiner';
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');

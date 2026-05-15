@@ -127,13 +127,11 @@
   <div class="preset-landing" id="masemLanding" style="display:none">
     <div class="card preset-hero">
       <div class="preset-hero-eyebrow">Pre-built workflow</div>
-      <!-- Brand logo: visual mark above the two-tone wordmark, treated as
-           one unit (no separate text headline beside it). -->
+      <!-- Brand logo: the supplied PNG (web/static/maseminer-logo.png)
+           is the all-in-one mark + wordmark, so the separate inline-
+           SVG mark + two-tone <h2> wordmark are no longer needed. -->
       <div class="preset-hero-logo" role="img" aria-label="MASEMiner">
-        <svg class="preset-hero-mark" width="120" height="120" aria-hidden="true"><use href="#masemMark"/></svg>
-        <h2 class="preset-hero-title masem-wordmark">
-          <span class="brand-mase">MASE</span><span class="brand-miner">Miner</span>
-        </h2>
+        <img src="/static/maseminer-logo.png" alt="MASEMiner" class="masem-logo-img" />
       </div>
       <p class="preset-hero-tagline">
         Extract factor loadings, inter-factor correlations, and study metadata
