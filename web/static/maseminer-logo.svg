@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MASEMiner brand mark + wordmark, rebuilt as SVG so it scales
+  crisply at any size and is editable in source.
+
+  Composition (mirrors the supplied PNG):
+    - 5×5 blocky-M letterform built from rounded square tiles
+      (outer pillars + inner shoulders + centre peak), alternating
+      between two navy shades for the layered "facets of glass" feel
+    - A small teal tile detached at the upper-right, joined to the M
+      by a short dashed leader line — evokes the act of "mining" a
+      structured value out of the matrix
+    - Two-tone wordmark below: MASE in deep navy, Miner in teal
+
+  Wordmark trick: ``MASE`` is text-anchor="end" and ``Miner`` is
+  text-anchor="start", both at x=120 — the halves always meet at
+  the natural word break regardless of which font ends up loaded,
+  so no overlap and no gap.
+
+  Colours sampled from the brand palette:
+    #1d4a8c   deep navy   (primary M tiles, MASE wordmark)
+    #3a6cad   softer navy (alternating tiles for subtle depth)
+    #5cb8c8   teal accent (detached tile, Miner wordmark)
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 240 300"
+     role="img"
+     aria-label="MASEMiner">
+  <!-- ── Blocky M (grid: 5 cols × 5 rows, tile 30 px, stride 34 px) ── -->
+  <g>
+    <!-- Left pillar -->
+    <rect x="40"  y="50"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="40"  y="84"  width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="40"  y="118" width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="40"  y="152" width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="40"  y="186" width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <!-- Inner left shoulder (row 1) -->
+    <rect x="74"  y="84"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <!-- Centre peak (row 2) -->
+    <rect x="108" y="118" width="30" height="30" rx="3" fill="#3a6cad"/>
+    <!-- Inner right shoulder (row 1) -->
+    <rect x="142" y="84"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <!-- Right pillar -->
+    <rect x="176" y="50"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="176" y="84"  width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="176" y="118" width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="176" y="152" width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="176" y="186" width="30" height="30" rx="3" fill="#1d4a8c"/>
+  </g>
+
+  <!-- Dashed leader from the top-right of the M to the detached tile -->
+  <line x1="206" y1="56" x2="221" y2="36"
+        stroke="#1d4a8c" stroke-width="1.5"
+        stroke-dasharray="3 3" stroke-linecap="round"/>
+
+  <!-- "Extracted" teal tile, detached at the upper-right -->
+  <rect x="210" y="18" width="22" height="22" rx="3" fill="#5cb8c8"/>
+
+  <!-- ── Two-tone wordmark ──
+       Both halves anchor at x=120 — MASE ends there, Miner starts
+       there — so they meet at the natural word break no matter what
+       font ends up rendering. -->
+  <text y="268"
+        font-family="DM Sans, -apple-system, BlinkMacSystemFont, Inter, Helvetica, Arial, sans-serif"
+        font-size="40" letter-spacing="0.5">
+    <tspan x="120" text-anchor="end"   fill="#1d4a8c" font-weight="800">MASE</tspan>
+    <tspan x="120" text-anchor="start" fill="#5cb8c8" font-weight="500">Miner</tspan>
+  </text>
+</svg>

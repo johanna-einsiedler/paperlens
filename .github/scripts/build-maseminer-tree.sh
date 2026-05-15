@@ -45,7 +45,8 @@ for f in \
 done
 
 # ── Static frontend ───────────────────────────────────────────────────────
-for f in index.html app.js masem-builder.js style.css; do
+for f in index.html app.js masem-builder.js style.css \
+         logo.svg maseminer-logo.svg; do
   cp "$SRC_WEB/static/$f" "$DEST/static/$f"
 done
 
