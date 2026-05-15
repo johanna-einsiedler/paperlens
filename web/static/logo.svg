@@ -2,14 +2,19 @@
 <!--
   MetaPaperLens — sibling mark to the Metalens logo.
 
-  Four rounded "bars" form the letter M:
-    - two vertical pillars (left + right)
+  Four shapes form the letter M:
+    - two vertical pillars (left + right), drawn on top of the diagonals
     - two diagonal bars meeting at a V apex in the centre
 
   Each bar uses the same vertical gradient (dark navy → soft teal-mint
   → dark navy), giving the whole mark the layered-glass feel of the
   original metalens logo.  Colour stops mirror the metalens palette
   (#122740 → #c6dde1 → #122740) so the two products read as a family.
+
+  Top-of-M rounding: pillars extend slightly above the diagonal tops
+  (y=60 vs y=80) and are drawn LAST so the rounded pillar caps cover
+  the diagonal corners — the M reads as two soft round tops with a
+  V valley between them, with no spiky polygon corners visible.
 
   Designed to scale cleanly from 24px (favicon) to 240px (hero).
 -->
@@ -36,13 +41,14 @@
     </linearGradient>
   </defs>
 
-  <!-- Left pillar -->
-  <rect x="80"  y="80" width="80" height="340" rx="40" ry="40" fill="url(#mpl-bar)"/>
-  <!-- Right pillar -->
-  <rect x="340" y="80" width="80" height="340" rx="40" ry="40" fill="url(#mpl-bar)"/>
-
-  <!-- Left diagonal: from top of left pillar (apex up-left) down to V bottom (centre) -->
+  <!-- Diagonals first so the pillars (drawn next) cover their top
+       corners and give the M a clean rounded crown. -->
   <polygon points="80,80 160,80 282,310 215,330" fill="url(#mpl-diag-l)"/>
-  <!-- Right diagonal: from top of right pillar down to V bottom (centre) -->
   <polygon points="420,80 340,80 218,310 285,330" fill="url(#mpl-diag-r)"/>
+
+  <!-- Pillars on top, extended up to y=60 so the rounded tops sit
+       above the diagonal corners and the M reads as two soft round
+       caps separated by the V valley. -->
+  <rect x="80"  y="60" width="80" height="380" rx="40" ry="40" fill="url(#mpl-bar)"/>
+  <rect x="340" y="60" width="80" height="380" rx="40" ry="40" fill="url(#mpl-bar)"/>
 </svg>

@@ -120,16 +120,11 @@ body.is-maseminer .app {
   padding-top: 24px;
 }
 
-/* Hide the MetaPaperLens M-mark and reveal the MASEMiner one only in
-   MASEMiner mode.  Aspect ratio of the masem-mark SVG (240×250)
-   means a 110-px height renders at roughly 106 px wide. */
-.header-logo-masem { display: none; }
-body.is-maseminer .header-logo            { display: none; }
-body.is-maseminer .header-logo-masem      {
-  display: block;
-  width: 110px;
-  height: 110px;
-}
+/* In MASEMiner mode the single header logo's src is swapped to
+   /static/maseminer-mark.svg by app.js — the MASEMiner mark renders
+   well at the same 140×140 box used by the MetaPaperLens M.  The
+   appTitle h1 is also swapped to "MASEMiner" so the title stays
+   visible at the top of every flow step. */
 body.is-maseminer header h1 {
   font-size: 30px;
   letter-spacing: -0.4px;

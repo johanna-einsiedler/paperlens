@@ -1870,20 +1870,17 @@ async function applyPreset(presetId) {
   const aiEl     = document.getElementById('aiSection');
   const manEl    = document.getElementById('manualSection');
   const builderEl = document.getElementById('masemBuilder');
-  const customiseBtn = document.getElementById('presetBannerCustomize');
   if (typeof isMasemPreset === 'function' && isMasemPreset(preset)) {
     if (choiceEl)  choiceEl.style.display  = 'none';
     if (aiEl)      aiEl.style.display      = 'none';
     if (manEl)     manEl.style.display     = 'none';
     if (builderEl) builderEl.style.display = '';
-    if (customiseBtn) customiseBtn.style.display = '';
     if (typeof openMasemBuilder === 'function') openMasemBuilder(preset.id);
   } else if (preset.prompt) {
     if (choiceEl)  choiceEl.style.display  = 'none';
     if (aiEl)      aiEl.style.display      = 'none';
     if (manEl)     manEl.style.display     = '';
     if (builderEl) builderEl.style.display = 'none';
-    if (customiseBtn) customiseBtn.style.display = 'none';
   }
 
   // Land on the configured step.  For MASEMiner we go to step 2 (setup);
@@ -2031,6 +2028,11 @@ async function loadServerConfig() {
       document.title = 'MASEMiner';
       const t = document.getElementById('appTitle');
       if (t) t.textContent = 'MASEMiner';
+      // Swap the single header logo from the MetaPaperLens M
+      // (/static/logo.svg) to the MASEMiner mark.  Only one logo is
+      // present in the markup so there's nothing to hide.
+      const logo = document.getElementById('headerLogoImg');
+      if (logo) logo.src = '/static/maseminer-mark.svg';
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');

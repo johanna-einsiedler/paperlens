@@ -60,11 +60,10 @@
 <div class="app">
 
   <header>
-    <!-- Default brand mark — shown in MetaPaperLens / generic mode.
-         The MASEMiner mark sibling lives just below and is revealed
-         only when body.is-maseminer is set (see CSS). -->
-    <img src="/static/logo.svg" alt="" class="header-logo" aria-hidden="true" />
-    <img src="/static/maseminer-mark.svg" alt="" class="header-logo header-logo-masem" aria-hidden="true" />
+    <!-- Single brand mark — src is swapped to /static/maseminer-mark.svg
+         by app.js whenever body.is-maseminer is set, so MetaPaperLens
+         and MASEMiner each show exactly one logo. -->
+    <img src="/static/logo.svg" alt="" id="headerLogoImg" class="header-logo" aria-hidden="true" />
     <h1 id="appTitle">MetaPaperLens</h1>
     <p id="appTagline">AI-powered data extraction and labeling for academic papers</p>
   </header>
@@ -115,14 +114,6 @@
     <span class="preset-banner-label">
       <strong id="presetBannerTitle"></strong>
     </span>
-    <!-- Re-opens the guided MASEMiner builder without losing the upload
-         queue or any other state.  Hidden by default; shown only when
-         a parameterised MASEM preset is active. -->
-    <button class="preset-banner-clear" id="presetBannerCustomize"
-            onclick="reopenMasemBuilder()" style="display:none"
-            title="Reopen the guided builder to tweak data sources or variables">
-      Customise
-    </button>
     <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to MetaPaperLens">Switch to MetaPaperLens</button>
   </div>
 
