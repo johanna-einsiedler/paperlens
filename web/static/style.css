@@ -17,8 +17,13 @@
   --primary:       var(--mpl-navy-800);
   --primary-dark:  var(--mpl-navy-900);
   --primary-light: var(--mpl-mint-100);
-  --success:       #2f9e54;
-  --success-light: #e7f7ec;
+  /* Sage-green derived from the metalens mint palette
+     (#c7ddd1 / #e9f4e7) so the "go" buttons + "done" badges
+     read as part of the same teal-navy world, not as a
+     foreign Tailwind green. */
+  --success:       #4f8a6b;
+  --success-dark:  #3d7355;
+  --success-light: #dceee2;
   --error:         #c93434;
   --bg:            var(--mpl-canvas);
   --card:          #ffffff;
@@ -352,7 +357,7 @@ header p {
   word-break: break-word;
 }
 .conn-status-pending { background: var(--bg);            color: var(--text-muted); border: 1px solid var(--border); }
-.conn-status-ok      { background: var(--success-light); color: var(--success);    border: 1px solid #bbf7d0; }
+.conn-status-ok      { background: var(--success-light); color: var(--success);    border: 1px solid #b3ccbb; }
 .conn-status-err     { background: #fef2f2;              color: var(--error);      border: 1px solid #fecaca; }
 
 /* "Most common" badge on the recommended landing-screen option */
@@ -648,8 +653,11 @@ header p {
 /* ── Info box (step 1 how-it-works) ─────────────── */
 
 .info-box {
-  background: #f0f9ff;
-  border: 1px solid #bae6fd;
+  /* Was sky-blue Tailwind tints; switched to the metalens
+     teal-navy family so the callout matches the rest of the
+     brand chrome instead of reading as a foreign blue. */
+  background: #e6f0f3;
+  border: 1px solid var(--mpl-teal-300);
   border-radius: var(--radius-sm);
   margin-bottom: 20px;
   overflow: hidden;
@@ -659,13 +667,13 @@ header p {
   padding: 10px 15px;
   font-size: 13px;
   font-weight: 600;
-  color: #0369a1;
+  color: var(--mpl-navy-800);
   cursor: pointer;
   list-style: none;
   user-select: none;
 }
 .info-box summary::-webkit-details-marker { display: none; }
-.info-box summary:hover { background: #e0f2fe; }
+.info-box summary:hover { background: #d4e6eb; }
 
 .info-box-body {
   padding: 4px 15px 14px;
@@ -1065,7 +1073,7 @@ header p {
 .btn-ghost:hover { background: var(--bg); color: var(--text); }
 
 .btn-success { background: var(--success); color: #fff; }
-.btn-success:hover { background: #15803d; }
+.btn-success:hover { background: var(--success-dark); }
 
 .btn-outline {
   background: transparent;
@@ -1344,7 +1352,7 @@ header p {
   font-size: 12.5px;
   border-radius: var(--radius-sm);
 }
-.email-prompt-ok  { background: var(--success-light); color: var(--success); border: 1px solid #bbf7d0; }
+.email-prompt-ok  { background: var(--success-light); color: var(--success); border: 1px solid #b3ccbb; }
 .email-prompt-err { background: #fef2f2;              color: var(--error);   border: 1px solid #fecaca; }
 
 /* ── Domain-workflow preset banner (MASEMiner etc.) ────────────────────── */

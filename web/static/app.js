@@ -496,15 +496,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // /maseminer path → hero landing; ?preset=<id> → auto-apply; else inline list
   applyPathOrQueryPreset();
 
-  // First-time visitor: auto-open the "How does this work?" panel so the
-  // landing screen isn't just three buttons with no orientation.
-  try {
-    if (!localStorage.getItem('paperlens.visited')) {
-      const box = document.getElementById('howItWorksBox');
-      if (box) box.open = true;
-      localStorage.setItem('paperlens.visited', '1');
-    }
-  } catch (_) { /* localStorage may be disabled — ignore */ }
+  // The "How does this work?" panel stays closed by default — users open
+  // it on demand.  (Previously it auto-opened for first-time visitors;
+  // removed because the closed default reads as more polished and the
+  // summary text alone is enough to invite a click.)
 
   // Save on form changes — capture user input as they type.
   ['providerSelect','modelSelect','modelTextInput','vllmBaseUrl',
