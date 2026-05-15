@@ -1,76 +1,96 @@
 # PaperLens
 
-AI-powered data extraction and labeling for academic papers.
+AI-powered data extraction and labelling for academic papers — and the MASEMiner workflow built on top of it.
 
-Upload PDFs, describe what you need in plain language, and get structured JSON results — with highlighted source passages for every extracted value.
+Upload PDFs, describe what you want extracted in plain language, and get structured JSON back, with highlighted source passages for every value the model claims to have found.
 
 ## What it does
 
-- **Extract** — pull structured data (statistics, factor loadings, effect sizes, metadata) from academic PDFs into a defined JSON schema
-- **Label** — classify papers by content using custom categories you define
-- **Verify** — results are shown side-by-side with the source PDF, with yellow highlights marking the exact passages the model cited as evidence
-- **Edit** — click any extracted value to correct it; edits are tracked as human overrides in the downloaded JSON
-- **Review** — load previously exported results back into the viewer for continued human review
+- **Extract** — pull structured data (statistics, factor loadings, effect sizes, metadata) from academic PDFs into a defined JSON schema.
+- **Label** — classify papers by content using custom categories you define.
+- **Verify** — results sit side-by-side with the source PDF, with yellow highlights marking the exact passages the model cited as evidence.
+- **Edit** — click any extracted value to correct it; edits are tracked as human overrides in the downloaded JSON.
+- **Review** — load previously exported results back into the viewer for continued human review.
 
-Supports OpenAI (GPT-4o), Google Gemini, and DeepSeek models.
+Supports OpenAI (GPT-4o family), Google Gemini, DeepSeek, and any vLLM/Ollama endpoint with an OpenAI-compatible API.
 
-## Local development
+## Two ways to use it
 
-### Prerequisites
+| Mode | Where | Use it when |
+|---|---|---|
+| **Hosted PaperLens** | <https://paperlens.fly.dev> (or your own deploy) | General PDF extraction; you want the full preset picker and the "describe your task → AI builds the prompt" flow. |
+| **MASEMiner local** | clone `johanna-einsiedler/maseminer` and `python server.py` | Factor-loadings / inter-factor-correlations / study-metadata extraction for psychometric MASEM. Your PDFs and API key never leave your computer. |
 
-- Python 3.11+
-- An API key for OpenAI, Google Gemini, or DeepSeek
+The two are the same codebase. The hosted app serves both audiences; the local distribution is a curated MASEMiner-only build, auto-mirrored from this repo on every version tag.
 
-### Setup
+## Local development (PaperLens, full app)
 
 ```bash
-cd web
+git clone https://github.com/johanna-einsiedler/paperlens.git
+cd paperlens/web
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python server.py
 ```
 
-Open `http://localhost:5001` in your browser.
+Open <http://localhost:5001>. To run as **MASEMiner-only** (hides the generic chrome, redirects `/` to `/maseminer`):
 
-### Project structure
-
-```
-pipeline/
-└── web/                    # Flask web application (Railway root directory)
-    ├── server.py           # Flask routes
-    ├── pdf_utils.py        # PDF → images, text extraction, evidence highlighting
-    ├── providers.py        # LLM provider routing (OpenAI / Gemini / DeepSeek)
-    ├── prompt_builder.py   # Meta-prompt construction
-    ├── requirements.txt
-    ├── Procfile
-    ├── prompts/            # Example prompts shown during prompt generation
-    │   ├── 01_detection_prompt.txt
-    │   ├── 02_extraction_prompt_factor_loadings.txt
-    │   ├── 03_extraction_prompt_correlations.txt
-    │   └── 04_extraction_prompt_metadata.txt
-    └── static/
-        ├── index.html
-        ├── app.js
-        └── style.css
+```bash
+PAPERLENS_MASEMINER_ONLY=1 python server.py
 ```
 
-## Deployment (Railway)
+### Running tests
 
-1. Push this repo to GitHub
-2. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**
-3. Select the repo, then set **Root Directory** to `web/`
-4. Railway auto-detects Python and runs the `Procfile`
-5. Your app is live — no environment variables needed (users enter their own API keys in the UI)
+```bash
+cd web
+pip install -r requirements-dev.txt
+pytest
+```
 
-The same steps work on [Render](https://render.com) — set the Root Directory to `web/` and the Start Command to `gunicorn server:app`.
+The suite covers the pure functions (PDF parsing, evidence detection, provider routing, preset rendering) and the FastAPI route handlers with LLM clients mocked. Currently 136 tests, ~5 s.
 
-## How it works
+## Architecture
 
-1. **Describe your task** — you write a plain-language description; the app uses an AI meta-prompt to generate a detailed extraction or labeling prompt
-2. **Upload PDFs** — one or more papers are processed sequentially
-3. **AI extracts / labels** — the model reads each PDF (as page images for vision models, or as extracted text for DeepSeek / text-extraction mode) and returns structured JSON
-4. **Evidence highlighting** — extracted snippets are located in the PDF text layer and highlighted in yellow
-5. **Human review** — view, edit, and download results with a full audit trail
+For the long-form walk-through — modules, request flow, preset system, MASEMiner builder, evidence highlighting, deployment specifics — see [`documentation.md`](documentation.md).
+
+Quick orientation:
+
+- **Backend**: FastAPI + uvicorn. Extraction runs in daemon threads launched per job; HTTP requests return immediately with a `job_id` and the frontend polls.
+- **Persistence**: SQLite (`paperlens.sqlite3`) for job status/result; page images live in process memory and are re-derivable from the original PDF.
+- **Frontend**: vanilla JS, no build step. Everything in [`web/static/`](web/static).
+- **MASEMiner**: a preset in [`web/presets/`](web/presets) (template + JSON config) plus a guided form in [`web/static/masem-builder.js`](web/static/masem-builder.js). The backend is preset-agnostic.
+
+## Deployment
+
+The hosted app runs on [Fly.io](https://fly.io). The deploy config is [`web/fly.toml`](web/fly.toml). After first-time setup (`fly launch` once):
+
+```bash
+cd web
+fly deploy
+```
+
+Persistent SQLite lives on a Fly volume mounted at `/data`; the path is set via the `PAPERLENS_DB_PATH` env var.
+
+[Render](https://render.com) also works — point the root directory at `web/` and start command at `uvicorn server:app --host 0.0.0.0 --port $PORT`.
+
+## The MASEMiner public mirror
+
+A curated MASEMiner-only build is automatically published to a separate public repo on every version tag. Researchers who want to run MASEMiner locally fork that repo, never the full PaperLens one.
+
+- **Public repo:** <https://github.com/johanna-einsiedler/maseminer>
+- **Sync workflow:** [`.github/workflows/sync-maseminer.yml`](.github/workflows/sync-maseminer.yml) — fires on `v*` tag pushes; rsync-style allowlist; force-pushes a flat history to the mirror.
+- **Overlay files** (replace branding for the public build): [`.github/maseminer-overlay/`](.github/maseminer-overlay)
+
+To cut a release: `git tag v0.X.Y && git push origin v0.X.Y`. The Action stages the public tree, runs a leak check (no `fly.toml`, no SQLite, no internal docs), force-pushes `main` + the matching tag on the public repo, and substitutes `{{VERSION}}` / `{{OWNER}}` into the README and LOCAL.md so the citation block is concrete.
+
+## How it works (one paragraph)
+
+You write a plain-language description of what to extract → the app builds (or you pre-load) a JSON-emitting prompt → you upload one or more PDFs → each is processed sequentially against the chosen LLM (page images for vision models, extracted text for DeepSeek / text mode) → the response is parsed into structured per-paper records → evidence snippets are located in the PDF text layer and rendered as yellow highlights → you review, edit, and download.
 
 ## API keys
 
-Your API key is entered in the browser and sent directly to the provider (OpenAI / Google / DeepSeek). It is never stored on the server.
+Your API key is entered in the browser and sent directly to the provider — never stored on the server. The hosted app holds nothing about you beyond per-batch job state (which is auto-cleaned after seven days). For sensitive PDFs, the **local distribution** is the right answer: nothing ever leaves your machine except the LLM call you'd be making anyway.
+
+## License
+
+MIT.
