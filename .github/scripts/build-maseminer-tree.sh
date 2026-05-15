@@ -80,17 +80,17 @@ echo "$TAG" > "$DEST/VERSION"
 
 # ── Substitute {{VERSION}} and {{OWNER}} placeholders in overlay docs ─────
 # Owner preference order:
-#   1. parse from MASEMINER_REPO_SSH (e.g. git@github.com:owner/maseminer.git)
+#   1. parse from MASEMINER_REPO_SSH (e.g. git@github.com:johanna-einsiedler/maseminer.git)
 #   2. GITHUB_REPOSITORY_OWNER set by GitHub Actions runner
-#   3. literal "<owner>" so a local dry-run shows where the substitution
-#      would go, rather than silently injecting an unrelated value.
+#   3. hardcoded "johanna-einsiedler" — the canonical owner of the public
+#      mirror; used when running a local dry-run without env vars set.
 OWNER=""
 if [[ -n "${MASEMINER_REPO_SSH:-}" ]]; then
   _tail="${MASEMINER_REPO_SSH#*:}"     # owner/repo.git
   OWNER="${_tail%/*}"                  # owner
 fi
 if [[ -z "$OWNER" ]]; then
-  OWNER="${GITHUB_REPOSITORY_OWNER:-<owner>}"
+  OWNER="${GITHUB_REPOSITORY_OWNER:-johanna-einsiedler}"
 fi
 
 # Use perl for portable in-place edits (works on both GNU and BSD sed

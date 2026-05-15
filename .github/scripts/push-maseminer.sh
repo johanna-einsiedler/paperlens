@@ -4,7 +4,7 @@
 # Usage:    bash .github/scripts/push-maseminer.sh <staged-dir>
 # Required: $DEPLOY_KEY env var — SSH private key with write access to
 #           the public maseminer repo (a "deploy key" on that repo).
-# Required: $MASEMINER_REPO_SSH env var — git@github.com:<owner>/maseminer.git
+# Required: $MASEMINER_REPO_SSH env var — git@github.com:johanna-einsiedler/maseminer.git
 #
 # History is intentionally flat: one commit per release, no inherited
 # paperlens history.  Researchers don't need it; we don't want to leak it.
@@ -37,7 +37,7 @@ fi
 
 if [[ -z "$REMOTE" ]]; then
   echo "Error: MASEMINER_REPO_SSH env var is required " \
-       "(e.g. git@github.com:<owner>/maseminer.git)." >&2
+       "(e.g. git@github.com:johanna-einsiedler/maseminer.git)." >&2
   exit 1
 fi
 if [[ -z "${DEPLOY_KEY:-}" ]]; then
@@ -65,7 +65,7 @@ git push --force origin "refs/heads/main:refs/heads/main"
 
 if [[ "$PUSH_TAG" == "1" ]]; then
   # Mirror the version tag onto the public repo so users can pin
-  # ``remotes::install_github('<owner>/maseminer@v0.3.1')`` etc.
+  # ``remotes::install_github('johanna-einsiedler/maseminer@v0.3.1')`` etc.
   git tag -f "$TAG"
   git push --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
   echo "Pushed $TAG to $REMOTE (main + tag)"
