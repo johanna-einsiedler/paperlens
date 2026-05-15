@@ -1055,9 +1055,10 @@
     <details class="help-section">
       <summary>Privacy &amp; data handling</summary>
       <ul class="help-list">
-        <li>Your API key is sent only to the provider you selected (OpenAI / Google / DeepSeek / your own server).</li>
+        <li>Your API key is sent only to the provider you selected (OpenAI / Google / DeepSeek / Mistral / your own server).</li>
         <li>API keys are never stored on the server. They live only in your browser tab.</li>
-        <li>Uploaded PDFs are processed in memory and not persisted. Page images for the viewer are sent back to the browser as base64.</li>
+        <li>Uploaded PDFs are processed in memory and not persisted as files. Page images for the viewer are sent back to the browser as base64.</li>
+        <li>Per-batch job state (status, extracted JSON, evidence snippets) is stored in a small SQLite database on the server so the History view works and re-runs can replace previous results. Records are auto-deleted after 7 days.</li>
       </ul>
     </details>
 
@@ -1079,7 +1080,7 @@
 
     <details class="help-section">
       <summary>FAQ</summary>
-      <p><strong>Why are some papers refused / missing data?</strong> OpenAI vision models have a per-minute token budget that's shared across requests. The app waits 30s between papers and retries once after a 60s pause, but heavy back-to-back loads can still hit the limit.</p>
+      <p><strong>Why are some papers refused / missing data?</strong> Provider-side rate limits (per-minute token budgets, per-day request caps) can reject individual papers under heavy load. Failed papers show an error in the sidebar — click <em>Re-run</em> on the affected paper after a short wait, or split the batch in two.</p>
       <p><strong>What's the page limit?</strong> 40 pages per PDF. Pages beyond that are ignored.</p>
       <p><strong>Why are no highlights showing?</strong> Either the prompt didn't request evidence (a banner appears in that case), or the model's quoted snippets don't appear verbatim in the PDF text layer (common for scanned PDFs).</p>
       <p><strong>Can I extract from a scanned PDF?</strong> Yes via vision (page images), but the text-extraction mode (and DeepSeek) requires a real text layer.</p>
