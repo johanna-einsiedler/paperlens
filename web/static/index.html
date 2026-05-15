@@ -60,7 +60,11 @@
 <div class="app">
 
   <header>
+    <!-- Default brand mark — shown in MetaPaperLens / generic mode.
+         The MASEMiner mark sibling lives just below and is revealed
+         only when body.is-maseminer is set (see CSS). -->
     <img src="/static/logo.svg" alt="" class="header-logo" aria-hidden="true" />
+    <img src="/static/maseminer-mark.svg" alt="" class="header-logo header-logo-masem" aria-hidden="true" />
     <h1 id="appTitle">MetaPaperLens</h1>
     <p id="appTagline">AI-powered data extraction and labeling for academic papers</p>
   </header>
@@ -168,6 +172,14 @@
       <div class="preset-hero-cta">
         <button class="btn btn-primary" onclick="startPresetFromLanding('masem')">Get started &#8594;</button>
         <button class="btn btn-ghost" id="genericPaperlensBtn" onclick="window.location.href = '/'">Use generic MetaPaperLens instead</button>
+      </div>
+      <!-- Footer note: source on GitHub + local-run hint.  Researchers
+           with sensitive PDFs (or who want a citable, frozen version)
+           clone the public maseminer mirror and run it themselves. -->
+      <div class="preset-hero-footnote">
+        Prefer to run MASEMiner on your own machine?
+        <a href="https://github.com/johanna-einsiedler/maseminer" target="_blank" rel="noopener">Source on GitHub</a>
+        — clone the public mirror, follow <code>LOCAL.md</code>, and your PDFs + API key never leave your computer.
       </div>
     </div>
   </div>

@@ -1896,12 +1896,16 @@ async function applyPreset(presetId) {
 }
 
 /* Used by the /maseminer hero "Get started" button — applies the preset,
-   hides the landing, shows the configuration accordion, lands on step 2. */
+   hides the landing, shows the configuration accordion, lands on step 2.
+   Also flips body.masem-in-flow so the global <header> reappears with
+   the MASEMiner mark + title above every flow step (CSS hides the
+   header during the hero, shows it during the flow). */
 async function startPresetFromLanding(presetId) {
   const landing  = document.getElementById('masemLanding');
   const onepager = document.getElementById('onepager');
   if (landing)  landing.style.display  = 'none';
   if (onepager) onepager.style.display = '';
+  document.body.classList.add('masem-in-flow');
   await applyPreset(presetId);
 }
 
@@ -1910,6 +1914,14 @@ function clearPreset() {
   // In MASEMiner-only mode (local distribution) there is no generic
   // PaperLens to clear back to — keep the active preset and branding.
   if (window.__MASEMINER_ONLY__) return;
+  // On the dedicated /maseminer route, the path itself re-applies the
+  // MASEMiner hero on every load — clearing the in-memory preset
+  // state isn't enough.  Navigate to the generic root instead so the
+  // user actually lands on MetaPaperLens.
+  if (window.location.pathname === '/maseminer') {
+    window.location.href = '/';
+    return;
+  }
   // Reset URL so a refresh doesn't re-apply
   if (window.history && window.history.replaceState) {
     const url = new URL(window.location.href);
@@ -2002,29 +2014,23 @@ async function loadServerConfig() {
     // leaves ``maseminer_only`` false and this whole block is a no-op.
     if (data.maseminer_only) {
       window.__MASEMINER_ONLY__ = true;
-      const title = data.app_title || 'MASEMiner';
-      const tagline = data.app_tagline || '';
-      document.title = title;
-      const t = document.getElementById('appTitle');
-      const g = document.getElementById('appTagline');
-      if (t) t.textContent = title;
-      if (g && tagline) g.textContent = tagline;
       const altBtn = document.getElementById('genericPaperlensBtn');
       if (altBtn) altBtn.style.display = 'none';
     }
-    // Hide the MetaPaperLens left sidebar on the MASEMiner entry
-    // points (both the dedicated /maseminer URL and the locked-down
-    // local distribution).  MASEMiner has its own hero + branding
-    // and shouldn't carry the MetaPaperLens chrome.  ``is-maseminer``
-    // also flips the page chrome to the MASEMiner blue/white palette
-    // and hides the global MetaPaperLens header (#appTitle / tagline)
-    // — the PNG logo at the top of the masemLanding hero carries the
-    // brand identity in MASEMiner mode.
+    // Apply MASEMiner branding on either /maseminer (hosted) OR the
+    // locked-down local distribution.  Sets the header h1 + document
+    // title to "MASEMiner", flips the body classes that swap the
+    // palette (--primary navy/teal-blue) and the header logo
+    // (MetaPaperLens M → MASEMiner mark via CSS), and hides the
+    // left sidebar (the masemLanding hero / flow header carry the
+    // brand identity instead).
     const onMaseminerPath = window.location.pathname === '/maseminer';
     if (data.maseminer_only || onMaseminerPath) {
       document.body.classList.add('mpl-no-sidebar');
       document.body.classList.add('is-maseminer');
       document.title = 'MASEMiner';
+      const t = document.getElementById('appTitle');
+      if (t) t.textContent = 'MASEMiner';
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');

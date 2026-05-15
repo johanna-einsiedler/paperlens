@@ -103,17 +103,39 @@ body.is-maseminer {
   --text-muted:    #5a6b85;
 }
 
-/* In MASEMiner mode the global <header> would say "MetaPaperLens"
-   (or duplicate the logo); hide it so the masemLanding hero is the
-   only top-of-page chrome. */
-body.is-maseminer > .app > header {
+/* MASEMiner header handling.
+
+   On the masemLanding hero (which is what /maseminer initially shows)
+   the hero carries the brand identity itself — so we hide the global
+   <header> while the hero is visible.
+
+   Once the user clicks "Get started" and the flow page opens, JS adds
+   ``body.masem-in-flow`` and we reveal the header in its MASEMiner
+   form: the mark-only SVG and the appTitle h1 (which JS swaps to read
+   "MASEMiner") sit at the top of every flow step. */
+body.is-maseminer:not(.masem-in-flow) > .app > header {
   display: none;
 }
-/* And shave the top padding the app reserved for the now-hidden
-   header so the hero sits at the top of the viewport. */
 body.is-maseminer .app {
   padding-top: 24px;
 }
+
+/* Hide the MetaPaperLens M-mark and reveal the MASEMiner one only in
+   MASEMiner mode.  Aspect ratio of the masem-mark SVG (240×250)
+   means a 110-px height renders at roughly 106 px wide. */
+.header-logo-masem { display: none; }
+body.is-maseminer .header-logo            { display: none; }
+body.is-maseminer .header-logo-masem      {
+  display: block;
+  width: 110px;
+  height: 110px;
+}
+body.is-maseminer header h1 {
+  font-size: 30px;
+  letter-spacing: -0.4px;
+  margin-bottom: 4px;
+}
+body.is-maseminer header #appTagline { display: none; }
 
 .app {
   max-width: 760px;
@@ -1531,7 +1553,7 @@ header p {
 }
 .masem-logo-img {
   display: block;
-  max-width: 360px;
+  max-width: 240px;
   width: 100%;
   height: auto;
 }
@@ -1615,14 +1637,44 @@ header p {
 }
 
 .preset-hero-cta .btn-primary {
-  background: #7c3aed;
-  border-color: #7c3aed;
+  /* Inherit --primary (navy in MASEMiner mode, navy-teal everywhere
+     else) instead of the previous hardcoded violet override. */
+  background: var(--primary);
+  border-color: var(--primary);
   font-size: 15px;
   padding: 10px 22px;
 }
+
+/* Footnote line under the CTA buttons — points researchers at the
+   public maseminer mirror for local self-hosting. */
+.preset-hero-footnote {
+  margin: 20px auto 0;
+  max-width: 560px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.preset-hero-footnote a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid var(--primary-light);
+}
+.preset-hero-footnote a:hover {
+  border-bottom-color: var(--primary);
+}
+.preset-hero-footnote code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--primary-light);
+  color: var(--text);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
 .preset-hero-cta .btn-primary:hover {
-  background: #6d28d9;
-  border-color: #6d28d9;
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
 }
 
 @media (max-width: 720px) {

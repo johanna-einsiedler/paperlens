@@ -46,7 +46,7 @@ done
 
 # ── Static frontend ───────────────────────────────────────────────────────
 for f in index.html app.js masem-builder.js style.css \
-         logo.svg maseminer-logo.svg; do
+         logo.svg maseminer-logo.svg maseminer-mark.svg; do
   cp "$SRC_WEB/static/$f" "$DEST/static/$f"
 done
 

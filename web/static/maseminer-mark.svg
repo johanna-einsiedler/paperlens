@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MASEMiner mark only (no wordmark) — for use in the page header on the
+  flow page where the appTitle h1 already renders "MASEMiner" beside it.
+
+  Same 5×5 blocky-M letterform + detached teal tile as the full
+  maseminer-logo.svg, just without the text below.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 240 250"
+     role="img"
+     aria-label="MASEMiner mark">
+  <g>
+    <rect x="40"  y="50"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="40"  y="84"  width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="40"  y="118" width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="40"  y="152" width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="40"  y="186" width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="74"  y="84"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="108" y="118" width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="142" y="84"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="176" y="50"  width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="176" y="84"  width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="176" y="118" width="30" height="30" rx="3" fill="#1d4a8c"/>
+    <rect x="176" y="152" width="30" height="30" rx="3" fill="#3a6cad"/>
+    <rect x="176" y="186" width="30" height="30" rx="3" fill="#1d4a8c"/>
+  </g>
+  <line x1="206" y1="56" x2="221" y2="36"
+        stroke="#1d4a8c" stroke-width="1.5"
+        stroke-dasharray="3 3" stroke-linecap="round"/>
+  <rect x="210" y="18" width="22" height="22" rx="3" fill="#5cb8c8"/>
+</svg>
