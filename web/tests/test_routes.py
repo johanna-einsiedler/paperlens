@@ -661,30 +661,68 @@ def test_root_renders_index_when_env_var_unset(client):
 
 
 def test_extract_rejects_batch_over_limit(client, monkeypatch):
-    """Once the cap is hit, the next paper in the same batch_id is refused."""
+    """Once the cap is hit, a new filename in the same batch_id is refused.
+    Each upload here uses a different filename so all of them count toward
+    the cap (reruns of an existing filename pass through — see the
+    test_extract_allows_rerun_over_limit test below)."""
     monkeypatch.setenv("PAPERLENS_MAX_BATCH_PAPERS", "2")
     pdf = _make_pdf_bytes()
     bid = "test-cap"
 
-    # Two successful submits should be accepted
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
-        for _ in range(2):
+        # Two distinct filenames → both accepted
+        for name in ("a.pdf", "b.pdf"):
             r = client.post(
                 "/api/extract",
                 data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
-                files={"pdf": ("paper.pdf", pdf, "application/pdf")},
+                files={"pdf": (name, pdf, "application/pdf")},
             )
             assert r.status_code == 200
 
-        # Third one is over the cap → 400
+        # Third *new* filename is over the cap → 400
         r = client.post(
             "/api/extract",
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
-            files={"pdf": ("paper.pdf", pdf, "application/pdf")},
+            files={"pdf": ("c.pdf", pdf, "application/pdf")},
         )
     assert r.status_code == 400
     assert "Batch limit reached" in r.json()["detail"]
+
+
+def test_extract_allows_rerun_over_limit(client, monkeypatch):
+    """Re-running a paper already in the batch must NOT count against the
+    upload cap.  The cap counts distinct uploaded filenames, not jobs."""
+    monkeypatch.setenv("PAPERLENS_MAX_BATCH_PAPERS", "2")
+    pdf = _make_pdf_bytes()
+    bid = "test-rerun-cap"
+
+    with patch("jobs.extract_with_images",
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+        # Fill the batch to its cap with two distinct filenames
+        for name in ("a.pdf", "b.pdf"):
+            r = client.post(
+                "/api/extract",
+                data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+                files={"pdf": (name, pdf, "application/pdf")},
+            )
+            assert r.status_code == 200
+
+        # Re-run an existing filename: must pass even though we're at the cap
+        r = client.post(
+            "/api/extract",
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+            files={"pdf": ("a.pdf", pdf, "application/pdf")},
+        )
+        assert r.status_code == 200, f"rerun rejected: {r.json()}"
+
+        # And a third *new* filename is still rejected
+        r = client.post(
+            "/api/extract",
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+            files={"pdf": ("c.pdf", pdf, "application/pdf")},
+        )
+        assert r.status_code == 400
 
 
 def test_set_batch_email_validates(client):

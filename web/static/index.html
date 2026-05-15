@@ -194,22 +194,21 @@
         <details class="info-box" id="howItWorksBox">
           <summary>&#8505;&ensp;How does this work?</summary>
           <div class="info-box-body">
-            <p>This tool uses AI vision models (GPT-4o, Gemini) to read academic PDFs and extract or classify structured information &mdash; no manual copy-pasting.</p>
-            <p><strong>Extract</strong> pulls specific values (statistics, factor loadings, effect sizes) into a JSON schema you define. <strong>Label</strong> classifies papers by content. In both cases you describe your task in plain language, the AI generates a tailored prompt, and you upload one or more PDFs.</p>
+            <p>This tool uses AI vision and language models to parse PDFs of scientific articles and extract or classify structured information.</p>
+            <p><strong>Extract</strong> pulls specific values (statistics, factor loadings, effect sizes) into a JSON schema you define. <strong>Label</strong> classifies papers by content.</p>
             <p>After extraction, results are shown alongside the source PDF with <strong>yellow highlights</strong> marking the exact passages the model cited as evidence. You can flip through all referenced pages and zoom in to verify each value against the original.</p>
             <p>Every field in the results is <strong>editable</strong>: click any value to correct it. Edits are tracked as human overrides. When you download the results, the exported JSON includes the original model values, your corrections, the full prompt, the model used, and a timestamp &mdash; everything you need for a reproducible audit trail.</p>
-            <p>You need an API key for OpenAI or Google Gemini. Your key is sent only to the provider and is never stored.</p>
+            <p>You need an API key for an AI provider. Your key is sent only to the provider and is never stored.</p>
           </div>
         </details>
 
         <!-- Quick-start checklist: tells first-time users exactly what to have ready -->
         <div class="prereq-box">
           <span class="prereq-title">You'll need:</span>
-          <span class="prereq-item">an API key (OpenAI / Gemini / DeepSeek / your own server)</span>
-          <span class="prereq-sep">·</span>
-          <span class="prereq-item">one or more PDFs (max 50&nbsp;MB each)</span>
-          <span class="prereq-sep">·</span>
-          <span class="prereq-item">~30–120&nbsp;s per paper</span>
+          <ul class="prereq-list">
+            <li>an API key (OpenAI / Gemini / DeepSeek / Mistral / your own server)</li>
+            <li>one or more PDFs (max 20 total and max 50&nbsp;MB each)</li>
+          </ul>
         </div>
 
         <div class="option-grid">

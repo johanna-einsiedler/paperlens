@@ -378,12 +378,16 @@ async def extract(
         # Idempotent — only the first paper in the batch creates the row.
         # session_id scopes the History view to one browser.
         db.create_batch(batch_id, notify_email, session_id=x_session_id)
-        # Per-batch cap on paper count.  Counts existing jobs with this id so
-        # the limit is enforced even if the frontend misbehaves or the same
-        # batch_id is reused across requests.
-        already = db.count_jobs_in_batch(batch_id)
-        cap     = _max_batch_papers()
-        if already >= cap:
+        # Per-batch cap on *uploaded files*.  Reruns of an already-uploaded
+        # paper submit a new job under the same filename — we want those to
+        # pass through freely, only newly-introduced filenames count toward
+        # the cap.  Counting distinct filenames already in the batch +
+        # whether THIS filename is novel gives the right semantic and stays
+        # enforced even if the frontend misbehaves.
+        existing = db.distinct_filenames_in_batch(batch_id)
+        cap      = _max_batch_papers()
+        is_rerun = filename in existing
+        if not is_rerun and len(existing) >= cap:
             raise HTTPException(
                 status_code=400,
                 detail=f"Batch limit reached ({cap} papers per batch). "

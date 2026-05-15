@@ -296,6 +296,19 @@ def count_jobs_in_batch(batch_id: str) -> int:
     return int(row["n"]) if row else 0
 
 
+def distinct_filenames_in_batch(batch_id: str) -> set[str]:
+    """Set of distinct ``filename`` values across all jobs in the batch.
+    The per-batch cap counts *uploaded files*, not jobs — reruns submit a
+    new job under an existing filename, so they shouldn't bump the count
+    against the limit."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT filename FROM jobs WHERE batch_id = ?",
+            (batch_id,),
+        ).fetchall()
+    return {r["filename"] for r in rows if r["filename"]}
+
+
 def list_jobs_in_batch(batch_id: str) -> list[dict[str, Any]]:
     with _connect() as conn:
         rows = conn.execute(
