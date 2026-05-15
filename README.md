@@ -1,4 +1,4 @@
-# PaperLens
+# MetaPaperLens
 
 AI-powered data extraction and labelling for academic papers — and the MASEMiner workflow built on top of it.
 
@@ -18,12 +18,12 @@ Supports OpenAI (GPT-4o family), Google Gemini, DeepSeek, and any vLLM/Ollama en
 
 | Mode | Where | Use it when |
 |---|---|---|
-| **Hosted PaperLens** | <https://paperlens.fly.dev> (or your own deploy) | General PDF extraction; you want the full preset picker and the "describe your task → AI builds the prompt" flow. |
+| **Hosted MetaPaperLens** | <https://paperlens.fly.dev> (or your own deploy) | General PDF extraction; you want the full preset picker and the "describe your task → AI builds the prompt" flow. |
 | **MASEMiner local** | clone `johanna-einsiedler/maseminer` and `python server.py` | Factor-loadings / inter-factor-correlations / study-metadata extraction for psychometric MASEM. Your PDFs and API key never leave your computer. |
 
 The two are the same codebase. The hosted app serves both audiences; the local distribution is a curated MASEMiner-only build, auto-mirrored from this repo on every version tag.
 
-## Local development (PaperLens, full app)
+## Local development (MetaPaperLens, full app)
 
 ```bash
 git clone https://github.com/johanna-einsiedler/paperlens.git
@@ -75,7 +75,7 @@ Persistent SQLite lives on a Fly volume mounted at `/data`; the path is set via 
 
 ## The MASEMiner public mirror
 
-A curated MASEMiner-only build is automatically published to a separate public repo on every version tag. Researchers who want to run MASEMiner locally fork that repo, never the full PaperLens one.
+A curated MASEMiner-only build is automatically published to a separate public repo on every version tag. Researchers who want to run MASEMiner locally fork that repo, never the full MetaPaperLens one.
 
 - **Public repo:** <https://github.com/johanna-einsiedler/maseminer>
 - **Sync workflow:** [`.github/workflows/sync-maseminer.yml`](.github/workflows/sync-maseminer.yml) — fires on `v*` tag pushes; rsync-style allowlist; force-pushes a flat history to the mirror.

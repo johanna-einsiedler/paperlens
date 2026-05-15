@@ -1,6 +1,6 @@
-# PaperLens — Setup & Architecture Documentation
+# MetaPaperLens — Setup & Architecture Documentation
 
-PaperLens is a single-page web application for **AI-assisted structured-data extraction** from academic PDFs. It ships with a generic prompt-engineering flow and a brand-skinned **MASEMiner** workflow tailored to Meta-Analytic Structural Equation Modeling.
+MetaPaperLens is a single-page web application for **AI-assisted structured-data extraction** from academic PDFs. It ships with a generic prompt-engineering flow and a brand-skinned **MASEMiner** workflow tailored to Meta-Analytic Structural Equation Modeling.
 
 The whole stack runs as one FastAPI service plus a vanilla-JS frontend. There is no SPA framework, no backend rendering, no message queue — just HTTP routes, SQLite for job state, and daemon threads for in-process work.
 

@@ -1,22 +1,43 @@
 :root {
-  --primary: #2563eb;
-  --primary-dark: #1d4ed8;
-  --primary-light: #eff6ff;
-  --success: #16a34a;
-  --success-light: #f0fdf4;
-  --error: #dc2626;
-  --bg: #f8fafc;
-  --card: #ffffff;
-  --border: #e2e8f0;
-  --border-focus: #93c5fd;
-  --text: #1e293b;
-  --text-muted: #64748b;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  /* ── MetaPaperLens palette ───────────────────────────────────────
+     Sibling theme to the Metalens site (metalens.tech) — teal-navy
+     primary + soft mint accents on an off-white canvas.  The named
+     colour tokens below stay generic (--primary, --bg, …) so existing
+     component CSS keeps working unchanged; we just point them at the
+     new hex values.  Brand-specific tokens live under --mpl-* and
+     can be referenced directly by new components. */
+  --mpl-navy-900:  #122740;
+  --mpl-navy-800:  #1b485e;
+  --mpl-teal-700:  #367380;
+  --mpl-teal-300:  #9cbcc4;
+  --mpl-teal-200:  #c6dde1;
+  --mpl-mint-100:  #e9f4e7;
+  --mpl-canvas:    #f5f5f5;
+
+  --primary:       var(--mpl-navy-800);
+  --primary-dark:  var(--mpl-navy-900);
+  --primary-light: var(--mpl-mint-100);
+  --success:       #2f9e54;
+  --success-light: #e7f7ec;
+  --error:         #c93434;
+  --bg:            var(--mpl-canvas);
+  --card:          #ffffff;
+  --border:        #d6dde2;
+  --border-focus:  var(--mpl-teal-300);
+  --text:          var(--mpl-navy-900);
+  --text-muted:    #5a6b78;
+  --shadow-sm: 0 1px 3px rgba(18, 39, 64, 0.06), 0 1px 2px rgba(18, 39, 64, 0.04);
+  --shadow-md: 0 4px 12px rgba(18, 39, 64, 0.08);
+  --shadow-lg: 0 8px 32px rgba(18, 39, 64, 0.12);
   --radius: 12px;
   --radius-sm: 8px;
-  --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+  /* Body type: DM Sans (cleaner than Space Grotesk, more distinctive
+     than Inter).  Mono pair: JetBrains Mono. */
+  --font: "DM Sans", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Sidebar geometry — wired into the index.html layout shell. */
+  --mpl-sidebar-width: 240px;
 }
 
 *, *::before, *::after {
@@ -36,10 +57,169 @@ body {
 
 /* ── Layout ─────────────────────────────────────── */
 
+body {
+  padding-left: var(--mpl-sidebar-width);
+}
+body.mpl-no-sidebar {
+  padding-left: 0;
+}
+body.mpl-no-sidebar #mplSidebar {
+  display: none;
+}
+
 .app {
   max-width: 760px;
   margin: 0 auto;
   padding: 0 20px 80px;
+}
+
+@media (max-width: 800px) {
+  /* Narrow viewports: tuck the sidebar above the main column. */
+  body { padding-left: 0; padding-top: 56px; }
+  #mplSidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100% !important;
+    height: 56px !important;
+    flex-direction: row !important;
+    align-items: center;
+    padding: 8px 16px !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border);
+  }
+  #mplSidebar .mpl-sidebar-steps,
+  #mplSidebar .mpl-sidebar-footer {
+    display: none;
+  }
+}
+
+/* ── MetaPaperLens left sidebar ─────────────────── */
+.mpl-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--mpl-sidebar-width);
+  height: 100vh;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  padding: 22px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  z-index: 30;
+  font-family: var(--font);
+}
+
+.mpl-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--mpl-navy-900);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.mpl-sidebar-brand:hover {
+  background: var(--mpl-mint-100);
+}
+.mpl-sidebar-logo {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+.mpl-sidebar-wordmark {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.mpl-sidebar-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.mpl-sidebar-step {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: left;
+  width: 100%;
+  transition: background 0.12s, color 0.12s;
+}
+.mpl-sidebar-step:hover {
+  background: var(--mpl-mint-100);
+  color: var(--mpl-navy-900);
+}
+.mpl-sidebar-step-num {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--mpl-teal-200);
+  color: var(--mpl-navy-900);
+}
+.mpl-sidebar-step-label {
+  font-weight: 500;
+}
+.mpl-sidebar-step.is-active {
+  background: var(--mpl-mint-100);
+  color: var(--mpl-navy-900);
+}
+.mpl-sidebar-step.is-active .mpl-sidebar-step-num {
+  background: var(--mpl-navy-800);
+  color: #fff;
+}
+.mpl-sidebar-step.is-done {
+  color: var(--mpl-navy-900);
+}
+.mpl-sidebar-step.is-done .mpl-sidebar-step-num {
+  background: var(--mpl-teal-700);
+  color: #fff;
+}
+.mpl-sidebar-step-results .mpl-sidebar-step-num {
+  background: transparent;
+  color: var(--mpl-teal-700);
+  font-size: 14px;
+}
+.mpl-sidebar-step-results.is-active .mpl-sidebar-step-num {
+  background: var(--mpl-navy-800);
+  color: #fff;
+}
+
+.mpl-sidebar-footer {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  font-size: 12px;
+}
+.mpl-sidebar-link {
+  display: inline-block;
+  color: var(--mpl-teal-700);
+  text-decoration: none;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.mpl-sidebar-link:hover {
+  background: var(--mpl-mint-100);
+  text-decoration: underline;
 }
 
 /* ── Header ─────────────────────────────────────── */

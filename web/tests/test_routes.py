@@ -621,14 +621,14 @@ def test_config_endpoint_respects_env_var(client, monkeypatch):
     assert r.json()["max_batch_papers"] == 5
 
 
-def test_config_endpoint_default_paperlens_branding(client):
+def test_config_endpoint_default_metapaperlens_branding(client):
     """Hosted-app behaviour: ``maseminer_only`` is false unless the env
-    var is set, and the branding payload says PaperLens."""
+    var is set, and the branding payload says MetaPaperLens."""
     r = client.get("/api/config")
     body = r.json()
     assert body["maseminer_only"] is False
-    assert body["app_title"]      == "PaperLens"
-    assert "PaperLens".lower() not in body["app_tagline"].lower()  # tagline is generic
+    assert body["app_title"]      == "MetaPaperLens"
+    assert "metapaperlens" not in body["app_tagline"].lower()  # tagline is generic
 
 
 def test_config_endpoint_flips_to_maseminer_when_env_var_set(client, monkeypatch):

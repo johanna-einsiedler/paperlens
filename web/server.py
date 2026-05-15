@@ -77,7 +77,7 @@ async def _lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="PaperLens", docs_url=None, redoc_url=None, lifespan=_lifespan)
+app = FastAPI(title="MetaPaperLens", docs_url=None, redoc_url=None, lifespan=_lifespan)
 
 
 # ── Static serving ────────────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ def get_config() -> dict:
         "max_batch_papers": _max_batch_papers(),
         "max_pdf_bytes":    _max_pdf_bytes(),
         "maseminer_only":   masem_only,
-        "app_title":        "MASEMiner" if masem_only else "PaperLens",
+        "app_title":        "MASEMiner" if masem_only else "MetaPaperLens",
         "app_tagline": (
             "Local extraction of factor loadings, correlations, and study metadata from PDFs."
             if masem_only else

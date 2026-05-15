@@ -47,7 +47,7 @@ Each batch produces, per PDF, a JSON object with:
   - `extraction_confidence`: `{ factor_loadings, factor_correlations, metadata }` — each `"high"` / `"medium"` / `"low"`
 - `evidence[]` — verbatim snippet + PDF page number + source identifier + JSON-path of the value the snippet supports
 
-The same schema the hosted PaperLens version emits — outputs are interchangeable.
+The same schema the hosted MetaPaperLens version emits — outputs are interchangeable.
 
 ## Citing the version you used
 

@@ -3,14 +3,64 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PaperLens</title>
+  <title>MetaPaperLens</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+
+<!-- Persistent left sidebar — logo, accordion step tracker, footer link
+     to metalens.tech.  Hidden in MASEMiner-only mode (the body gets
+     class="mpl-no-sidebar" via app.js loadServerConfig). -->
+<aside id="mplSidebar" class="mpl-sidebar" aria-label="Workflow navigation">
+  <a href="/" class="mpl-sidebar-brand" aria-label="MetaPaperLens home">
+    <img src="/static/logo.svg" alt="" class="mpl-sidebar-logo" />
+    <span class="mpl-sidebar-wordmark">MetaPaperLens</span>
+  </a>
+
+  <nav class="mpl-sidebar-steps" id="mplSidebarSteps" aria-label="Workflow steps">
+    <!-- Populated by app.js renderSidebarSteps(); kept declarative here
+         so progressive enhancement still shows the labels if JS fails. -->
+    <button type="button" class="mpl-sidebar-step" data-step="1" onclick="goTo(1)">
+      <span class="mpl-sidebar-step-num">1</span>
+      <span class="mpl-sidebar-step-label">Choose task</span>
+    </button>
+    <button type="button" class="mpl-sidebar-step" data-step="2" onclick="goTo(2)">
+      <span class="mpl-sidebar-step-num">2</span>
+      <span class="mpl-sidebar-step-label">AI model</span>
+    </button>
+    <button type="button" class="mpl-sidebar-step" data-step="3" onclick="goTo(3)">
+      <span class="mpl-sidebar-step-num">3</span>
+      <span class="mpl-sidebar-step-label">Describe task</span>
+    </button>
+    <button type="button" class="mpl-sidebar-step" data-step="5" onclick="goTo(5)">
+      <span class="mpl-sidebar-step-num">4</span>
+      <span class="mpl-sidebar-step-label">Review prompt</span>
+    </button>
+    <button type="button" class="mpl-sidebar-step" data-step="6" onclick="goTo(6)">
+      <span class="mpl-sidebar-step-num">5</span>
+      <span class="mpl-sidebar-step-label">Upload &amp; extract</span>
+    </button>
+    <button type="button" class="mpl-sidebar-step mpl-sidebar-step-results" data-step="8" onclick="goTo(8)">
+      <span class="mpl-sidebar-step-num">&#9656;</span>
+      <span class="mpl-sidebar-step-label">Results</span>
+    </button>
+  </nav>
+
+  <div class="mpl-sidebar-footer">
+    <a href="https://metalens.tech" target="_blank" rel="noopener" class="mpl-sidebar-link">
+      Visit metalens.tech &#x2197;
+    </a>
+  </div>
+</aside>
+
 <div class="app">
 
   <header>
-    <h1 id="appTitle">PaperLens</h1>
+    <h1 id="appTitle">MetaPaperLens</h1>
     <p id="appTagline">AI-powered data extraction and labeling for academic papers</p>
   </header>
 
@@ -64,7 +114,7 @@
             title="Reopen the guided builder to tweak data sources or variables">
       Customise
     </button>
-    <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to PaperLens">Switch to PaperLens</button>
+    <button class="preset-banner-clear" onclick="clearPreset()" title="Switch back to MetaPaperLens">Switch to MetaPaperLens</button>
   </div>
 
   <!-- Preset-specific landing pages (e.g. /maseminer).  JS shows exactly
@@ -87,7 +137,7 @@
       </p>
       <div class="preset-hero-body">
         <p>
-          MASEMiner is a tailored entry point into the PaperLens engine. It loads a vetted
+          MASEMiner is a tailored entry point into the MetaPaperLens engine. It loads a vetted
           extraction prompt for psychometric / factor-analytic studies, so you don't have to
           design one yourself. Every result is shown alongside the source PDF with yellow
           highlights on the cited passages, and every value is editable so you can correct
@@ -114,7 +164,7 @@
       </div>
       <div class="preset-hero-cta">
         <button class="btn btn-primary" onclick="startPresetFromLanding('masem')">Get started &#8594;</button>
-        <button class="btn btn-ghost" id="genericPaperlensBtn" onclick="window.location.href = '/'">Use generic PaperLens instead</button>
+        <button class="btn btn-ghost" id="genericPaperlensBtn" onclick="window.location.href = '/'">Use generic MetaPaperLens instead</button>
       </div>
     </div>
   </div>

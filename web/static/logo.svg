@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MetaPaperLens — sibling mark to the Metalens logo.
+
+  Four rounded "bars" form the letter M:
+    - two vertical pillars (left + right)
+    - two diagonal bars meeting at a V apex in the centre
+
+  Each bar uses the same vertical gradient (dark navy → soft teal-mint
+  → dark navy), giving the whole mark the layered-glass feel of the
+  original metalens logo.  Colour stops mirror the metalens palette
+  (#122740 → #c6dde1 → #122740) so the two products read as a family.
+
+  Designed to scale cleanly from 24px (favicon) to 240px (hero).
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 500 500"
+     role="img"
+     aria-label="MetaPaperLens logo">
+  <defs>
+    <linearGradient id="mpl-bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#122740"/>
+      <stop offset="42%"  stop-color="#9cbcc4"/>
+      <stop offset="58%"  stop-color="#9cbcc4"/>
+      <stop offset="100%" stop-color="#122740"/>
+    </linearGradient>
+    <linearGradient id="mpl-diag-l" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%"   stop-color="#1b485e"/>
+      <stop offset="50%"  stop-color="#b8d3da"/>
+      <stop offset="100%" stop-color="#367380"/>
+    </linearGradient>
+    <linearGradient id="mpl-diag-r" x1="0.8" y1="0" x2="0.2" y2="1">
+      <stop offset="0%"   stop-color="#1b485e"/>
+      <stop offset="50%"  stop-color="#b8d3da"/>
+      <stop offset="100%" stop-color="#367380"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left pillar -->
+  <rect x="80"  y="80" width="80" height="340" rx="40" ry="40" fill="url(#mpl-bar)"/>
+  <!-- Right pillar -->
+  <rect x="340" y="80" width="80" height="340" rx="40" ry="40" fill="url(#mpl-bar)"/>
+
+  <!-- Left diagonal: from top of left pillar (apex up-left) down to V bottom (centre) -->
+  <polygon points="80,80 160,80 282,310 215,330" fill="url(#mpl-diag-l)"/>
+  <!-- Right diagonal: from top of right pillar down to V bottom (centre) -->
+  <polygon points="420,80 340,80 218,310 285,330" fill="url(#mpl-diag-r)"/>
+</svg>

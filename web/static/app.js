@@ -238,6 +238,8 @@ function updateSectionStatuses(step) {
     const num = el.querySelector('.acc-num');
     if (num) num.textContent = (kind === 'acc-done') ? '✓' : String(n);
   }
+  // Mirror the same active/done state into the left sidebar tracker.
+  _updateSidebarSteps(currentSection, step === 8);
 
   // Per-section summary text — short labels of what's been picked
   const summaries = {
@@ -260,6 +262,30 @@ function updateSectionStatuses(step) {
     const el = document.getElementById('summary' + n);
     if (el) el.textContent = text ? `· ${text}` : '';
   }
+}
+
+/* Reflect the same active/done/pending state into the left-sidebar step
+   tracker.  Buttons numbered 1..5 mirror the accordion sections; the
+   sixth button (data-step="8") is the "Results" item, active only when
+   we're on the wide-mode results panel.
+
+   ``currentSection`` is 1..5 — the active accordion section.
+   ``onResults`` is true when state.step === 8. */
+function _updateSidebarSteps(currentSection, onResults) {
+  const buttons = document.querySelectorAll('#mplSidebarSteps .mpl-sidebar-step');
+  buttons.forEach(btn => {
+    btn.classList.remove('is-active', 'is-done');
+    const ds = btn.getAttribute('data-step');
+    if (ds === '8') {
+      if (onResults) btn.classList.add('is-active');
+      return;
+    }
+    // Map data-step (1,2,3,5,6) → sidebar sequence index 1..5
+    const seq = { '1': 1, '2': 2, '3': 3, '5': 4, '6': 5 }[ds];
+    if (!seq) return;
+    if (!onResults && seq === currentSection) btn.classList.add('is-active');
+    else if (seq < currentSection || onResults) btn.classList.add('is-done');
+  });
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -1884,8 +1910,8 @@ function clearPreset() {
     window.history.replaceState({}, '', url.toString());
   }
   // Restore the default branding
-  document.title = 'PaperLens';
-  document.getElementById('appTitle').textContent   = 'PaperLens';
+  document.title = 'MetaPaperLens';
+  document.getElementById('appTitle').textContent   = 'MetaPaperLens';
   document.getElementById('appTagline').textContent = 'AI-powered data extraction and labeling for academic papers';
   document.documentElement.style.removeProperty('--primary');
   document.documentElement.style.removeProperty('--primary-dark');
@@ -1978,6 +2004,14 @@ async function loadServerConfig() {
       if (g && tagline) g.textContent = tagline;
       const altBtn = document.getElementById('genericPaperlensBtn');
       if (altBtn) altBtn.style.display = 'none';
+    }
+    // Hide the MetaPaperLens left sidebar on the MASEMiner entry
+    // points (both the dedicated /maseminer URL and the locked-down
+    // local distribution).  MASEMiner has its own hero + branding
+    // and shouldn't carry the MetaPaperLens chrome.
+    const onMaseminerPath = window.location.pathname === '/maseminer';
+    if (data.maseminer_only || onMaseminerPath) {
+      document.body.classList.add('mpl-no-sidebar');
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');
