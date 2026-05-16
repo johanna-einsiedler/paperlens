@@ -1750,6 +1750,68 @@ header p {
   border-radius: 6px;
 }
 .modal-close:hover { background: var(--bg); color: var(--text); }
+
+/* ── VLM picker modal ─────────────────────────────────────── */
+.vlm-picker-modal { max-width: 460px; }
+.vlm-picker-intro {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin: 4px 0 14px;
+}
+.vlm-picker-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vlm-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.vlm-picker-option:hover { border-color: var(--primary); }
+.vlm-picker-option.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.vlm-picker-option-radio {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.vlm-picker-option.is-selected .vlm-picker-option-radio {
+  border-color: var(--primary);
+}
+.vlm-picker-option.is-selected .vlm-picker-option-radio::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.vlm-picker-option-label { flex: 1; font-weight: 500; }
+.vlm-picker-option-current {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-light);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
 .modal-subtitle {
   font-size: 13px;
   color: var(--text-muted);
@@ -2206,6 +2268,34 @@ body.wide-mode .app {
   gap: 6px;
   align-items: center;
 }
+
+/* ── MASEMiner row-validity warning ──────────────── */
+/* Shown above the parsed sample data when an item-row of
+   factor_loadings or factor_correlations has no reported value —
+   usually a signal the LLM dropped an item that does exist in the
+   source. */
+.masem-warning-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  background: #fdf5d3;
+  border: 1px solid #c79412;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #7d5a02;
+}
+.masem-warning-icon {
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1.2;
+  color: #c79412;
+}
+.masem-warning-body { flex: 1; }
+.masem-warning-body strong { color: #5b4101; }
+.masem-warning-body > div + div { margin-top: 6px; }
 
 /* ── Extraction-confidence badge row ─────────────── */
 /* Shown above the parsed sample data when the model emits an

@@ -1439,9 +1439,16 @@ async function processPaper(paper) {
   // appropriate re-run buttons (split vs. single) afterwards.
   paper.lastModeUsed = useText ? 'text' : 'vision';
 
+  // Per-paper model override.  Set by the VLM-rerun picker so a
+  // single text-only paper can be re-run against a vision-capable
+  // model without touching the global state.model.  Falls back to
+  // state.model when not set.
+  const effectiveModel = paper.forceModel || state.model;
+  paper.lastModelUsed  = effectiveModel;
+
   const form = new FormData();
   form.append('api_key',             state.apiKey);
-  form.append('model',               state.model);
+  form.append('model',               effectiveModel);
   form.append('prompt',              state.generatedPrompt);
   form.append('use_text_extraction', useText ? '1' : '0');
   if (state.baseUrl) form.append('base_url', state.baseUrl);
@@ -2511,7 +2518,11 @@ function rerunActivePaper() {
 /* Re-run the active paper, optionally forcing a specific extraction
    mode for this run.  ``mode`` is one of:
      - ``'text'``    → force text-layer extraction
-     - ``'vision'``  → force the VLM (image) pipeline
+     - ``'vision'``  → force the VLM (image) pipeline; if multiple
+                        vision models exist for the current provider,
+                        the user picks one via the VLM picker modal
+                        (state.model is left untouched — only this
+                        paper's forceModel is set)
      - ``null``      → use the global default (with probe fallback) */
 function rerunActivePaperWithMode(mode) {
   const p = getActivePaper();
@@ -2520,8 +2531,144 @@ function rerunActivePaperWithMode(mode) {
   if (hasEdits && !confirm(
     'Re-run this paper? Your manual edits to the previous result will be discarded.'
   )) return;
-  p.forceMode = (mode === 'text' || mode === 'vision') ? mode : null;
+
+  // Reset any previous per-paper overrides; they're re-set below if
+  // the requested mode needs them.
+  p.forceMode  = null;
+  p.forceModel = null;
+
+  if (mode === 'text') {
+    p.forceMode = 'text';
+    retryPaper(p.id);
+    return;
+  }
+  if (mode === 'vision') {
+    p.forceMode = 'vision';
+    _kickOffVisionRerun(p);
+    return;
+  }
+  // mode === null / other → use global default
   retryPaper(p.id);
+}
+
+/* Decide which vision model to use for this re-run, then kick off
+   retryPaper.  Behaviour depends on how many vision-capable models
+   the current provider exposes:
+     - 0 models (e.g. DeepSeek)  → toast a clear "switch provider" hint
+     - 1 model                    → set forceModel and rerun
+     - 2+ models                  → open the picker modal, user chooses */
+function _kickOffVisionRerun(paper) {
+  const provider     = state.provider;
+  const visionModels = _visionModelsForProvider(provider);
+  const currentIsVision = isVisionModel(state.model);
+
+  if (visionModels.length === 0 && !currentIsVision) {
+    showToast(
+      `${provider} has no vision-capable models. Switch to OpenAI / Gemini / Mistral (Pixtral) ` +
+      `or a vLLM endpoint with vision in step 2 first, then re-run.`,
+    );
+    paper.forceMode = null;
+    return;
+  }
+
+  // Build the option list.  Always include the current model if it's
+  // vision-capable, so the user can pick "stay on what I'm using" too.
+  const seen = new Set();
+  const options = [];
+  if (currentIsVision) {
+    options.push({ value: state.model, label: state.model });
+    seen.add(state.model);
+  }
+  for (const m of visionModels) {
+    if (!seen.has(m.value)) { options.push(m); seen.add(m.value); }
+  }
+
+  if (options.length === 1) {
+    paper.forceModel = options[0].value;
+    retryPaper(paper.id);
+    return;
+  }
+  // Multiple options → open the picker.
+  _openVlmPicker({
+    currentModel: state.model,
+    options,
+    onConfirm: (picked) => {
+      paper.forceModel = picked;
+      retryPaper(paper.id);
+    },
+  });
+}
+
+/* Return the subset of PROVIDER_MODELS[provider] that are vision-
+   capable, per ``isVisionModel``.  Used by the VLM picker to populate
+   its option list. */
+function _visionModelsForProvider(provider) {
+  const models = PROVIDER_MODELS[provider] || [];
+  return models.filter(m => isVisionModel(m.value));
+}
+
+/* Open the VLM picker modal.  ``opts``:
+     - currentModel: string  — model the paper was last extracted with
+     - options:      [{value, label}, ...]
+     - onConfirm:    (pickedValue) => void
+   The modal handles its own selection state via .is-selected on the
+   chosen .vlm-picker-option button; ``Re-run`` reads the current
+   selection at click time. */
+function _openVlmPicker(opts) {
+  const overlay  = document.getElementById('vlmPickerOverlay');
+  const intro    = document.getElementById('vlmPickerIntro');
+  const listEl   = document.getElementById('vlmPickerOptions');
+  const confirm_ = document.getElementById('vlmPickerConfirm');
+  if (!overlay || !intro || !listEl || !confirm_) return;
+
+  // Default selection: the current model if it's in the list,
+  // otherwise the first option.
+  let selected = opts.options.find(o => o.value === opts.currentModel)
+              ? opts.currentModel
+              : opts.options[0].value;
+
+  intro.textContent =
+    `Pick the vision-capable model to use for this re-run. The choice ` +
+    `applies to this paper only — your default model in step 2 stays the same.`;
+
+  listEl.innerHTML = opts.options.map(o => {
+    const isCurrent  = o.value === opts.currentModel;
+    const isSelected = o.value === selected;
+    return `
+      <button type="button" class="vlm-picker-option ${isSelected ? 'is-selected' : ''}"
+              data-value="${escHtml(o.value)}"
+              onclick="_selectVlmPickerOption('${escHtml(o.value)}')">
+        <span class="vlm-picker-option-radio" aria-hidden="true"></span>
+        <span class="vlm-picker-option-label">${escHtml(o.label)}</span>
+        ${isCurrent ? '<span class="vlm-picker-option-current">current</span>' : ''}
+      </button>`;
+  }).join('');
+
+  // Stash callback + selected on the overlay so Re-run can read them.
+  overlay._mplPickerState = { onConfirm: opts.onConfirm, selected };
+  confirm_.onclick = () => {
+    const state_ = overlay._mplPickerState;
+    if (state_ && state_.onConfirm) state_.onConfirm(state_.selected);
+    _closeVlmPicker();
+  };
+
+  overlay.style.display = 'flex';
+}
+
+function _selectVlmPickerOption(value) {
+  const overlay = document.getElementById('vlmPickerOverlay');
+  if (!overlay) return;
+  if (overlay._mplPickerState) overlay._mplPickerState.selected = value;
+  overlay.querySelectorAll('.vlm-picker-option').forEach(btn => {
+    btn.classList.toggle('is-selected', btn.getAttribute('data-value') === value);
+  });
+}
+
+function _closeVlmPicker() {
+  const overlay = document.getElementById('vlmPickerOverlay');
+  if (!overlay) return;
+  overlay.style.display = 'none';
+  delete overlay._mplPickerState;
 }
 
 /* Mapping from the human-readable label shown next to each badge to the
@@ -2570,6 +2717,107 @@ function _renderConfidenceBadges(entry) {
   }
   row.style.display = '';
   row.innerHTML     = parts.join('');
+}
+
+/* Scan a MASEMiner sample for item-rows / factor-rows that have NO
+   reported value — usually a sign the LLM dropped that item.  Reports
+   the offending row labels grouped by table (factor_loadings,
+   factor_correlations) and renders them as a small warning banner
+   above the parsed result.
+
+   Detection: keys matching ``F<i>.<n>`` (loadings) and ``R<i>.<j>``
+   (correlations) are pulled out of the entry, grouped by the trailing
+   ``.n`` (item index) for loadings, and by the leading factor index
+   for correlations.  An "empty row" is one where every cell in the
+   group is null/undefined.  Renders nothing when no offenders found
+   or when the entry isn't a MASEMiner shape. */
+function _renderMasemRowWarnings(entry) {
+  const row = document.getElementById('masemWarningRow');
+  if (!row) return;
+  if (!entry || typeof entry !== 'object') {
+    row.style.display = 'none';
+    row.innerHTML     = '';
+    return;
+  }
+
+  // ── factor_loadings: keys like "F1.5", group by ".n" (item index) ──
+  const loadings = entry.factor_loadings;
+  const emptyItems = [];
+  if (loadings && typeof loadings === 'object' && !Array.isArray(loadings)) {
+    const byItem = new Map();   // itemIdx → array of values
+    for (const [k, v] of Object.entries(loadings)) {
+      const m = /^F(\d+)\.(\d+)$/.exec(k);
+      if (!m) continue;
+      const idx = m[2];
+      if (!byItem.has(idx)) byItem.set(idx, []);
+      byItem.get(idx).push(v);
+    }
+    // Sort numerically so "Item 9" precedes "Item 10".
+    const sortedIdx = Array.from(byItem.keys()).sort((a, b) => Number(a) - Number(b));
+    for (const idx of sortedIdx) {
+      const vals = byItem.get(idx);
+      if (vals.length && vals.every(v => v === null || v === undefined)) {
+        emptyItems.push(idx);
+      }
+    }
+  }
+
+  // ── factor_correlations: keys like "R1.2", group by leading factor ──
+  const corrs = entry.factor_correlations;
+  const emptyFactors = [];
+  if (corrs && typeof corrs === 'object' && !Array.isArray(corrs)) {
+    const byFactor = new Map();
+    for (const [k, v] of Object.entries(corrs)) {
+      const m = /^R(\d+)\.(\d+)$/.exec(k);
+      if (!m) continue;
+      // A factor participates in many R keys; group every key it
+      // appears in (either side) so the all-null check covers all
+      // correlations involving that factor.
+      for (const fac of [m[1], m[2]]) {
+        if (!byFactor.has(fac)) byFactor.set(fac, []);
+        byFactor.get(fac).push(v);
+      }
+    }
+    const sortedFac = Array.from(byFactor.keys()).sort((a, b) => Number(a) - Number(b));
+    for (const fac of sortedFac) {
+      const vals = byFactor.get(fac);
+      if (vals.length && vals.every(v => v === null || v === undefined)) {
+        emptyFactors.push(fac);
+      }
+    }
+  }
+
+  if (emptyItems.length === 0 && emptyFactors.length === 0) {
+    row.style.display = 'none';
+    row.innerHTML     = '';
+    return;
+  }
+
+  const parts = [
+    '<span class="masem-warning-icon" aria-hidden="true">&#9888;</span>',
+    '<div class="masem-warning-body">',
+  ];
+  if (emptyItems.length) {
+    parts.push(
+      '<div><strong>Factor loadings:</strong> ' +
+      `item${emptyItems.length > 1 ? 's' : ''} ` +
+      emptyItems.map(escHtml).join(', ') +
+      ` ${emptyItems.length > 1 ? 'have' : 'has'} no reported loading on any factor. ` +
+      'Either the item was genuinely not loaded in this paper, or the model missed it — verify against the source table.</div>',
+    );
+  }
+  if (emptyFactors.length) {
+    parts.push(
+      '<div><strong>Factor correlations:</strong> ' +
+      `factor${emptyFactors.length > 1 ? 's' : ''} F` +
+      emptyFactors.map(escHtml).join(', F') +
+      ` ${emptyFactors.length > 1 ? 'have' : 'has'} no reported correlations. ` +
+      'Check the inter-factor correlation matrix on the source page.</div>',
+    );
+  }
+  parts.push('</div>');
+  row.innerHTML     = parts.join('');
+  row.style.display = '';
 }
 
 /* Map a free-form confidence value (string, possibly with case/spacing
@@ -2646,6 +2894,7 @@ function renderEntry(paper) {
   // `extraction_confidence` block the model emits per sample.  Hidden
   // when absent so old/unconfigured runs are unaffected.
   _renderConfidenceBadges(entry);
+  _renderMasemRowWarnings(entry);
 
   // Sub-view filter (preset-driven, e.g. MASEM Loadings/Correlations/Descriptives)
   const subView       = _activeSubViewFor(paper);

@@ -932,6 +932,10 @@
               <!-- Confidence-badge row — populated by JS when the model
                    emits an extraction_confidence object for this sample. -->
               <div class="confidence-row" id="confidenceRow" style="display:none"></div>
+              <!-- MASEMiner row-validity warning — populated by JS when
+                   any item-row in factor_loadings / factor_correlations
+                   has no non-null cell (likely missed extraction). -->
+              <div class="masem-warning-row" id="masemWarningRow" style="display:none"></div>
               <div id="resultDisplay">
                 <!-- formatted entry rendered by JS -->
               </div>
@@ -1098,6 +1102,26 @@ The viewer renders any object containing a <code>_table</code> array as a real H
 
   </div>
 </aside>
+
+<!-- Vision-model picker modal — shown when "Re-run · VLM" is clicked
+     and the current provider has multiple vision-capable models.
+     Populated by app.js _openVlmPicker(). -->
+<div class="modal-overlay" id="vlmPickerOverlay" role="dialog" aria-modal="true"
+     aria-labelledby="vlmPickerTitle">
+  <div class="modal vlm-picker-modal">
+    <div class="modal-header">
+      <h3 id="vlmPickerTitle">Re-run with vision</h3>
+      <button class="modal-close" type="button" onclick="_closeVlmPicker()"
+              aria-label="Close">&times;</button>
+    </div>
+    <p class="vlm-picker-intro" id="vlmPickerIntro"></p>
+    <div class="vlm-picker-options" id="vlmPickerOptions"></div>
+    <div class="btn-row" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-ghost" type="button" onclick="_closeVlmPicker()">Cancel</button>
+      <button class="btn btn-primary" id="vlmPickerConfirm" type="button">Re-run</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 <script src="/static/masem-builder.js"></script>
