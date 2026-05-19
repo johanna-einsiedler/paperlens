@@ -860,24 +860,39 @@ For factor loadings:
 
 For EVERY table used to extract numeric values, include evidence on the PDF page where the numeric values are visible.
 
-For factor-loading tables, include at least one evidence entry per extracted sample/group using:
-- field: "samples[i].factor_loadings"
-- source: the table identifier, e.g. "Table 3"
+**8.3a Table-caption evidence (one per sample).**
+For each factor-loadings table you read from, include at least ONE evidence entry per extracted sample/group anchored at the table level:
+- field: ``samples[i].factor_loadings``
+- source: the table identifier, e.g. ``"Table 3"``
 - page: the PDF page where the selected loading values are visible
-- snippet: the exact table caption, table title, table header, panel label, model-block header, dimensional-solution block header, block header, or representative loading row from that same page.
+- snippet: the exact table caption, table title, table header, panel label, model-block header, dimensional-solution block header, or block header from that same page.
 
 If the table caption is on a different page from the numeric loading values:
 - prefer a snippet from the page containing the numeric loading values,
 - use the table header, repeated header, panel label, model-block header, dimensional-solution block header, or representative loading row from that page,
 - do not use only the caption page if the numeric values are on another page.
 
-If no caption/header appears on the numeric page, use a representative exact table row from the numeric page:
+**8.3b Per-row loading evidence (REQUIRED, one entry per item row with at least one non-null cell).**
+In ADDITION to the table-caption evidence above, emit one evidence entry for EACH item row whose factor_loadings has at least one non-null cell.  These per-row entries are what the viewer uses to jump to the exact source line when a user clicks a specific cell.
+
+For each such item row ``n``:
+- snippet: the exact verbatim row from the source table — the item number / item label + all numeric loadings on that row, as they appear on the page.  Examples: ``"6   .812   .052   -.009"``, ``"Item 6 (R)   .81   .05   -.01"``, ``"6. I am often puzzled by sensations…   0.65   0.13   0.05"``.
+- page: the PDF page where the row is visible (the numeric page, not the caption page if they differ).
+- source: the table identifier, e.g. ``"Table 7"``.
+- field: ``"samples[i].factor_loadings.F<j>.<n>"`` where ``n`` is the item index and ``<j>`` is ANY factor for which that item has a non-null loading (prefer the factor with the row's largest absolute loading).  The viewer treats per-row evidence as covering every cell in that item row, regardless of which factor key it anchors to.
+
+Example: if Item 6 reads ``"6   .812   .052   -.009"`` in the source table and its primary loading is on F1, emit:
 {
-  "snippet": "Item 6   .812   .052   -.009",
+  "snippet": "6   .812   .052   -.009",
   "page": 39,
   "source": "Table 7",
-  "field": "samples[0].factor_loadings"
+  "field": "samples[0].factor_loadings.F1.6"
 }
+
+If a row's numeric content appears verbatim across multiple lines in the source PDF (e.g. wrapped item text), the snippet should be the row's numeric portion only — keep it short and exact.
+
+**8.3c Per-cell evidence (encouraged for inter-factor correlations).**
+For factor_correlations, in addition to the table-level entry, emit one evidence entry per non-null R-key whose snippet is the exact line stating that correlation (e.g. ``"R(DIF, DDF) = 0.83"``), with field ``"samples[i].factor_correlations.R<j>.<k>"``.
 
 ### 8.4 Evidence for special extraction decisions
 

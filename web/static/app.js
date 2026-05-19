@@ -3163,33 +3163,54 @@ function renderHighlightOverlay(paper, pageNum) {
 
 /* Map a clicked cell's ``data-path`` (e.g.
    ``samples[0].factor_loadings.F1.5``) to the best-matching evidence
-   entry on the active paper.  Strategy: try exact field match first,
-   then progressively trim the path to its parent (table-level,
-   sample-level) until we hit something or run out.  Returns the
-   {page, field, snippet, source, rects} object or null. */
+   entry on the active paper.
+
+   Match strategy, in order:
+     1. Exact field match.
+     2. Item-row siblings — for factor_loadings cells of the form
+        ``samples[i].factor_loadings.F<j>.<n>``, look for any
+        ``samples[i].factor_loadings.F<k>.<n>`` (same item index n,
+        any factor k).  The prompt asks the model to emit one
+        per-row evidence entry anchored at one cell of the row;
+        this fallback lets a click on any cell in that row find
+        the row's source-table line.
+     3. Progressive parent-path trim — table → sample → paper.
+
+   Returns the {page, field, snippet, source, rects} object or null. */
 function _findEvidenceForField(paper, path) {
   if (!paper || !paper.parsed || !path) return null;
   const evidence = paper.parsed.evidence;
   if (!Array.isArray(evidence) || !evidence.length) return null;
 
-  // Generate the path chain: full → parent → grandparent → …
-  // Trimming rules:
-  //   "samples[0].factor_loadings.F1.5" → "samples[0].factor_loadings"
-  //                                     → "samples[0]"
-  //                                     → ""  (stop)
-  const candidates = [];
+  // (1) Exact match
+  const exact = evidence.find(e => e && e.field === path);
+  if (exact) return exact;
+
+  // (2) Item-row sibling fallback for factor_loadings cells.
+  // ``samples[0].factor_loadings.F3.5`` → look for any
+  // ``samples[0].factor_loadings.F<*>.5`` entry.
+  const rowRe = /^(samples\[\d+\]\.factor_loadings)\.F(\d+)\.(\d+)$/;
+  const rowMatch = rowRe.exec(path);
+  if (rowMatch) {
+    const tableBase = rowMatch[1];
+    const itemIdx   = rowMatch[3];
+    const wantRe = new RegExp(
+      '^' + tableBase.replace(/[.[\]]/g, c => '\\' + c) +
+      '\\.F\\d+\\.' + itemIdx + '$',
+    );
+    const rowHit = evidence.find(e => e && typeof e.field === 'string' && wantRe.test(e.field));
+    if (rowHit) return rowHit;
+  }
+
+  // (3) Progressive parent-path trim
   let cur = path;
   while (cur) {
-    candidates.push(cur);
     const dotIdx = cur.lastIndexOf('.');
     const brackIdx = cur.lastIndexOf('[');
     const cutAt = Math.max(dotIdx, brackIdx);
     if (cutAt <= 0) break;
     cur = cur.slice(0, cutAt);
-  }
-
-  for (const cand of candidates) {
-    const hit = evidence.find(e => e && e.field === cand);
+    const hit = evidence.find(e => e && e.field === cur);
     if (hit) return hit;
   }
   return null;
