@@ -2488,6 +2488,23 @@ body.wide-mode .app {
   stroke: rgba(202, 138, 4, 0.65);
   stroke-width: 1;
   pointer-events: auto;              /* re-enable so the <title> tooltip works */
+  transition: fill 0.15s, stroke 0.15s;
+}
+
+/* The rect tied to the cell the user just clicked.  Distinct teal
+   accent + thicker stroke + soft pulse so it pops out from the rest
+   of the yellow evidence rects on the same page. */
+.highlight-overlay .highlight-rect-focused {
+  fill: rgba(54, 115, 128, 0.32);    /* metalens teal-700 */
+  stroke: rgba(27, 72, 94, 0.95);    /* metalens navy-800 */
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px rgba(27, 72, 94, 0.45));
+  animation: mpl-focus-pulse 1.4s ease-out 1;
+}
+@keyframes mpl-focus-pulse {
+  0%   { fill: rgba(54, 115, 128, 0.55); }
+  60%  { fill: rgba(54, 115, 128, 0.38); }
+  100% { fill: rgba(54, 115, 128, 0.32); }
 }
 
 #pageDisplayNone {

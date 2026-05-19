@@ -487,6 +487,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initUploadZone();
   initResultDisplay();
   initZoomPan();
+  // Cell-click → evidence-page jump + focused highlight.
+  _attachEvidenceClickHandler();
 
   // Restore the user's last session (provider, model, prompt, etc.) so an
   // accidental refresh doesn't wipe their configuration.
@@ -2484,6 +2486,7 @@ function retryPaper(id) {
   paper.highlights          = [];          // will be repopulated by the new run
   paper.evidencePages       = [];
   paper.evidencePageIdx     = 0;
+  paper.focusedField        = null;        // any cell-click focus from the previous run
   paper.evidenceCount       = null;
   paper.evidenceTotal       = null;
   paper.tokenUsage          = null;
@@ -3133,24 +3136,94 @@ function renderHighlightOverlay(paper, pageNum) {
   );
   if (!matching.length) { svg.style.display = 'none'; return; }
 
+  const focusedField = paper.focusedField || null;
+
   _withImageDims(paper, pageNum - 1, dims => {
     if (!dims) { svg.style.display = 'none'; return; }
     svg.setAttribute('viewBox', `0 0 ${dims.w} ${dims.h}`);
     svg.style.display = 'block';
     for (const h of matching) {
+      const isFocused = focusedField && h.field === focusedField;
       for (const r of (h.rects || [])) {
         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         rect.setAttribute('x',      r[0]);
         rect.setAttribute('y',      r[1]);
         rect.setAttribute('width',  r[2]);
         rect.setAttribute('height', r[3]);
-        rect.setAttribute('class',  'highlight-rect');
+        rect.setAttribute('class',  isFocused ? 'highlight-rect highlight-rect-focused'
+                                              : 'highlight-rect');
         const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
         title.textContent = (h.field ? `[${h.field}] ` : '') + (h.snippet || '');
         rect.appendChild(title);
         svg.appendChild(rect);
       }
     }
+  });
+}
+
+/* Map a clicked cell's ``data-path`` (e.g.
+   ``samples[0].factor_loadings.F1.5``) to the best-matching evidence
+   entry on the active paper.  Strategy: try exact field match first,
+   then progressively trim the path to its parent (table-level,
+   sample-level) until we hit something or run out.  Returns the
+   {page, field, snippet, source, rects} object or null. */
+function _findEvidenceForField(paper, path) {
+  if (!paper || !paper.parsed || !path) return null;
+  const evidence = paper.parsed.evidence;
+  if (!Array.isArray(evidence) || !evidence.length) return null;
+
+  // Generate the path chain: full → parent → grandparent → …
+  // Trimming rules:
+  //   "samples[0].factor_loadings.F1.5" → "samples[0].factor_loadings"
+  //                                     → "samples[0]"
+  //                                     → ""  (stop)
+  const candidates = [];
+  let cur = path;
+  while (cur) {
+    candidates.push(cur);
+    const dotIdx = cur.lastIndexOf('.');
+    const brackIdx = cur.lastIndexOf('[');
+    const cutAt = Math.max(dotIdx, brackIdx);
+    if (cutAt <= 0) break;
+    cur = cur.slice(0, cutAt);
+  }
+
+  for (const cand of candidates) {
+    const hit = evidence.find(e => e && e.field === cand);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/* Delegated click handler.  When the user clicks a value cell with a
+   ``data-path`` attribute, jump the PDF viewer to that field's
+   evidence page (if any) and mark the matching highlight rect with
+   the ``highlight-rect-focused`` class so it pops out from the rest.
+
+   Attached once at startup; idempotent guard so renderEntry can't
+   double-attach. */
+function _attachEvidenceClickHandler() {
+  if (_attachEvidenceClickHandler._attached) return;
+  _attachEvidenceClickHandler._attached = true;
+  const display = document.getElementById('resultDisplay');
+  if (!display) return;
+  display.addEventListener('click', e => {
+    const cell = e.target.closest('[data-path]');
+    if (!cell || !display.contains(cell)) return;
+    const path = cell.getAttribute('data-path');
+    if (!path) return;
+    const paper = getActivePaper();
+    if (!paper) return;
+    const hit = _findEvidenceForField(paper, path);
+    if (!hit || !hit.page) return;
+    paper.focusedField = hit.field;
+    // Sync the page-nav bookkeeping so prev/next arrows still work.
+    if (Array.isArray(paper.evidencePages)) {
+      const idx = paper.evidencePages.indexOf(hit.page);
+      if (idx >= 0) paper.evidencePageIdx = idx;
+    }
+    paper.browseAllPagesIdx = hit.page - 1;
+    showPageImage(paper, hit.page);
   });
 }
 
