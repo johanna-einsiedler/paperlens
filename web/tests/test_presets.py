@@ -206,10 +206,11 @@ def test_umbrella_masem_is_blank_factor_loadings_starter(client):
 
 
 def test_tas20_variant_renders_with_pre_baked_scaffold(client):
-    """The TAS-20 sub-preset ships the full TAS-20 scaffold inside the
-    SCALE SPECIFICATION header: scale name, DIF/DDF/EOT factor labels,
-    and the 20 item texts (so the model can recognise items that are
-    reordered or paraphrased in the source paper)."""
+    """The TAS-20 sub-preset ships the TAS-20 scaffold inside the SCALE
+    SPECIFICATION header: scale name, item count, max factors, the 20
+    item texts, and the auto-generated factor_key_mapping.  The
+    factor_labels block (DIF / DDF / EOT) was removed because it
+    confused the model on papers using non-standard factor names."""
     r = client.get("/api/presets/masem-tas20")
     assert r.status_code == 200
     body = r.json()
@@ -219,11 +220,11 @@ def test_tas20_variant_renders_with_pre_baked_scaffold(client):
     assert "[scale_name]: Toronto Alexithymia Scale (TAS-20)" in prompt
     assert "[n_items]: 20" in prompt
     assert "[n_factors_max]: 5" in prompt
-    # Factor labels (plain format, no bold/numbering prefix)
-    assert "F1 = DIF (Difficulty Identifying Feelings)" in prompt
-    assert "F2 = DDF (Difficulty Describing Feelings)" in prompt
-    assert "F3 = EOT (Externally Oriented Thinking)" in prompt
-    # Factor-key mapping auto-generated for the 5 factors
+    # factor_labels block must NOT be in the prompt anymore
+    assert "[factor_labels]" not in prompt
+    assert "F1 = DIF" not in prompt
+    # Factor-key mapping auto-generated for the 5 factors — still there
+    assert "[factor_key_mapping]" in prompt
     assert "F-I, FI, Factor I, Factor 1, Component 1 -> F1" in prompt
     assert "F-V, FV, Factor V, Factor 5, Component 5 -> F5" in prompt
     # Item-text list — first numbered line + last item

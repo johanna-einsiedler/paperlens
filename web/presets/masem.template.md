@@ -12,16 +12,12 @@ Extract factor-analytic results for a psychological instrument from an academic 
 [item_labels]: each line gives one item, starting with item number
 ${item_labels_list}
 
-[factor_labels]: commonly used construct labels for factors, if known
-${factor_labels_list}
-
 [factor_key_mapping]:
 ${factor_key_mapping}
 
 The JSON factor keys represent factor columns, component columns, factor row groups, factor blocks, or factor numbers in the extracted solution. They do not necessarily represent fixed construct meanings across papers.
 
-Paper-defined factor labels override [factor_labels] for interpretation.
-However, JSON factor keys still follow the factor order, factor number, factor/component column, factor row group, or factor block in the paper unless the paper explicitly defines another numbering.
+JSON factor keys follow the factor order, factor number, factor/component column, factor row group, or factor block in the paper unless the paper explicitly defines another numbering.
 
 Return EXACTLY ONE top-level JSON object containing all extracted samples.
 
@@ -560,9 +556,7 @@ If a table has columns, row groups, or blocks labelled Factor 1, Factor 2, Facto
 If a table has columns, row groups, or blocks labelled F-I, F-II, F-III, etc.:
 - map them to F1, F2, F3, etc.
 
-If factor names are present but their order differs from [factor_labels]:
-- follow the paper's table column order, row-group order, or block order,
-- document the mapping in "notes".
+Always follow the paper's table column order, row-group order, or block order when assigning numeric factor keys, and document any non-obvious mapping in "notes".
 
 Do NOT assign GA, general factor, method factor, nested factor, higher-order factor, or external-factor columns to F1–F[n_factors_max] unless such factors are explicitly the target of the extraction task.
 

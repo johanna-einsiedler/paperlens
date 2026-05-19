@@ -128,11 +128,6 @@ function _populateBuilderForm(params) {
 
   // Item labels textarea — serialise item_texts back as "1: text".
   document.getElementById('masemCInput').value = _serialiseItemTexts(params.item_texts || []);
-
-  // Factor labels textarea — serialise factor_naming back to one line
-  // per factor in the user-friendly "1. F1 = ABBR (Long name)" format.
-  document.getElementById('masemFactorLabelsInput').value
-    = _serialiseFactorLabels(params.factor_naming || []);
 }
 
 /* Serialise a list of item texts back into the textarea body as
@@ -147,45 +142,6 @@ function _serialiseItemTexts(items) {
 function _parseItemTexts(text) {
   const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
   return lines.map(l => l.replace(/^\s*\d+\s*[:.)]\s*/, '').trim()).filter(Boolean);
-}
-
-/* Serialise the structured factor_naming list back into a textarea body.
-   Accepts either string entries or {abbrev, name} objects. */
-function _serialiseFactorLabels(naming) {
-  if (!Array.isArray(naming) || !naming.length) return '';
-  return naming.map((f, i) => {
-    const n = i + 1;
-    if (typeof f === 'string') return `${n}. F${n} = ${f}`;
-    if (f && typeof f === 'object') {
-      const abbr = f.abbrev || f.abbreviation || '';
-      const name = f.name   || f.long_name    || '';
-      if (abbr && name) return `${n}. F${n} = ${abbr} (${name})`;
-      if (abbr)         return `${n}. F${n} = ${abbr}`;
-      if (name)         return `${n}. F${n} = ${name}`;
-    }
-    return '';
-  }).filter(Boolean).join('\n');
-}
-
-/* Parse the factor-labels textarea into a structured list.  Each line is
-   expected to look like ``1. F1 = DIF (Difficulty Identifying Feelings)``
-   but we accept anything — we strip the leading number/Fn= prefix and
-   try to split an ``ABBR (Long name)`` tail. */
-function _parseFactorLabels(text) {
-  const out = [];
-  const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
-  for (const raw of lines) {
-    // Strip a leading numbering like "1." / "1)" / "1 -" / "F1 =".
-    let body = raw.replace(/^\s*\d+\s*[.)\-]\s*/, '')
-                  .replace(/^\s*F?\d+\s*[=:]\s*/i, '')
-                  .trim();
-    if (!body) continue;
-    // ``ABBR (Long name)`` → split into abbrev + name.
-    const m = body.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
-    if (m) out.push({ abbrev: m[1].trim(), name: m[2].trim() });
-    else   out.push({ abbrev: body,        name: '' });
-  }
-  return out;
 }
 
 
@@ -234,8 +190,11 @@ function _readFormIntoParams() {
   // Drop legacy fields the simplified builder no longer surfaces.
   p.variables                  = [];
   p.study_characteristics_text = '';
-  // Factor labels textarea → factor_naming list.
-  p.factor_naming = _parseFactorLabels(document.getElementById('masemFactorLabelsInput').value);
+  // factor_naming is no longer collected from the form (the field was
+  // removed because it tended to confuse the model on papers with
+  // non-standard factor naming).  The factor_key_mapping section of
+  // the prompt handles label → JSON-key mapping without it.
+  p.factor_naming              = [];
 }
 
 /* Debounced re-render of the prompt preview after any form change.
@@ -309,7 +268,7 @@ function _attachMasemBuilderListeners() {
   _attachMasemBuilderListeners._attached = true;
   const ids = [
     'masemScaleName', 'masemNItems', 'masemNFactorsMax',
-    'masemCInput', 'masemFactorLabelsInput',
+    'masemCInput',
   ];
   ids.forEach(id => {
     const el = document.getElementById(id);
