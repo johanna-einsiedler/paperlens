@@ -280,6 +280,19 @@
         </div>
       </div>
 
+      <!-- MASEMiner-mode step 1: pick a MASEM starter instead of the
+           generic Extract / Label / Review options.  Shown only when
+           body.is-maseminer is set; populated by JS from
+           _MASEM_STARTERS so the cards stay in sync with the builder's
+           own starter row in step 3. -->
+      <div id="masemStep1" style="display:none">
+        <h2>Pick a MASEMiner starter</h2>
+        <p class="subtitle">Choose blank to configure your own scale, or load the TAS-20 example as a one-click setup.</p>
+        <div class="option-grid" id="masemStep1Cards">
+          <!-- populated by app.js _renderMasemStep1Cards() -->
+        </div>
+      </div>
+
       <!-- JSON upload panel — Stage 1: instructions -->
       <div id="jsonUploadPanel" style="display:none">
         <div id="jsonStage1">

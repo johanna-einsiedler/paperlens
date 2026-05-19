@@ -103,6 +103,15 @@ body.is-maseminer {
   --text-muted:    #5a6b85;
 }
 
+/* In MASEMiner mode, swap the generic mode-choice cards (Extract /
+   Label / Review) on step 1 for the MASEM starter cards (Blank /
+   TAS-20).  Step 3's "Generate vs. Manual" choice is already
+   hidden by applyPreset() when a MASEM preset is active. */
+body.is-maseminer #modeGrid { display: none; }
+body.is-maseminer #masemStep1 { display: block; }
+#masemStep1 .option-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+#masemStep1 .option-card h3 { font-size: 15px; }
+
 /* MASEMiner header handling.
 
    On the masemLanding hero (which is what /maseminer initially shows)

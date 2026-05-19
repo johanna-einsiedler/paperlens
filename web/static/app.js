@@ -2042,6 +2042,10 @@ async function loadServerConfig() {
       // present in the markup so there's nothing to hide.
       const logo = document.getElementById('headerLogoImg');
       if (logo) logo.src = '/static/maseminer-mark.svg';
+      // Replace the generic mode grid on step 1 with the MASEM
+      // starter cards (Blank / TAS-20).  The CSS toggles
+      // visibility; this just populates the row contents.
+      _renderMasemStep1Cards();
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');
@@ -2734,6 +2738,35 @@ function _renderConfidenceBadges(entry) {
    for correlations.  An "empty row" is one where every cell in the
    group is null/undefined.  Renders nothing when no offenders found
    or when the entry isn't a MASEMiner shape. */
+/* Populate #masemStep1Cards with the MASEM starter cards (Blank /
+   TAS-20).  Called once after loadServerConfig confirms we're in
+   MASEMiner mode.  ``_MASEM_STARTERS`` is defined in
+   masem-builder.js and is in global scope (both scripts are
+   loaded as classic scripts, not modules). */
+function _renderMasemStep1Cards() {
+  const row = document.getElementById('masemStep1Cards');
+  if (!row) return;
+  if (typeof _MASEM_STARTERS === 'undefined') return;
+  row.innerHTML = _MASEM_STARTERS.map(s => `
+    <button class="option-card" type="button"
+            onclick="_pickMasemStep1Starter('${escHtml(s.id)}')">
+      <div class="option-icon" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="38" height="38"><use href="#masemMark"/></svg>
+      </div>
+      <h3>${escHtml(s.label)}</h3>
+      <p>${escHtml(s.tagline)}</p>
+    </button>
+  `).join('');
+}
+
+/* Click handler for the step-1 MASEM starter cards.  Applies the
+   chosen preset (Blank / General or TAS-20) — applyPreset then
+   handles state.mode + the goTo() to step 2 for setup. */
+function _pickMasemStep1Starter(starterId) {
+  state.mode = 'extraction';
+  applyPreset(starterId);
+}
+
 function _renderMasemRowWarnings(entry) {
   const row = document.getElementById('masemWarningRow');
   if (!row) return;
