@@ -3194,11 +3194,22 @@ function renderHighlightOverlay(paper, pageNum) {
   });
 }
 
-/* Map a clicked cell's ``data-path`` (e.g.
-   ``samples[0].factor_loadings.F1.5``) to the best-matching evidence
+/* Map a clicked cell's ``data-path`` to the best-matching evidence
    entry on the active paper.
 
-   Match strategy, in order:
+   ``data-path`` may be either:
+     * Result-rooted, e.g. ``samples[0].factor_loadings.F1.5`` — when
+       renderValueHtml walked the full parsed object, or
+     * Sample-rooted, e.g. ``factor_loadings.F1.5`` — when renderEntry
+       handed it the sample-level entry (the common case in MASEMiner
+       sub-views, which strip the ``samples[i]`` wrapper).
+
+   The evidence list always uses result-rooted field paths
+   (``samples[i]...``).  When the clicked path lacks the wrapper, we
+   try the same set of matches with ``samples[paper.entryIndex].``
+   prepended.
+
+   Match strategy, in order, on each candidate path:
      1. Exact field match.
      2. Item-row siblings — for factor_loadings cells of the form
         ``samples[i].factor_loadings.F<j>.<n>``, look for any
@@ -3215,36 +3226,43 @@ function _findEvidenceForField(paper, path) {
   const evidence = paper.parsed.evidence;
   if (!Array.isArray(evidence) || !evidence.length) return null;
 
-  // (1) Exact match
-  const exact = evidence.find(e => e && e.field === path);
-  if (exact) return exact;
-
-  // (2) Item-row sibling fallback for factor_loadings cells.
-  // ``samples[0].factor_loadings.F3.5`` → look for any
-  // ``samples[0].factor_loadings.F<*>.5`` entry.
-  const rowRe = /^(samples\[\d+\]\.factor_loadings)\.F(\d+)\.(\d+)$/;
-  const rowMatch = rowRe.exec(path);
-  if (rowMatch) {
-    const tableBase = rowMatch[1];
-    const itemIdx   = rowMatch[3];
-    const wantRe = new RegExp(
-      '^' + tableBase.replace(/[.[\]]/g, c => '\\' + c) +
-      '\\.F\\d+\\.' + itemIdx + '$',
-    );
-    const rowHit = evidence.find(e => e && typeof e.field === 'string' && wantRe.test(e.field));
-    if (rowHit) return rowHit;
+  const candidates = [path];
+  if (!path.startsWith('samples[') && typeof paper.entryIndex === 'number') {
+    candidates.push(`samples[${paper.entryIndex}].${path}`);
   }
 
-  // (3) Progressive parent-path trim
-  let cur = path;
-  while (cur) {
-    const dotIdx = cur.lastIndexOf('.');
-    const brackIdx = cur.lastIndexOf('[');
-    const cutAt = Math.max(dotIdx, brackIdx);
-    if (cutAt <= 0) break;
-    cur = cur.slice(0, cutAt);
-    const hit = evidence.find(e => e && e.field === cur);
-    if (hit) return hit;
+  for (const candidate of candidates) {
+    // (1) Exact match
+    const exact = evidence.find(e => e && e.field === candidate);
+    if (exact) return exact;
+
+    // (2) Item-row sibling fallback for factor_loadings cells.
+    // ``samples[0].factor_loadings.F3.5`` → look for any
+    // ``samples[0].factor_loadings.F<*>.5`` entry.
+    const rowRe = /^(samples\[\d+\]\.factor_loadings)\.F(\d+)\.(\d+)$/;
+    const rowMatch = rowRe.exec(candidate);
+    if (rowMatch) {
+      const tableBase = rowMatch[1];
+      const itemIdx   = rowMatch[3];
+      const wantRe = new RegExp(
+        '^' + tableBase.replace(/[.[\]]/g, c => '\\' + c) +
+        '\\.F\\d+\\.' + itemIdx + '$',
+      );
+      const rowHit = evidence.find(e => e && typeof e.field === 'string' && wantRe.test(e.field));
+      if (rowHit) return rowHit;
+    }
+
+    // (3) Progressive parent-path trim
+    let cur = candidate;
+    while (cur) {
+      const dotIdx = cur.lastIndexOf('.');
+      const brackIdx = cur.lastIndexOf('[');
+      const cutAt = Math.max(dotIdx, brackIdx);
+      if (cutAt <= 0) break;
+      cur = cur.slice(0, cutAt);
+      const hit = evidence.find(e => e && e.field === cur);
+      if (hit) return hit;
+    }
   }
   return null;
 }
