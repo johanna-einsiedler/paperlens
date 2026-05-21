@@ -107,7 +107,13 @@ body.is-maseminer {
    Label / Review) on step 1 for the MASEM starter cards (Blank /
    TAS-20).  Step 3's "Generate vs. Manual" choice is already
    hidden by applyPreset() when a MASEM preset is active. */
-body.is-maseminer #modeGrid { display: none; }
+/* Step 1 has two mutually-exclusive bodies:
+   - #modeGrid     : the generic Extract / Label / Review picker
+   - #masemStep1   : the MASEM-Extraction label + MetaPaperLens/MASEMiner toggle
+   In MetaPaperLens mode the first is visible and the second is hidden;
+   in MASEMiner mode the toggle swaps both. */
+#masemStep1 { display: none; }
+body.is-maseminer #modeGrid   { display: none; }
 body.is-maseminer #masemStep1 { display: block; }
 
 /* MetaPaperLens / MASEMiner mode toggle — segmented control inside

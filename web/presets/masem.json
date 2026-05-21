@@ -1,23 +1,23 @@
 {
   "id":                "masem",
   "title":             "MASEMiner",
-  "tagline":           "Extract correlations and study metadata from primary studies for Meta-Analytic Structural Equation Modeling",
-  "description":       "MASEMiner — Direct information variant.  Extracts pairwise correlations (from text and tables) and coded study metadata.  The matching Indirect-information variant (masem-tas20) extracts factor loadings and factor correlations instead.",
+  "tagline":           "Extract pairwise effect sizes and study metadata from primary studies for Meta-Analytic Structural Equation Modeling",
+  "description":       "MASEMiner — Direct information variant.  Extracts every reported pairwise effect size (correlations from matrices and prose, plus any other bivariate effect-size statistic) and coded study metadata, in the unified `effect_sizes._table` schema that downstream MASEM tools consume.  The matching Indirect-information variant (masem-tas20) extracts factor loadings and factor correlations instead.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
-  "task_description":  "Extract pairwise correlations (from text and tables) and coded study/sample metadata for every sample reported in the paper.",
-  "context":           "MASEMiner workflow for primary studies that report correlations directly (correlation matrices or pairwise correlations in prose).",
-  "prompt_template_file": "masem.template.md",
+  "task_description":  "Extract every reported pairwise effect size (with canonical and verbatim variable labels) and coded study/sample metadata for every sample reported in the paper.",
+  "context":           "MASEMiner workflow for primary studies that report effect sizes directly (correlation matrices, prose-reported correlations, or other bivariate effect-size statistics).",
+  "prompt_template_file": "masem-effect-sizes.template.md",
   "template_params": {
-    "scale_name":           "the target scale",
-    "instrument_name":      "the target scale",
-    "instrument_name_long": "the target scale",
-    "n_items":              20,
-    "n_factors":            5,
+    "scale_name":           "the target instrument",
+    "instrument_name":      "the target instrument",
+    "instrument_name_long": "the target instrument",
+    "n_items":              0,
+    "n_factors":            0,
     "factor_naming":        [],
     "cfa_item_assignment":  {},
-    "data_sources":         ["correlation_matrix", "single_correlations"],
+    "data_sources":         ["effect_sizes"],
     "content_scope":        "concrete_items",
     "include_item_texts":   false,
     "item_texts":           [],
@@ -28,13 +28,13 @@
     {
       "id":            "correlations",
       "label":         "Correlations",
-      "include_keys":  ["sample_id", "n", "correlation_matrix", "single_correlations"],
-      "evidence_keys": ["correlation_matrix", "single_correlations"]
+      "include_keys":  ["sample_id", "n", "effect_sizes"],
+      "evidence_keys": ["effect_sizes"]
     },
     {
       "id":           "descriptives",
       "label":        "Descriptives",
-      "exclude_keys": ["correlation_matrix", "single_correlations"]
+      "exclude_keys": ["effect_sizes"]
     }
   ],
   "skip_to":           "setup",

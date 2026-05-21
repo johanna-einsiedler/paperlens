@@ -281,11 +281,15 @@
         </div>
       </div>
 
-      <!-- MASEMiner-mode step 1: a simple MetaPaperLens / MASEMiner mode
-           toggle.  The Direct/Indirect choice lives in step 3 (the
-           builder's "Task" picker), so step 1 no longer needs starter
-           cards.  Shown only when body.is-maseminer is set. -->
-      <div id="masemStep1" style="display:none">
+      <!-- MASEMiner-mode step 1: a clear "MASEM Extraction" label plus
+           a MetaPaperLens / MASEMiner mode toggle.  The Direct/Indirect
+           choice lives in step 3 (the builder's "Task" picker), so
+           step 1 no longer needs starter cards.  Visibility is
+           CSS-driven via body.is-maseminer (see style.css) so the
+           inline display rule that used to mask this section is gone. -->
+      <div id="masemStep1">
+        <h2>MASEM Extraction</h2>
+        <p class="subtitle">Pre-built workflow for Meta-Analytic Structural Equation Modeling. Switch back to the general extraction app at any time.</p>
         <div class="mode-toggle" role="tablist" aria-label="App mode">
           <a class="mode-toggle-btn" href="/" role="tab" aria-selected="false">MetaPaperLens</a>
           <a class="mode-toggle-btn active" href="/maseminer" role="tab" aria-selected="true" aria-current="page">MASEMiner</a>
@@ -557,9 +561,9 @@
           <p class="masem-hint">Paste the verbatim item texts in their original order so the model can match items that are reordered or paraphrased in the source paper. Format: <code>1: item text</code> per line. Leave empty if you don't have the item texts handy (e.g. copyrighted instruments).</p>
           <textarea id="masemCInput" rows="9"
                     placeholder="e.g.
-1: I am often confused about what emotion I am feeling.
-2: It is difficult for me to find the right words for my feelings.
-3: I have physical sensations that even doctors don't understand.
+1: I usually notice my feelings before anyone else does.
+2: I tend to set goals and follow through with them.
+3: I enjoy meeting new people at social gatherings.
 …"></textarea>
         </div>
 

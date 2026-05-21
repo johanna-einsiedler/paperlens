@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import base64
 import json
 import os
@@ -189,18 +190,76 @@ def pdf_to_markdown(pdf_bytes: bytes, max_pages: int = MAX_PAGES) -> tuple[str, 
 
 # ── Evidence parsing ──────────────────────────────────────────────────────────
 
+_ARITH_EXPR_RE = re.compile(
+    # JSON value position: after `:`, `[`, or `,`, possibly with whitespace.
+    r"(?<=[:\[,])"
+    # A bare arithmetic expression — number then one or more (op number)
+    # repeats.  Operators: + - * /.  No parens, no identifiers.
+    r"(\s*-?\d+(?:\.\d+)?(?:\s*[*/+\-]\s*-?\d+(?:\.\d+)?)+)"
+    # Terminator: comma, close-brace, close-bracket (with optional ws).
+    r"(?=\s*[,}\]])"
+)
+_SAFE_AST_NODES = (
+    ast.Expression, ast.BinOp, ast.UnaryOp,
+    ast.Add, ast.Sub, ast.Mult, ast.Div,
+    ast.USub, ast.UAdd, ast.Constant,
+)
+
+
+def _eval_arith_expressions(text: str) -> str:
+    """Repair pass for model output that emits arithmetic in JSON value
+    position (e.g. ``"female": 100 * 1383 / 2221``).  Strict JSON forbids
+    expressions — they have to be pre-computed scalars — so we evaluate
+    each arithmetic expression and substitute the literal result.
+
+    Safety: the regex only matches numbers and basic operators (no
+    identifiers, no parens, no function calls), AND we validate the
+    parsed AST node-by-node before evaluating.  Anything that doesn't
+    look like pure arithmetic is left alone.
+    """
+    def _repl(m: re.Match) -> str:
+        # Strip leading/trailing whitespace so ast.parse doesn't read
+        # the leading spaces as indentation (which raises
+        # IndentationError before our safety walk runs).
+        expr = m.group(1).strip()
+        try:
+            tree = ast.parse(expr, mode="eval")
+            for node in ast.walk(tree):
+                if not isinstance(node, _SAFE_AST_NODES):
+                    return m.group(0)
+                if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
+                    return m.group(0)
+            value = eval(  # noqa: S307 — validated AST, no builtins
+                compile(tree, "<arith>", "eval"),
+                {"__builtins__": {}},
+                {},
+            )
+            if isinstance(value, (int, float)):
+                return repr(value)
+        except (SyntaxError, ValueError, ZeroDivisionError, OverflowError):
+            pass
+        return m.group(0)
+    return _ARITH_EXPR_RE.sub(_repl, text)
+
+
 def _parse_result_json(result_text: str):
     """Strip markdown fences and parse the model's JSON output.  Returns the
     parsed object or None if it can't be parsed.
 
     Tolerant of: code fences, preamble before the JSON, trailing text after
-    the JSON, and mid-output truncation (we close open strings/containers
-    and retry).  This lets us still surface partial evidence/data even when
+    the JSON, arithmetic expressions in value position (the model sometimes
+    emits ``100 * x / y`` instead of evaluating it — we evaluate it for
+    them), and mid-output truncation (we close open strings/containers and
+    retry).  This lets us still surface partial evidence/data even when
     the model gets cut off mid-output.
     """
     text = result_text.strip()
     text = re.sub(r"^```(?:json)?\s*\n?", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\n?```\s*$", "", text)
+    # First repair step: evaluate any arithmetic expressions the model
+    # emitted in JSON value position.  Cheap and idempotent on
+    # arithmetic-free output, so safe to run unconditionally.
+    text = _eval_arith_expressions(text)
     try:
         return json.loads(text)
     except json.JSONDecodeError:

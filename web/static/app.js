@@ -178,6 +178,14 @@ const STEP_TO_SECTION_NUM = { 1: 1, 2: 2, 3: 3, 4: 4, 5: 4, 6: 5, 7: 5 };
 function goTo(step) {
   state.step = step;
 
+  // Any navigation past the initial state collapses the preset hero
+  // landing (the /maseminer intro card).  Without this, the auto-
+  // applied preset path (loadServerConfig → applyPreset → goTo(2))
+  // leaves the hero visible above every step including the results
+  // panel, which reads as "the intro reappeared after extraction".
+  document.querySelectorAll('.preset-landing').forEach(el => { el.style.display = 'none'; });
+  document.body.classList.add('masem-in-flow');
+
   const onResults = step === 8;
   const onepager  = document.getElementById('onepager');
   const results   = document.getElementById('step8');
@@ -2010,6 +2018,17 @@ const _PRESET_PATHS = {
 
 async function applyPathOrQueryPreset() {
   const path      = window.location.pathname;
+  const params    = new URLSearchParams(window.location.search);
+
+  // ``?batch=<id>`` — the link in batch-complete emails points here.
+  // Skip the preset/hero handling entirely and jump straight to the
+  // results view for the named batch.
+  const batchId = params.get('batch');
+  if (batchId) {
+    await loadPastBatch(batchId);
+    return;
+  }
+
   const presetForPath = _PRESET_PATHS[path];
   if (presetForPath) {
     // Show the hero landing for this preset; user clicks "Get started" to proceed
@@ -2018,7 +2037,6 @@ async function applyPathOrQueryPreset() {
     if (landing) landing.style.display = '';
     return;
   }
-  const params = new URLSearchParams(window.location.search);
   const id = params.get('preset');
   if (id) {
     await applyPreset(id);

@@ -112,6 +112,8 @@ _OPTIONAL_PLACEHOLDERS = (
     "factor_correlations_section",
     "correlation_matrix_section",
     "single_correlations_section",
+    "effect_sizes_section",
+    "variables_block",
     "multiple_models_section",
     "res_field_block",
     "schema_invariants_line",
@@ -249,6 +251,7 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     fc_active   = "factor_correlations"  in sources
     cmat_active = "correlation_matrix"   in sources
     scor_active = "single_correlations"  in sources
+    es_active   = "effect_sizes"         in sources
 
     inner_subs = {
         "instrument_name":                  instrument_name,
@@ -281,6 +284,7 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     )
     correlation_matrix_section   = _section_correlation_matrix(p)   if cmat_active else ""
     single_correlations_section  = _section_single_correlations(p)  if scor_active else ""
+    effect_sizes_section         = _section_effect_sizes(p)         if es_active   else ""
     multiple_models_section      = _section_multiple_models()       if fl_active else ""
 
     # The ``res`` (Likert response options) field belongs to the
@@ -291,18 +295,18 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
     # Schema-invariants line near the top of the prompt.  Adapts to
     # whichever data sources are active.
     schema_invariants_line = _render_schema_invariants_line(
-        fl_active, fc_active, cmat_active, scor_active, inner_subs,
+        fl_active, fc_active, cmat_active, scor_active, es_active, inner_subs,
     )
 
     # Goal items — the numbered list at the top.  Always ends with the
     # metadata bullet; the data-source-specific items lead.
     goal_items = _render_goal_items(
-        fl_active, fc_active, cmat_active, scor_active, inner_subs,
+        fl_active, fc_active, cmat_active, scor_active, es_active, inner_subs,
     )
 
     # JSON schema — assembled from data-source-specific fragments.
     json_schema = _render_full_json_schema(
-        fl_active, fc_active, cmat_active, scor_active, inner_subs,
+        fl_active, fc_active, cmat_active, scor_active, es_active, inner_subs,
     )
 
     # Preamble qualifier — "factor-analytic " (with trailing space) when
@@ -358,7 +362,12 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
         "factor_correlations_section": factor_correlations_section,
         "correlation_matrix_section":  correlation_matrix_section,
         "single_correlations_section": single_correlations_section,
+        "effect_sizes_section":        effect_sizes_section,
         "multiple_models_section":     multiple_models_section,
+        # Variables block — list of canonical variables / synonyms /
+        # definitions, used by both the data-source-section helpers and
+        # by the standalone effect-sizes template.
+        "variables_block":             _render_variables_block(p.get("variables") or []) or "(no variables defined — extract every reported pairwise effect size)",
         "res_field_block":             res_field_block,
         "schema_invariants_line":      schema_invariants_line,
         "goal_items":                  goal_items,
@@ -874,6 +883,46 @@ Rules:
     return _render_subtemplate(body, {"variables_block": var_lines})
 
 
+def _section_effect_sizes(p: dict) -> str:
+    """Unified ``effect_sizes`` table — one row per reported effect
+    size, whether the source was a matrix cell or prose.  Schema:
+    ``es_id``, ``var1``, ``var2``, ``desc1``, ``desc2``, ``es``,
+    ``type``.  This is the Direct-information schema downstream
+    meta-analytic tools consume."""
+    variables = p.get("variables") or []
+    var_lines = _render_variables_block(variables) or "(no variables defined — extract every reported pairwise effect size)"
+    body = """
+
+## Effect sizes (`effect_sizes`)
+
+Extract every reported pairwise effect size — correlations from prose, correlations from matrices, and any other bivariate effect-size statistic — into ONE unified table.  Output uses the `_table` marker so the viewer renders it as a real HTML table:
+
+```json
+"effect_sizes": {
+  "_table": [
+    {"es_id": 1, "var1": "<canonical>", "var2": "<canonical>", "desc1": "<verbatim wording>", "desc2": "<verbatim wording>", "es": <number>, "type": "<r|d|OR|...>"},
+    ...
+  ]
+}
+```
+
+Variables / scales / constructs to look for in this paper:
+${variables_block}
+
+Rules:
+- One row per pairwise effect size.  `es_id` is a 1-indexed sequential integer within this sample.
+- `var1`, `var2` are the canonical SHORT names from the list above (e.g. `"vg"`, `"bm"`).  If the paper uses a synonym, map it to the canonical short name.  If either endpoint isn't listed (and isn't a recognisable synonym), drop the row.
+- `desc1`, `desc2` are the VERBATIM wording the paper uses for each variable (e.g. `"Length of video game play during one sitting"`, `"Body mass index (BMI)"`).  Keep them as the paper printed them — this is the audit trail.
+- `es` is the numeric effect-size value (e.g. `0.27`).
+- `type` is the effect-size kind: `"r"` for a Pearson correlation, `"d"` for Cohen's d, `"OR"` for an odds ratio, etc.  Use `"r"` as the default for correlation matrices and prose-reported r-values.
+- Reporting source — extract whichever form the paper provides:
+  - **Matrix cells**: one row per unique off-diagonal pairing (upper or lower triangle, not both).  Drop the diagonal (variable correlated with itself).  Suppressed / blank cells produce no row.
+  - **Prose** ("the correlation between X and Y was r = .42"): one row per reported correlation.
+  - **Sub-sample matrices** (e.g. multiple groups): emit each as its own `samples[]` entry rather than collapsing them.
+- For each row extracted, the supporting evidence's `field` should be `"samples[i].effect_sizes._table[j]"`."""
+    return _render_subtemplate(body, {"variables_block": var_lines})
+
+
 def _render_variables_block(variables: list) -> str:
     """Format the user's ``variables`` parameter as a bullet list with
     optional definitions and synonyms."""
@@ -924,7 +973,7 @@ def _section_res_field(instrument_name: str) -> str:
     )
 
 
-def _render_schema_invariants_line(fl: bool, fc: bool, cmat: bool, scor: bool, subs: dict) -> str:
+def _render_schema_invariants_line(fl: bool, fc: bool, cmat: bool, scor: bool, es: bool, subs: dict) -> str:
     """One-liner that follows the JSON schema, telling the model which
     keys are mandatory.  Adapts to whichever data sources are active."""
     parts = []
@@ -939,7 +988,7 @@ def _render_schema_invariants_line(fl: bool, fc: bool, cmat: bool, scor: bool, s
             f"(`{subs['correlation_first_key']}`…`{subs['correlation_last_key']}`)"
         )
     if not parts:
-        if cmat or scor:
+        if cmat or scor or es:
             return "Include the metadata block on every sample, even when individual fields are null."
         return ""
     if len(parts) == 1:
@@ -947,7 +996,7 @@ def _render_schema_invariants_line(fl: bool, fc: bool, cmat: bool, scor: bool, s
     return f"You MUST include {' and '.join(parts)} on every sample, even if the values are null."
 
 
-def _render_goal_items(fl: bool, fc: bool, cmat: bool, scor: bool, subs: dict) -> str:
+def _render_goal_items(fl: bool, fc: bool, cmat: bool, scor: bool, es: bool, subs: dict) -> str:
     """The numbered list under "## Goal".  Always ends with the metadata
     bullet; data-source items appear in source-priority order."""
     items: list[str] = []
@@ -974,6 +1023,12 @@ def _render_goal_items(fl: bool, fc: bool, cmat: bool, scor: bool, subs: dict) -
             "inline text rather than in a matrix (e.g. \"the correlation between X "
             "and Y was r = .42\")."
         )
+    if es:
+        items.append(
+            "**Effect sizes** — every reported pairwise effect size (correlations from "
+            "matrices and prose, plus other bivariate effect-size statistics) collected "
+            "into one unified table with `es_id, var1, var2, desc1, desc2, es, type`."
+        )
     items.append(
         "**Study + sample metadata** — coded according to a fixed scheme so the "
         "records are usable in a downstream meta-analytic database."
@@ -981,7 +1036,7 @@ def _render_goal_items(fl: bool, fc: bool, cmat: bool, scor: bool, subs: dict) -
     return "\n".join(f"{i}. {item}" for i, item in enumerate(items, 1))
 
 
-def _render_full_json_schema(fl: bool, fc: bool, cmat: bool, scor: bool, subs: dict) -> str:
+def _render_full_json_schema(fl: bool, fc: bool, cmat: bool, scor: bool, es: bool, subs: dict) -> str:
     """Assemble the JSON-schema block from data-source-specific fragments.
     Indentation matches the original TAS-20 fragment so byte-identity
     holds when the standard TAS-20 sources are active."""
@@ -1016,6 +1071,15 @@ def _render_full_json_schema(fl: bool, fc: bool, cmat: bool, scor: bool, subs: d
             '      },',
             '',
         ])
+    if es:
+        lines.extend([
+            '      "effect_sizes": {',
+            '        "_table": [',
+            '          {"es_id": integer, "var1": "<canonical>", "var2": "<canonical>", "desc1": "<verbatim>", "desc2": "<verbatim>", "es": number, "type": "<r|d|OR|...>"}',
+            '        ]',
+            '      },',
+            '',
+        ])
     # Metadata fields (always present).  ``res`` is gated on fl.
     lines.extend([
         '      "pubyear":   number|null,',
@@ -1044,6 +1108,8 @@ def _render_full_json_schema(fl: bool, fc: bool, cmat: bool, scor: bool, subs: d
     # whichever data source is the headline of this preset.
     if fl:
         evidence_field = "samples[0].factor_loadings"
+    elif es:
+        evidence_field = "samples[0].effect_sizes._table[0]"
     elif cmat:
         evidence_field = "samples[0].correlation_matrix"
     elif scor:
@@ -1132,6 +1198,12 @@ _SUB_VIEW_SPECS = {
         "label":         "Single correlations",
         "include_keys":  ["sample_id", "n", "single_correlations"],
         "evidence_keys": ["single_correlations"],
+    },
+    "effect_sizes": {
+        "id":            "effectsizes",
+        "label":         "Effect sizes",
+        "include_keys":  ["sample_id", "n", "effect_sizes"],
+        "evidence_keys": ["effect_sizes"],
     },
 }
 
