@@ -236,9 +236,12 @@ def test_tas20_variant_renders_with_pre_baked_scaffold(client):
     # The new template adds the confidence-self-assessment step
     assert "## STEP 9: Self-assess extraction confidence" in prompt
     assert '"extraction_confidence"' in prompt
-    # Sub-views match TAS-20 (factor loadings + correlations)
+    # Sub-views match TAS-20 (factor correlations + factor loadings).
+    # Order follows ``data_sources`` — correlations first because the
+    # headline MASEM output is the inter-factor correlation matrix; the
+    # item-level loadings are the breakdown behind it.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["loadings", "correlations", "descriptives"]
+    assert sub_ids == ["correlations", "loadings", "descriptives"]
 
 
 def test_tas20_variant_includes_user_supplied_item_texts(client):

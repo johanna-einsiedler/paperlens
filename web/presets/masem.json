@@ -34,7 +34,7 @@
     {
       "id":           "descriptives",
       "label":        "Descriptives",
-      "exclude_keys": ["effect_sizes"]
+      "exclude_keys": ["effect_sizes", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"]
     }
   ],
   "skip_to":           "setup",

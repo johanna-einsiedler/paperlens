@@ -500,6 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initUploadZone();
   initResultDisplay();
   initZoomPan();
+  initReuploadPdfZone();
   // Cell-click → evidence-page jump + focused highlight.
   _attachEvidenceClickHandler();
 
@@ -2191,8 +2192,14 @@ async function loadPastBatch(batchId) {
   state.activePaperId   = state.papers.find(p => p.status === 'done')?.id || state.papers[0].id;
   displayPaper(state.papers.find(p => p.id === state.activePaperId));
   goTo(8);
-  // Lazily load page images for each finished paper as the user navigates to them
-  state.papers.forEach(p => p.status === 'done' && ensurePageImagesLoaded(p));
+  // Lazily load page images for each finished paper as the user navigates to them.
+  // Each ensurePageImagesLoaded call refreshes the re-upload notice — if the
+  // server has nothing cached (e.g. restarted since extraction), the notice
+  // surfaces and asks the user to re-upload the matching PDF(s).
+  const checks = state.papers
+    .filter(p => p.status === 'done')
+    .map(p => Promise.resolve(ensurePageImagesLoaded(p)).catch(() => {}));
+  Promise.all(checks).finally(updateReuploadNotice);
 }
 
 async function cancelBatch() {
@@ -4759,6 +4766,16 @@ function initReviewPdfZone() {
   });
 }
 
+/* Drop zone on the results page (step 8) for rehydrating page previews
+   on a past batch whose page images aged out of the server's in-memory
+   cache.  Reuses the same /api/pages endpoint as the review flow. */
+function initReuploadPdfZone() {
+  initDropZone('reuploadPdfZone', files => {
+    const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+    if (pdfs.length) handleReuploadPdfSelect(pdfs);
+  });
+}
+
 function addReviewPdfs(files) {
   for (const f of files) {
     if (!reviewPdfFiles.find(x => x.name === f.name)) reviewPdfFiles.push(f);
@@ -4871,6 +4888,60 @@ function commitLoadJson() {
   goTo(8);
 
   if (pdfsToFetch.length) fetchReviewPageImages(pdfsToFetch);
+}
+
+/* ──────────────────────────────────────────────────────────
+   PDF re-upload on the results page
+   ────────────────────────────────────────────────────────── */
+
+/* Toggle the "Page preview unavailable" notice on step 8 based on
+   whether any paper is missing rasterised page images.  Server-side
+   page images live only in process memory (see jobs.py:_PAGE_IMAGES),
+   so a Fly restart between extraction and review wipes them — the user
+   then needs to re-upload the original PDFs to get the side-by-side
+   viewer back. */
+function updateReuploadNotice() {
+  const el = document.getElementById('reuploadPdfNotice');
+  if (!el) return;
+  const done    = state.papers.filter(p => p.status === 'done');
+  const missing = done.filter(p => !p.pageImages || p.pageImages.length === 0);
+  if (!missing.length) {
+    el.style.display = 'none';
+    return;
+  }
+  const detail = document.getElementById('reuploadPdfDetail');
+  if (detail) {
+    const names = missing.slice(0, 5).map(p => p.filename).join(', ');
+    const extra = missing.length > 5 ? `, +${missing.length - 5} more` : '';
+    detail.textContent = `Upload the original PDF${missing.length !== 1 ? 's' : ''} to enable the side-by-side viewer (matching by filename): ${names}${extra}.`;
+  }
+  el.style.display = 'flex';
+}
+
+/* Drop or pick handler for the results-page PDF re-upload zone.
+   Matches each PDF to a paper by filename and calls the shared
+   ``fetchReviewPageImages`` helper to rasterise + attach the images. */
+async function handleReuploadPdfSelect(eventOrFiles) {
+  let files;
+  if (eventOrFiles && eventOrFiles.target && eventOrFiles.target.files) {
+    files = Array.from(eventOrFiles.target.files);
+  } else {
+    files = Array.from(eventOrFiles || []);
+  }
+  if (!files.length) return;
+  const hint = document.getElementById('reuploadPdfHint');
+  if (hint) hint.textContent = `Loading ${files.length} PDF${files.length !== 1 ? 's' : ''}…`;
+  await fetchReviewPageImages(files);
+  updateReuploadNotice();
+  if (hint) {
+    const stillMissing = state.papers.filter(p => p.status === 'done' && (!p.pageImages || !p.pageImages.length)).length;
+    hint.textContent = stillMissing
+      ? `${stillMissing} paper${stillMissing !== 1 ? 's' : ''} still need their PDF`
+      : 'All PDFs loaded';
+  }
+  // Reset the input so the same file can be picked again if needed
+  const input = document.getElementById('reuploadPdfInput');
+  if (input) input.value = '';
 }
 
 async function fetchReviewPageImages(pdfFiles) {

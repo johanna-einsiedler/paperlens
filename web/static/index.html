@@ -890,6 +890,23 @@
                 onclick="dismissEvidenceWarning()">&times;</button>
       </div>
 
+      <!-- PDF re-upload prompt — visible when one or more papers are
+           missing page images (typical after the server has been
+           restarted since the original extraction).  Drop or pick the
+           matching PDFs to rehydrate the side-by-side view.  Hidden
+           when every paper already has its pages rendered. -->
+      <div class="reupload-notice" id="reuploadPdfNotice" style="display:none">
+        <div class="reupload-text">
+          <strong>Page preview unavailable</strong>
+          <span id="reuploadPdfDetail">Upload the original PDFs to enable the side-by-side viewer with yellow evidence highlights.</span>
+        </div>
+        <div class="reupload-drop json-drop-row" id="reuploadPdfZone">
+          <input type="file" id="reuploadPdfInput" accept=".pdf" multiple style="display:none" onchange="handleReuploadPdfSelect(event)" />
+          <button class="btn btn-primary btn-sm" type="button" onclick="document.getElementById('reuploadPdfInput').click()">Choose PDFs</button>
+          <span class="json-drop-hint" id="reuploadPdfHint">or drop here</span>
+        </div>
+      </div>
+
       <!-- 3-column body -->
       <div class="results-layout">
 

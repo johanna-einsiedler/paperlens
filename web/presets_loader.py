@@ -1211,16 +1211,22 @@ _SUB_VIEW_SPECS = {
 def _build_sub_views_from_sources(sources: list[str]) -> list[dict]:
     """Generate sub_views from a list of data sources.  The result-panel
     gets one tab per data source plus a final ``Descriptives`` tab that
-    excludes every data-source key (so it shows only the metadata)."""
+    excludes EVERY known data-source key (not just the ones this preset
+    extracts).  The broader exclude list keeps Descriptives showing
+    only metadata even when the underlying data has unexpected keys
+    (e.g. a paper run under one preset then re-rendered under another's
+    sub_views — common after schema migrations)."""
     sub_views: list[dict] = []
-    excludes: list[str] = []
     for src in sources:
         spec = _SUB_VIEW_SPECS.get(src)
         if not spec:
             continue
         sub_views.append(dict(spec))   # copy so callers can mutate freely
-        # Track the data-source-bearing key for the descriptives exclude list.
-        excludes.append(src)
+    # Exclude every key any data-source spec advertises, so Descriptives
+    # is always pure metadata regardless of which preset wrote the data.
+    excludes = sorted({k for spec in _SUB_VIEW_SPECS.values()
+                         for k in spec.get("include_keys", [])
+                         if k not in ("sample_id", "n")})
     if sub_views:
         sub_views.append({
             "id":           "descriptives",

@@ -25,7 +25,7 @@
       "F2": [2, 4, 11, 12, 17],
       "F3": [5, 8, 10, 15, 16, 18, 19, 20]
     },
-    "data_sources":         ["factor_loadings", "factor_correlations"],
+    "data_sources":         ["factor_correlations", "factor_loadings"],
     "content_scope":        "concrete_items",
     "item_texts":           [],
     "include_item_texts":   false,
