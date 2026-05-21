@@ -1,47 +1,270 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="100 270 930 680">
-  <!-- Brand icon: blocky "M" letterform, with a detached teal "extracted"
-       square connected to the upper-right by a dashed path.  Colours:
-       navy #003d7c (outer pillars + top row),
-       muted #72879d (inner slope cells),
-       teal  #19b3b0 (extracted tile + connector). -->
-  <g fill="#003d7c">
-    <rect x="373" y="292" width="74" height="74" rx="4"/>
-    <rect x="707" y="293" width="75" height="75" rx="4"/>
-    <rect x="374" y="378" width="72" height="71" rx="4"/>
-    <rect x="459" y="378" width="71" height="71" rx="4"/>
-    <rect x="625" y="378" width="70" height="72" rx="4"/>
-    <rect x="708" y="379" width="72" height="71" rx="4"/>
-    <rect x="374" y="462" width="72" height="72" rx="4"/>
-    <rect x="543" y="462" width="70" height="71" rx="4"/>
-    <rect x="625" y="462" width="70" height="71" rx="4"/>
-    <rect x="374" y="547" width="72" height="71" rx="4"/>
-    <rect x="579" y="547" width="72" height="71" rx="4"/>
-    <rect x="374" y="631" width="72" height="72" rx="4"/>
-    <rect x="709" y="462" width="71" height="71" rx="4"/>
-    <rect x="709" y="546" width="72" height="72" rx="4"/>
-    <rect x="709" y="631" width="72" height="72" rx="4"/>
+<svg
+   width="1254"
+   height="1254"
+   viewBox="0 0 1254 1254"
+   version="1.1"
+   id="svg56"
+   sodipodi:docname="MASEMiner_B.svg"
+   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs60" />
+  <sodipodi:namedview
+     id="namedview58"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     showgrid="false"
+     inkscape:zoom="0.20271522"
+     inkscape:cx="-772.01899"
+     inkscape:cy="382.30972"
+     inkscape:window-width="1920"
+     inkscape:window-height="1111"
+     inkscape:window-x="-9"
+     inkscape:window-y="-9"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg56" />
+  <rect
+     x="373"
+     y="292"
+     width="74"
+     height="74"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect4" />
+  <rect
+     x="707"
+     y="293"
+     width="75"
+     height="75"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect6" />
+  <rect
+     x="374"
+     y="378"
+     width="72"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect8" />
+  <rect
+     x="459"
+     y="378"
+     width="71"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect10" />
+  <rect
+     x="625"
+     y="378"
+     width="70"
+     height="72"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect12" />
+  <rect
+     x="708"
+     y="379"
+     width="72"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect14" />
+  <rect
+     x="374"
+     y="462"
+     width="72"
+     height="72"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect16" />
+  <rect
+     x="543"
+     y="462"
+     width="70"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect18" />
+  <rect
+     x="625"
+     y="462"
+     width="70"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect20" />
+  <rect
+     x="374"
+     y="547"
+     width="72"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect24" />
+  <rect
+     x="579"
+     y="547"
+     width="72"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect26" />
+  <rect
+     x="374"
+     y="631"
+     width="72"
+     height="72"
+     rx="4"
+     ry="4"
+     fill="#003d7c"
+     id="rect30" />
+  <g
+     id="g10803"
+     transform="translate(-83)">
+    <rect
+       x="792"
+       y="462"
+       width="71"
+       height="71"
+       rx="4"
+       ry="4"
+       fill="#003d7c"
+       id="rect22" />
+    <rect
+       x="792"
+       y="546"
+       width="72"
+       height="72"
+       rx="4"
+       ry="4"
+       fill="#003d7c"
+       id="rect28" />
+    <rect
+       x="792"
+       y="631"
+       width="72"
+       height="72"
+       rx="4"
+       ry="4"
+       fill="#003d7c"
+       id="rect32" />
   </g>
-  <g fill="#72879d">
-    <rect x="460" y="462" width="70" height="71" rx="4"/>
-    <rect x="459" y="546" width="71" height="72" rx="4"/>
-    <rect x="459" y="631" width="71" height="73" rx="4"/>
-    <rect x="794.66" y="460.93" width="71" height="71" rx="4"/>
-    <rect x="794.66" y="544.93" width="71" height="72" rx="4"/>
-    <rect x="794.66" y="629.93" width="71" height="72" rx="4"/>
+  <rect
+     x="460"
+     y="462"
+     width="70"
+     height="71"
+     rx="4"
+     ry="4"
+     fill="#72879d"
+     id="rect34" />
+  <rect
+     x="459"
+     y="546"
+     width="71"
+     height="72"
+     rx="4"
+     ry="4"
+     fill="#72879d"
+     id="rect38" />
+  <rect
+     x="459"
+     y="631"
+     width="71"
+     height="73"
+     rx="4"
+     ry="4"
+     fill="#72879d"
+     id="rect42" />
+  <g
+     id="g10619"
+     transform="translate(86.660576,-1.0669716)">
+    <rect
+       x="708"
+       y="462"
+       width="71"
+       height="71"
+       rx="4"
+       ry="4"
+       fill="#72879d"
+       id="rect36" />
+    <rect
+       x="708"
+       y="546"
+       width="71"
+       height="72"
+       rx="4"
+       ry="4"
+       fill="#72879d"
+       id="rect40" />
+    <rect
+       x="708"
+       y="631"
+       width="71"
+       height="72"
+       rx="4"
+       ry="4"
+       fill="#72879d"
+       id="rect44" />
   </g>
-  <rect x="910" y="291.87" width="73" height="73" rx="4" fill="#19b3b0"/>
-  <path d="m 828.71323,420.2301 c 44.99672,-36.19281 15.49703,-70.90814 81.34589,-90.55567"
-        fill="none" stroke="#19b3b0" stroke-width="6.39185"
-        stroke-linecap="round" stroke-dasharray="18, 18"/>
-  <g>
-    <!-- "MASEMiner" rendered as one word.  Bold "MASE" + lighter "Miner"
-         share an x-axis so they read as a single brand name; the original
-         source artwork left a 79-unit gap that read like a missing
-         letter once the icon was hoisted above the wordmark. -->
-    <text x="126" y="905" font-family="Arial, Helvetica, sans-serif"
-          font-size="178" font-weight="700" fill="#003d7c">MASE</text>
-    <text x="566" y="905" font-family="Arial, Helvetica, sans-serif"
-          font-size="178" font-weight="400" fill="#72879d">Miner</text>
+  <rect
+     x="910"
+     y="291.86606"
+     width="73"
+     height="73"
+     rx="4"
+     ry="4"
+     fill="#19b3b0"
+     id="rect46" />
+  <path
+     d="m 828.71323,420.2301 c 44.99672,-36.19281 15.49703,-70.90814 81.34589,-90.55567"
+     fill="none"
+     stroke="#19b3b0"
+     stroke-width="6.39185"
+     stroke-linecap="round"
+     stroke-dasharray="18, 18"
+     id="path48"
+     sodipodi:nodetypes="cc" />
+  <g
+     id="wordmark">
+    <text
+       x="126"
+       y="905"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="178"
+       font-weight="700"
+       letter-spacing="0"
+       fill="#003d7c"
+       id="text51">MASE</text>
+    <text
+       x="645"
+       y="905"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="178"
+       font-weight="400"
+       letter-spacing="0"
+       fill="#72879d"
+       id="text53">Miner</text>
   </g>
 </svg>

@@ -1831,21 +1831,24 @@ async function applyPreset(presetId) {
   }
   document.body.dataset.preset = preset.id;
 
-  // Banner — visible while preset is active
+  // Banner — visible while preset is active.  In MASEMiner mode the
+  // brand identity is carried by the header logo + the in-step mode
+  // toggle, so the banner is reduced to just the "Switch to
+  // MetaPaperLens" button (no redundant wordmark before it).  Other
+  // (non-MASEM) presets still show their plain-text title.
   const banner = document.getElementById('presetBanner');
   if (banner) {
-    // The umbrella ``masem`` preset AND every variant (masem-tas20 etc.)
-    // all share the same MASEMiner brand wordmark in the banner.  Other
-    // (non-MASEM) presets fall back to plain text so they don't pick up
-    // the navy/teal styling.
+    const labelEl = banner.querySelector('.preset-banner-label');
     const titleEl = document.getElementById('presetBannerTitle');
     const isMasem = typeof preset.id === 'string' && preset.id.startsWith('masem');
     if (isMasem) {
-      titleEl.innerHTML = '<span class="brand-mase">MASE</span><span class="brand-miner">Miner</span>';
-      titleEl.classList.add('masem-wordmark');
+      titleEl.textContent = '';
+      titleEl.classList.remove('masem-wordmark');
+      if (labelEl) labelEl.style.display = 'none';
     } else {
       titleEl.textContent = preset.title;
       titleEl.classList.remove('masem-wordmark');
+      if (labelEl) labelEl.style.display = '';
     }
     banner.style.display = 'flex';
   }
@@ -2060,10 +2063,20 @@ async function loadServerConfig() {
       // present in the markup so there's nothing to hide.
       const logo = document.getElementById('headerLogoImg');
       if (logo) logo.src = '/static/maseminer-mark.svg';
-      // Replace the generic mode grid on step 1 with the MASEM
-      // starter cards (Blank / TAS-20).  The CSS toggles
-      // visibility; this just populates the row contents.
-      _renderMasemStep1Cards();
+      // Point the wrapping anchor at the MASEMiner landing so clicking
+      // the mark resets the user back to the hero (MetaPaperLens mode
+      // already links to /).
+      const logoLink = document.getElementById('headerLogoLink');
+      if (logoLink) logoLink.href = '/maseminer';
+      // Step 1 in MASEMiner mode is now just a MetaPaperLens/MASEMiner
+      // mode toggle (rendered statically in index.html) — no per-render
+      // population needed.  Auto-apply the umbrella ``masem`` preset so
+      // step 2+ work without requiring the user to pick a starter.
+      // The Direct/Indirect task choice surfaces in step 3.
+      state.mode = 'extraction';
+      if (typeof applyPreset === 'function') {
+        Promise.resolve(applyPreset('masem')).catch(() => {});
+      }
       // MASEMiner skips the "Review prompt" step — renumber the
       // upload-section header so the user sees 1·2·3·4 instead of
       // 1·2·3·5.  CSS hides #step5 entirely.
@@ -3324,8 +3337,26 @@ function _attachEvidenceClickHandler() {
     if (!path) return;
     const paper = getActivePaper();
     if (!paper) return;
+
+    // Single-selection: move the ``rv-selected`` marker to the newly
+    // clicked cell so only one cell ever looks "active" at a time.
+    display.querySelectorAll('.rv-selected').forEach(el => el.classList.remove('rv-selected'));
+    cell.classList.add('rv-selected');
+
     const hit = _findEvidenceForField(paper, path);
-    if (!hit || !hit.page) return;
+    if (!hit || !hit.page) {
+      // No evidence for this cell — drop any lingering focused-rect
+      // highlight from the previous click so the PDF view doesn't
+      // keep pointing at the old field.
+      if (paper.focusedField) {
+        paper.focusedField = null;
+        // browseAllPagesIdx is the single source of truth for which
+        // page is currently displayed (kept in sync by showPageImage).
+        const displayedPage = (paper.browseAllPagesIdx || 0) + 1;
+        renderHighlightOverlay(paper, displayedPage);
+      }
+      return;
+    }
     paper.focusedField = hit.field;
     // Sync the page-nav bookkeeping so prev/next arrows still work.
     if (Array.isArray(paper.evidencePages)) {

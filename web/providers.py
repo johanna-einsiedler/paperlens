@@ -122,11 +122,17 @@ def generate_text(
 
     # OpenAI or vLLM (OpenAI-compatible)
     client = _openai_compat_client(api_key, base_url)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature,
-    )
+    kwargs: dict = {
+        "model":    model,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    # GPT-5 only accepts the default temperature (1); passing any custom
+    # value (including 0.0 from our test-connection ping) raises a 400.
+    # Vision-extraction paths already omit temperature, so this is the
+    # only place we have to guard.
+    if not model.startswith("gpt-5"):
+        kwargs["temperature"] = temperature
+    response = client.chat.completions.create(**kwargs)
     return response.choices[0].message.content.strip()
 
 

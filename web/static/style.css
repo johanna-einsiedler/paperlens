@@ -110,6 +110,41 @@ body.is-maseminer {
 body.is-maseminer #modeGrid { display: none; }
 body.is-maseminer #masemStep1 { display: block; }
 
+/* MetaPaperLens / MASEMiner mode toggle — segmented control inside
+   step 1 in MASEMiner mode.  Both segments are anchors so a click
+   navigates between the two app paths; the .active state matches the
+   current page. */
+.mode-toggle {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 4px;
+}
+.mode-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: 999px;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-toggle-btn:hover { color: var(--text); }
+.mode-toggle-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+.mode-toggle-btn.active:hover { color: #fff; }
+.mode-toggle-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* MASEMiner skips the "Review prompt" step — the builder commits the
    prompt directly into state and lands users on the Upload step.  In
    MetaPaperLens that section is still visible. */
@@ -313,6 +348,19 @@ header {
   width: 140px;
   height: 140px;
   margin: 0 auto 18px;
+}
+.header-logo-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 12px;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.header-logo-link:hover { opacity: 0.85; }
+.header-logo-link:active { transform: scale(0.98); }
+.header-logo-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
 }
 
 header h1 {
@@ -1604,6 +1652,17 @@ header p {
   line-height: 1.7;
   color: var(--text);
 }
+.preset-hero-body a {
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+.preset-hero-body a:hover,
+.preset-hero-body a:focus-visible {
+  color: var(--primary);
+  text-decoration: none;
+  outline: none;
+}
 
 .preset-hero-section-title {
   font-size: 11.5px;
@@ -2704,6 +2763,17 @@ body.wide-mode .app {
   background: #fefce8 !important;
   border-bottom: 2px solid #eab308;
   border-radius: 2px 2px 0 0;
+}
+
+/* "Most recently clicked" cell.  Only one ``.rv-selected`` exists at
+   a time — the click handler in app.js wipes the class from every
+   other element on each new click — so users can always tell which
+   value the PDF highlight corresponds to. */
+.rv-selected {
+  background: var(--primary-light) !important;
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 /* ── Results page — entry navigation, view toggle, multi-entry hint ────── */

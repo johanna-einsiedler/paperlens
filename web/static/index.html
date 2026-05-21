@@ -62,8 +62,12 @@
   <header>
     <!-- Single brand mark — src is swapped to /static/maseminer-mark.svg
          by app.js whenever body.is-maseminer is set, so MetaPaperLens
-         and MASEMiner each show exactly one logo. -->
-    <img src="/static/logo.svg" alt="" id="headerLogoImg" class="header-logo" aria-hidden="true" />
+         and MASEMiner each show exactly one logo.  Wrapped in an anchor
+         so clicking the mark returns to the landing page; href is also
+         flipped to /maseminer by app.js in MASEMiner mode. -->
+    <a id="headerLogoLink" class="header-logo-link" href="/" title="Back to start">
+      <img src="/static/logo.svg" alt="" id="headerLogoImg" class="header-logo" aria-hidden="true" />
+    </a>
     <h1 id="appTitle">MetaPaperLens</h1>
     <p id="appTagline">AI-powered data extraction and labeling for academic papers</p>
   </header>
@@ -133,7 +137,7 @@
       </p>
       <div class="preset-hero-body">
         <p>
-          MASEMiner is a tailored entry point into the MetaPaperLens engine. It loads structured
+          MASEMiner is a tailored entry point into the <a href="https://paper.metalens.tech" target="_blank" rel="noopener">MetaPaperLens</a> engine. It loads structured
           extraction prompts for MASEM applications, so you can target individual correlations
           in text or tables, correlation matrices, and, where relevant, indirect information for
           reconstructing correlation matrices. Every result is shown alongside the source PDF
@@ -277,16 +281,14 @@
         </div>
       </div>
 
-      <!-- MASEMiner-mode step 1: pick a MASEM starter instead of the
-           generic Extract / Label / Review options.  Shown only when
-           body.is-maseminer is set; populated by JS from
-           _MASEM_STARTERS so the cards stay in sync with the builder's
-           own starter row in step 3. -->
+      <!-- MASEMiner-mode step 1: a simple MetaPaperLens / MASEMiner mode
+           toggle.  The Direct/Indirect choice lives in step 3 (the
+           builder's "Task" picker), so step 1 no longer needs starter
+           cards.  Shown only when body.is-maseminer is set. -->
       <div id="masemStep1" style="display:none">
-        <h2>Pick a MASEMiner starter</h2>
-        <p class="subtitle">Choose blank to configure your own scale, or load the TAS-20 example as a one-click setup.</p>
-        <div class="option-grid" id="masemStep1Cards">
-          <!-- populated by app.js _renderMasemStep1Cards() -->
+        <div class="mode-toggle" role="tablist" aria-label="App mode">
+          <a class="mode-toggle-btn" href="/" role="tab" aria-selected="false">MetaPaperLens</a>
+          <a class="mode-toggle-btn active" href="/maseminer" role="tab" aria-selected="true" aria-current="page">MASEMiner</a>
         </div>
       </div>
 
