@@ -46,3 +46,7 @@ web/uv.lock
 # Local research data / sample PDFs (don't ship in deploy)
 data/
 *.pdf
+
+# Source artwork dropped at repo root (the production SVGs live in
+# web/static/ and are derived from these)
+/MASEMiner_*.svg

@@ -130,31 +130,35 @@ def test_get_preset_404_for_unknown(client):
 
 
 def test_masem_preset_declares_sub_views(client):
-    """The MASEM preset ships with sub-tabs the frontend renders under
-    the active paper card.  Auto-generated from ``data_sources`` — the
-    umbrella ``masem`` preset is now a factor-loadings starter (the
-    same shape as TAS-20 but with blank defaults), so its tabs are
-    ``loadings`` + ``correlations`` + ``descriptives``."""
+    """The umbrella ``masem`` preset is the Direct-information variant —
+    it extracts correlations (matrices + prose) plus metadata, so its
+    sub-tabs are ``correlations`` + ``descriptives``.  Declared
+    explicitly in masem.json so the preset author controls the layout
+    instead of relying on auto-generation from data_sources."""
     r = client.get("/api/presets/masem")
     body = r.json()
     sub_views = body.get("sub_views")
     assert isinstance(sub_views, list)
-    assert len(sub_views) == 3
+    assert len(sub_views) == 2
     ids = [s["id"] for s in sub_views]
-    assert ids == ["loadings", "correlations", "descriptives"]
+    assert ids == ["correlations", "descriptives"]
     # Every sub-view has a label and either include_keys or exclude_keys
     for sv in sub_views:
         assert "label" in sv and sv["label"]
         assert ("include_keys" in sv) or ("exclude_keys" in sv)
     by_id = {s["id"]: s for s in sub_views}
-    assert "factor_loadings"      in by_id["loadings"]["include_keys"]
-    assert "factor_correlations"  in by_id["correlations"]["include_keys"]
-    assert "factor_loadings"      in by_id["descriptives"]["exclude_keys"]
-    assert "factor_correlations"  in by_id["descriptives"]["exclude_keys"]
-    # Evidence-key narrowing: highlights for each sub-view scoped strictly
-    # to the data source it's about.
-    assert by_id["loadings"]["evidence_keys"]     == ["factor_loadings"]
-    assert by_id["correlations"]["evidence_keys"] == ["factor_correlations"]
+    # The Correlations tab carries both correlation data sources so a
+    # single tab covers prose- and table-reported correlations.
+    assert "correlation_matrix"   in by_id["correlations"]["include_keys"]
+    assert "single_correlations"  in by_id["correlations"]["include_keys"]
+    assert "correlation_matrix"   in by_id["descriptives"]["exclude_keys"]
+    assert "single_correlations"  in by_id["descriptives"]["exclude_keys"]
+    # Evidence-key narrowing: highlights for the Correlations tab scoped
+    # to both correlation sources.
+    assert sorted(by_id["correlations"]["evidence_keys"]) == [
+        "correlation_matrix",
+        "single_correlations",
+    ]
     # Descriptives doesn't need narrowing — exclude_keys already does the job.
     assert "evidence_keys" not in by_id["descriptives"]
 
@@ -181,28 +185,27 @@ def test_variant_preset_still_fetchable_by_id(client):
     assert body.get("landing_hidden") is True
 
 
-def test_umbrella_masem_is_blank_factor_loadings_starter(client):
-    """The umbrella ``masem`` preset is now a blank factor-loadings
-    starter — same prompt shape as TAS-20 but without any pre-filled
-    factor names, item texts, or CFA mapping.  Users fill those in via
-    the in-app builder."""
+def test_umbrella_masem_is_blank_correlations_starter(client):
+    """The umbrella ``masem`` preset is the Direct-information variant:
+    it extracts correlations directly (matrix + prose) plus metadata.
+    No factor-analysis fields are pre-baked — the matching Indirect-
+    information starter (``masem-tas20``) covers that path."""
     r = client.get("/api/presets/masem")
     body = r.json()
     p = body["template_params"]
-    assert "factor_loadings" in p["data_sources"]
-    assert "factor_correlations" in p["data_sources"]
-    # No factor labels / CFA mapping baked in — those come from the form.
+    assert "correlation_matrix"   in p["data_sources"]
+    assert "single_correlations"  in p["data_sources"]
+    # Factor-analysis fields stay blank in the Direct variant — those
+    # are the Indirect variant's territory.
     assert p.get("factor_naming") in ([], None)
     assert p.get("cfa_item_assignment") in ({}, None)
-    # No item texts pre-baked (copyrighted for known scales like TAS-20;
-    # general starter must ship empty so users paste their own).
     assert p.get("item_texts") in ([], None)
     # Rendered prompt uses the generic scale-name placeholder verbiage.
     prompt = body["prompt"]
     assert "the target scale" in prompt or "target scale" in prompt
-    # Sub-views match the default factor-loadings data sources.
+    # Sub-views: Correlations + Descriptives.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["loadings", "correlations", "descriptives"]
+    assert sub_ids == ["correlations", "descriptives"]
 
 
 def test_tas20_variant_renders_with_pre_baked_scaffold(client):

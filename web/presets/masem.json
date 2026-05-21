@@ -1,13 +1,13 @@
 {
   "id":                "masem",
   "title":             "MASEMiner",
-  "tagline":           "Extract factor loadings, inter-factor correlations, and study metadata for Meta-Analytic Structural Equation Modeling",
-  "description":       "MASEMiner workflow for factor-analytic meta-analysis.  Fill in the scale name, the item count, the maximum factor count, and (optionally) the item labels and factor names in the in-app builder — the prompt is generated automatically.  A TAS-20 example is one click away.",
+  "tagline":           "Extract correlations and study metadata from primary studies for Meta-Analytic Structural Equation Modeling",
+  "description":       "MASEMiner — Direct information variant.  Extracts pairwise correlations (from text and tables) and coded study metadata.  The matching Indirect-information variant (masem-tas20) extracts factor loadings and factor correlations instead.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
-  "task_description":  "Extract item-level factor loadings, inter-factor correlations, and coded study/sample metadata for every sample reported in the paper.",
-  "context":           "MASEMiner workflow tailored for factor-analytic primary studies. Configure the scale name, item count, max factors, and optional item / factor labels in the builder before running.",
+  "task_description":  "Extract pairwise correlations (from text and tables) and coded study/sample metadata for every sample reported in the paper.",
+  "context":           "MASEMiner workflow for primary studies that report correlations directly (correlation matrices or pairwise correlations in prose).",
   "prompt_template_file": "masem.template.md",
   "template_params": {
     "scale_name":           "the target scale",
@@ -17,13 +17,26 @@
     "n_factors":            5,
     "factor_naming":        [],
     "cfa_item_assignment":  {},
-    "data_sources":         ["factor_loadings", "factor_correlations"],
+    "data_sources":         ["correlation_matrix", "single_correlations"],
     "content_scope":        "concrete_items",
     "include_item_texts":   false,
     "item_texts":           [],
     "variables":            [],
     "study_characteristics_text": ""
   },
+  "sub_views": [
+    {
+      "id":            "correlations",
+      "label":         "Correlations",
+      "include_keys":  ["sample_id", "n", "correlation_matrix", "single_correlations"],
+      "evidence_keys": ["correlation_matrix", "single_correlations"]
+    },
+    {
+      "id":           "descriptives",
+      "label":        "Descriptives",
+      "exclude_keys": ["correlation_matrix", "single_correlations"]
+    }
+  ],
   "skip_to":           "setup",
   "accent_color":      "#1d4a8c"
 }

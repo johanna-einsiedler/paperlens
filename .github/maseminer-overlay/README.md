@@ -35,7 +35,7 @@ A hosted version is available if you'd rather not run anything locally. See the 
 If you use MASEMiner in published work, please cite the specific version you ran:
 
 ```
-Einsiedler, J. (2026). MASEMiner (version {{VERSION}}) [Computer software].
+Einsiedler, J. (2026). MASEMiner ({{VERSION}}) [Computer software].
 https://github.com/{{OWNER}}/maseminer
 ```
 

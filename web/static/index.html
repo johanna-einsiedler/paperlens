@@ -69,42 +69,39 @@
   </header>
 
   <!-- Reusable MASEMiner mark.  References this with <use href="#masemMark"/>
-       in the hero, the banner, and anywhere else the brand mark is needed.
-       Blocky 5×5 "M" letterform + a detached teal square, evoking the act
-       of "mining" structured data out of the matrix. -->
+       wherever the brand mark is needed.  The artwork mirrors
+       /static/maseminer-mark.svg — same coordinates, same colours. -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-    <symbol id="masemMark" viewBox="0 0 64 64">
-      <!-- Dark-navy blocky M.  Square = 7×7, gap = 1px, 5 cols × 5 rows.
-           Filled cells: outer pillars (col 0 + col 4) on every row, plus
-           inner shoulders (col 1, col 3 row 1) and the centre peak
-           (col 2 row 2). -->
-      <!-- Recoloured to the metalens palette so the MASEMiner mark
-           lives in the same colour world as the MetaPaperLens chrome:
-           navy-900 #122740 for the M, teal-700 #367380 for the
-           detached "extracted" tile. -->
-      <g fill="#122740">
-        <!-- Left pillar -->
-        <rect x="6"  y="13" width="7" height="7" rx="1"/>
-        <rect x="6"  y="21" width="7" height="7" rx="1"/>
-        <rect x="6"  y="29" width="7" height="7" rx="1"/>
-        <rect x="6"  y="37" width="7" height="7" rx="1"/>
-        <rect x="6"  y="45" width="7" height="7" rx="1"/>
-        <!-- Right pillar -->
-        <rect x="38" y="13" width="7" height="7" rx="1"/>
-        <rect x="38" y="21" width="7" height="7" rx="1"/>
-        <rect x="38" y="29" width="7" height="7" rx="1"/>
-        <rect x="38" y="37" width="7" height="7" rx="1"/>
-        <rect x="38" y="45" width="7" height="7" rx="1"/>
-        <!-- Inner M slope -->
-        <rect x="14" y="21" width="7" height="7" rx="1"/>
-        <rect x="30" y="21" width="7" height="7" rx="1"/>
-        <rect x="22" y="29" width="7" height="7" rx="1"/>
+    <symbol id="masemMark" viewBox="360 280 660 440">
+      <g fill="#003d7c">
+        <rect x="373" y="292" width="74" height="74" rx="4"/>
+        <rect x="707" y="293" width="75" height="75" rx="4"/>
+        <rect x="374" y="378" width="72" height="71" rx="4"/>
+        <rect x="459" y="378" width="71" height="71" rx="4"/>
+        <rect x="625" y="378" width="70" height="72" rx="4"/>
+        <rect x="708" y="379" width="72" height="71" rx="4"/>
+        <rect x="374" y="462" width="72" height="72" rx="4"/>
+        <rect x="543" y="462" width="70" height="71" rx="4"/>
+        <rect x="625" y="462" width="70" height="71" rx="4"/>
+        <rect x="374" y="547" width="72" height="71" rx="4"/>
+        <rect x="579" y="547" width="72" height="71" rx="4"/>
+        <rect x="374" y="631" width="72" height="72" rx="4"/>
+        <rect x="709" y="462" width="71" height="71" rx="4"/>
+        <rect x="709" y="546" width="72" height="72" rx="4"/>
+        <rect x="709" y="631" width="72" height="72" rx="4"/>
       </g>
-      <!-- Dotted connector from the M to the extracted teal square -->
-      <line x1="46" y1="14" x2="52" y2="9.5"
-            stroke="#122740" stroke-width="1" stroke-dasharray="1.5 2" stroke-linecap="round"/>
-      <!-- Teal "extracted" tile, detached at the upper-right corner -->
-      <rect x="51" y="3" width="10" height="10" rx="1.5" fill="#367380"/>
+      <g fill="#72879d">
+        <rect x="460" y="462" width="70" height="71" rx="4"/>
+        <rect x="459" y="546" width="71" height="72" rx="4"/>
+        <rect x="459" y="631" width="71" height="73" rx="4"/>
+        <rect x="794.66" y="460.93" width="71" height="71" rx="4"/>
+        <rect x="794.66" y="544.93" width="71" height="72" rx="4"/>
+        <rect x="794.66" y="629.93" width="71" height="72" rx="4"/>
+      </g>
+      <rect x="910" y="291.87" width="73" height="73" rx="4" fill="#19b3b0"/>
+      <path d="m 828.71323,420.2301 c 44.99672,-36.19281 15.49703,-70.90814 81.34589,-90.55567"
+            fill="none" stroke="#19b3b0" stroke-width="6.39185"
+            stroke-linecap="round" stroke-dasharray="18, 18"/>
     </symbol>
   </svg>
 
@@ -131,16 +128,16 @@
         <img src="/static/maseminer-logo.svg" alt="MASEMiner" class="masem-logo-img" />
       </div>
       <p class="preset-hero-tagline">
-        Extract factor loadings, inter-factor correlations, and study metadata
-        from primary studies for Meta-Analytic Structural Equation Modeling
-        — with human-in-the-loop review.
+        Extract MASEM-relevant statistical information and study metadata from primary studies
+        for Meta-Analytic Structural Equation Modeling — with human-in-the-loop review.
       </p>
       <div class="preset-hero-body">
         <p>
-          MASEMiner is a tailored entry point into the MetaPaperLens engine. It loads a vetted
-          extraction prompt for psychometric / factor-analytic studies, so you don't have to
-          design one yourself. Every result is shown alongside the source PDF with yellow
-          highlights on the cited passages, and every value is editable so you can correct
+          MASEMiner is a tailored entry point into the MetaPaperLens engine. It loads structured
+          extraction prompts for MASEM applications, so you can target individual correlations
+          in text or tables, correlation matrices, and, where relevant, indirect information for
+          reconstructing correlation matrices. Every result is shown alongside the source PDF
+          with yellow highlights on the cited passages. Values are editable so you can correct
           the model before exporting.
         </p>
         <div class="preset-hero-checklist">
@@ -518,18 +515,19 @@
            prompt; user can preview it live and commit it. -->
       <div id="masemBuilder" style="display:none">
         <h2>Configure your MASEMiner extraction</h2>
-        <p class="subtitle">Fill in the scale, item count, max factors, item labels, and factor labels — the prompt is built from these.</p>
 
-        <!-- Optional starter shortcut -->
+        <!-- Task picker (renders as two starter cards) -->
         <div class="form-group">
-          <label class="parse-method-label">Starter</label>
+          <label class="parse-method-label">Task</label>
           <div class="masem-starter-row" id="masemStarterRow">
             <!-- populated by masem-builder.js -->
           </div>
         </div>
 
-        <!-- Compact scale / size / max-factor row (drives [scale_name],
-             [n_items], [n_factors_max] in the prompt template) -->
+        <!-- Compact scale-name + item-count row (drives [scale_name] and
+             [n_items] in the prompt template).  ``n_factors`` comes from
+             the active preset's defaults — exposing it to the user
+             tended to confuse the form. -->
         <div class="form-group">
           <label class="parse-method-label">Scale &amp; dimensions</label>
           <div class="masem-scalar-row">
@@ -544,12 +542,6 @@
               <input type="number" id="masemNItems" min="1" max="200" step="1"
                      placeholder="e.g. 20" />
               <span class="masem-scalar-hint">Items in the scale</span>
-            </label>
-            <label class="masem-scalar masem-scalar-narrow">
-              <span class="masem-scalar-label">Max factors</span>
-              <input type="number" id="masemNFactorsMax" min="1" max="10" step="1"
-                     placeholder="e.g. 5" />
-              <span class="masem-scalar-hint">Highest factor count considered</span>
             </label>
           </div>
         </div>

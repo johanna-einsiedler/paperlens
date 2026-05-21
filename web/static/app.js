@@ -94,11 +94,16 @@ const state = {
 // match the active extraction mode.
 const PROVIDER_MODELS = {
   openai:   [
+    { value: 'gpt-5-mini',   label: 'GPT-5 Mini' },
+    { value: 'gpt-5',        label: 'GPT-5' },
+    { value: 'gpt-5-nano',   label: 'GPT-5 Nano' },
     { value: 'gpt-4o-mini',  label: 'GPT-4o Mini' },
     { value: 'gpt-4o',       label: 'GPT-4o' },
     { value: 'gpt-4-turbo',  label: 'GPT-4 Turbo' },
   ],
   google:   [
+    { value: 'gemini-3-pro',     label: 'Gemini 3 Pro' },
+    { value: 'gemini-3-flash',   label: 'Gemini 3 Flash' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro' },
     { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
@@ -706,8 +711,12 @@ function useManualPrompt() {
   document.getElementById('promptDisplay').textContent = prompt;
   document.getElementById('modelBadge').textContent    = 'manual';
   resetCopyBtn('copyBtn');
-  goTo(5);
-  updateEvidenceWarning();
+  if (document.body.classList.contains('is-maseminer')) {
+    confirmPrompt();
+  } else {
+    goTo(5);
+    updateEvidenceWarning();
+  }
 }
 
 /* ── Evidence-schema warning + adapt ──────────────────────────────────── */
@@ -779,8 +788,12 @@ async function callGenerateAPI() {
     document.getElementById('promptDisplay').textContent = data.prompt;
     document.getElementById('modelBadge').textContent    = data.model_used;
     resetCopyBtn('copyBtn');
-    goTo(5);
-    updateEvidenceWarning();
+    if (document.body.classList.contains('is-maseminer')) {
+      confirmPrompt();
+    } else {
+      goTo(5);
+      updateEvidenceWarning();
+    }
     autoSaveSession();
   } catch (err) {
     showToast(err.message);
@@ -1015,9 +1028,14 @@ function renderScannedBatchWarning() {
    USD per 1M tokens.  Numbers reflect public rate cards as of mid-2025; they
    drift, so the estimate is framed as a range and labelled "approximate". */
 const _MODEL_RATES = {
+  'gpt-5':               {in: 1.25,  out: 10.00},
+  'gpt-5-mini':          {in: 0.25,  out: 2.00},
+  'gpt-5-nano':          {in: 0.05,  out: 0.40},
   'gpt-4o':              {in: 2.50,  out: 10.00},
   'gpt-4o-mini':         {in: 0.15,  out: 0.60},
   'gpt-4-turbo':         {in: 10.00, out: 30.00},
+  'gemini-3-pro':        {in: 1.25,  out: 10.00},
+  'gemini-3-flash':      {in: 0.30,  out: 2.50},
   'gemini-2.5-pro':      {in: 1.25,  out: 5.00},
   'gemini-2.5-flash':    {in: 0.075, out: 0.30},
   'gemini-2.0-flash':    {in: 0.075, out: 0.30},
@@ -2046,6 +2064,11 @@ async function loadServerConfig() {
       // starter cards (Blank / TAS-20).  The CSS toggles
       // visibility; this just populates the row contents.
       _renderMasemStep1Cards();
+      // MASEMiner skips the "Review prompt" step — renumber the
+      // upload-section header so the user sees 1·2·3·4 instead of
+      // 1·2·3·5.  CSS hides #step5 entirely.
+      const uploadNum = document.querySelector('#step6 .acc-num');
+      if (uploadNum) uploadNum.textContent = '4';
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');
@@ -3272,6 +3295,11 @@ function _findEvidenceForField(paper, path) {
    evidence page (if any) and mark the matching highlight rect with
    the ``highlight-rect-focused`` class so it pops out from the rest.
 
+   Also handles the ``×`` delete buttons attached to ``_table`` rows
+   (see renderTableHtml).  Both behaviours share one listener so
+   renderEntry doesn't have to re-attach anything when it rewrites the
+   inner HTML — event delegation off ``#resultDisplay`` is enough.
+
    Attached once at startup; idempotent guard so renderEntry can't
    double-attach. */
 function _attachEvidenceClickHandler() {
@@ -3280,6 +3308,16 @@ function _attachEvidenceClickHandler() {
   const display = document.getElementById('resultDisplay');
   if (!display) return;
   display.addEventListener('click', e => {
+    // (a) Row-delete button on _table rows.  Handled first so the click
+    //     doesn't fall through into the evidence handler.
+    const delBtn = e.target.closest('[data-delete-path]');
+    if (delBtn && display.contains(delBtn)) {
+      e.stopPropagation();
+      e.preventDefault();
+      _deleteTableRow(delBtn.getAttribute('data-delete-path'));
+      return;
+    }
+    // (b) Cell click → jump to evidence page + focus the highlight.
     const cell = e.target.closest('[data-path]');
     if (!cell || !display.contains(cell)) return;
     const path = cell.getAttribute('data-path');
@@ -3297,6 +3335,52 @@ function _attachEvidenceClickHandler() {
     paper.browseAllPagesIdx = hit.page - 1;
     showPageImage(paper, hit.page);
   });
+}
+
+/* Path-walker for delete-row.  ``path`` is a sample-relative dotted
+   path that ends in ``[N]`` — e.g.  ``correlation_matrix._table[2]``.
+   Walks into the active paper's current entry, splices the row out of
+   the parent array, and re-renders.  No-ops if anything along the
+   way is missing (defensive — the model can omit keys the UI doesn't
+   know about). */
+function _deleteTableRow(path) {
+  if (!path) return;
+  const paper = getActivePaper();
+  if (!paper || !paper.entries) return;
+  const entry = paper.entries[paper.entryIndex];
+  if (!entry) return;
+
+  // Split a path like "a.b._table[2]" into segments + final index.
+  const m = /^(.+)\[(\d+)\]$/.exec(path);
+  if (!m) return;
+  const arrPath = m[1];
+  const idx     = parseInt(m[2], 10);
+
+  // Walk into entry along arrPath (dot-separated keys, no further
+  // brackets expected for our _table use case).
+  const parts = arrPath.split('.');
+  let node = entry;
+  for (const part of parts) {
+    if (node == null || typeof node !== 'object') return;
+    node = node[part];
+  }
+  if (!Array.isArray(node) || idx < 0 || idx >= node.length) return;
+  node.splice(idx, 1);
+
+  // Drop any per-cell overrides that targeted the removed row.  The
+  // override keys look like ``correlation_matrix._table[2].r`` — once
+  // the row is gone, those entries point at stale data.  Cheaper to
+  // wipe overrides for the whole sub-tree than to re-index the rest.
+  const ovs = paper.overrides[paper.entryIndex];
+  if (ovs && typeof ovs === 'object') {
+    const prefix = `${path}.`;
+    for (const k of Object.keys(ovs)) {
+      if (k === path || k.startsWith(prefix)) delete ovs[k];
+    }
+  }
+
+  renderEntry(paper);
+  autoSaveSession?.();
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -3846,8 +3930,14 @@ function renderTableHtml(rows, columns, rowLabels, path, kind) {
   // rowLabels:  null (for plain array) or list of strings (parent keys for object-map)
   // path:       path prefix for editable cells
   // kind:       'marker' (explicit _table) | 'auto' | undefined — drives the caption
-  const labelHeader = rowLabels ? '<th class="rv-tbl-rowlabel"></th>' : '';
-  const head = `<thead><tr>${labelHeader}${columns.map(c => `<th>${escHtml(formatKey(c))}</th>`).join('')}</tr></thead>`;
+  // Only explicit ``_table`` arrays (kind='marker') AND tables driven by
+  // a real array path (not object-map labels) get the trailing delete
+  // column.  Auto-detected tables and dotted-key tables don't, since
+  // their underlying shape isn't a plain array we can splice from.
+  const showDelete = kind === 'marker' && !rowLabels && path;
+  const labelHeader  = rowLabels ? '<th class="rv-tbl-rowlabel"></th>' : '';
+  const deleteHeader = showDelete ? '<th class="rv-tbl-del-head" aria-label=""></th>' : '';
+  const head = `<thead><tr>${labelHeader}${columns.map(c => `<th>${escHtml(formatKey(c))}</th>`).join('')}${deleteHeader}</tr></thead>`;
   const body = rows.map((row, i) => {
     const labelCell = rowLabels
       ? `<td class="rv-tbl-rowlabel">${escHtml(rowLabels[i])}</td>`
@@ -3859,12 +3949,17 @@ function renderTableHtml(rows, columns, rowLabels, path, kind) {
       const val = row[col];
       return `<td>${_renderCellHtml(val === undefined ? null : val, cellPath)}</td>`;
     }).join('');
-    return `<tr>${labelCell}${cells}</tr>`;
+    const deleteCell = showDelete
+      ? `<td class="rv-tbl-del"><button type="button" class="rv-row-del"
+                  data-delete-path="${escHtml(path)}[${i}]"
+                  title="Delete this row" aria-label="Delete row">&times;</button></td>`
+      : '';
+    return `<tr>${labelCell}${cells}${deleteCell}</tr>`;
   }).join('');
 
   // Caption explains why the data is shown as a table
   const nRows = rows.length;
-  const nCols = columns.length + (rowLabels ? 1 : 0);
+  const nCols = columns.length + (rowLabels ? 1 : 0) + (showDelete ? 1 : 0);
   const caption = kind === 'marker'
     ? `<span class="rv-table-caption-icon">▦</span> Table · ${nRows} rows × ${nCols} cols <span class="rv-table-source" data-tip="The model wrapped this data with the _table marker — rendered exactly as the model declared it.">explicit</span>`
     : kind === 'auto'

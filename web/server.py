@@ -235,7 +235,17 @@ def build_preset_prompt(payload: BuildPresetPromptIn) -> dict:
             detail="This preset does not use a parameterised template.",
         )
     prompt = presets_loader.render_template(template, base_params)
-    sub_views = presets_loader.build_sub_views(base_params.get("data_sources") or [])
+    # Use the preset's explicit sub_views (declared in its JSON) when
+    # available AND the caller didn't override data_sources — preset
+    # authors stay in control of the result-panel layout in the default
+    # case.  If the caller overrides data_sources (e.g. the builder
+    # flipping sources on/off), regenerate sub_views to match those
+    # sources so the tabs reflect what the form actually requested.
+    overrode_sources = "data_sources" in (payload.template_params or {})
+    if not overrode_sources and preset.get("sub_views"):
+        sub_views = preset["sub_views"]
+    else:
+        sub_views = presets_loader.build_sub_views(base_params.get("data_sources") or [])
     return {
         "prompt":          prompt,
         "sub_views":       sub_views,

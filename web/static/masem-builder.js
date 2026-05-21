@@ -13,11 +13,33 @@
  * express, the form can reach.
  */
 
+// Inline SVGs are kept small (24×24) and use ``currentColor`` so the
+// card's hover / active state can recolour them via CSS.
+const _MASEM_STARTER_ICON_DIRECT = `
+  <svg viewBox="0 0 24 24" width="24" height="24" fill="none"
+       stroke="currentColor" stroke-width="1.7"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M6 3h9l3 3v15H6z"/>
+    <path d="M15 3v3h3"/>
+    <path d="M9 12h6M9 16h6M9 8h3"/>
+  </svg>`;
+const _MASEM_STARTER_ICON_INDIRECT = `
+  <svg viewBox="0 0 24 24" width="24" height="24" fill="none"
+       stroke="currentColor" stroke-width="1.7"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 20h16"/>
+    <rect x="6"  y="11" width="3" height="8" rx="0.5"/>
+    <rect x="11" y="7"  width="3" height="12" rx="0.5"/>
+    <rect x="16" y="13" width="3" height="6" rx="0.5"/>
+  </svg>`;
+
 const _MASEM_STARTERS = [
-  { id: 'masem',          label: 'Blank / General',
-    tagline: 'Start empty — define your own variables and pick the data sources you need.' },
-  { id: 'masem-tas20',    label: 'TAS-20 example',
-    tagline: 'Pre-filled for Toronto Alexithymia Scale meta-analyses (factor loadings + inter-factor correlations).' },
+  { id: 'masem',          label: 'Direct information',
+    tagline: 'Extract correlations from text and table(s).',
+    icon: _MASEM_STARTER_ICON_DIRECT },
+  { id: 'masem-tas20',    label: 'Indirect information',
+    tagline: 'Extract factor loadings and factor correlations from text and table(s).',
+    icon: _MASEM_STARTER_ICON_INDIRECT },
 ];
 
 const _MASEM_BUILDER_STATE = {
@@ -47,17 +69,10 @@ async function openMasemBuilder(presetId) {
   document.getElementById('masemBuilder').style.display   = '';
   _renderMasemStarterCards();
 
-  // Default starter: TAS-20.  The umbrella ``masem`` preset is general
-  // MASEM (correlation matrices + prose correlations), but most users
-  // entering via /maseminer are running TAS-20-style extractions and
-  // would hit a parse-failure if the model got the general prompt for
-  // a TAS-20 paper.  Defaulting the builder to the TAS-20 starter
-  // pre-fills the form with factor loadings + correlations + item
-  // texts, so the auto-committed prompt is TAS-20-ready out of the box;
-  // a single click on "Blank / General" switches them.
-  const startId = (!presetId || presetId === 'masem')
-    ? 'masem-tas20'
-    : presetId;
+  // Default starter: "Direct information" (general ``masem`` preset).
+  // Indirect-information / factor-loading extractions are the less common
+  // path; users who need them switch with one click.
+  const startId = presetId || 'masem';
   await _selectMasemStarter(startId, /*isUserClick=*/ false);
 }
 
@@ -71,8 +86,11 @@ function _renderMasemStarterCards() {
     <button type="button"
             class="masem-starter-card ${s.id === active ? 'active' : ''}"
             onclick="_selectMasemStarter('${s.id}', true)">
-      <div class="masem-starter-label">${escHtml(s.label)}</div>
-      <div class="masem-starter-tagline">${escHtml(s.tagline)}</div>
+      <div class="masem-starter-icon">${s.icon || ''}</div>
+      <div class="masem-starter-body">
+        <div class="masem-starter-label">${escHtml(s.label)}</div>
+        <div class="masem-starter-tagline">${escHtml(s.tagline)}</div>
+      </div>
     </button>`).join('');
 }
 
@@ -112,7 +130,7 @@ const _FIXED_DATA_SOURCES = ["factor_loadings", "factor_correlations"];
 
 /* Mirror the working params into the form widgets. */
 function _populateBuilderForm(params) {
-  // Compact scalar row — scale name / item count / max-factor count.
+  // Compact scalar row — scale name + item count.
   const scaleName = params.scale_name
                  || params.instrument_name
                  || params.instrument_name_long
@@ -121,10 +139,6 @@ function _populateBuilderForm(params) {
   if (scaleEl) scaleEl.value = scaleName === 'the target scale' ? '' : scaleName;
   const nItemsEl = document.getElementById('masemNItems');
   if (nItemsEl) nItemsEl.value = (params.n_items != null) ? params.n_items : '';
-  const nFactorsEl = document.getElementById('masemNFactorsMax');
-  if (nFactorsEl) nFactorsEl.value = (params.n_factors_max != null)
-                                       ? params.n_factors_max
-                                       : (params.n_factors != null ? params.n_factors : '');
 
   // Item labels textarea — serialise item_texts back as "1: text".
   document.getElementById('masemCInput').value = _serialiseItemTexts(params.item_texts || []);
@@ -170,14 +184,8 @@ function _readFormIntoParams() {
     const n = parseInt(nItemsEl.value, 10);
     if (Number.isFinite(n) && n > 0) p.n_items = n;
   }
-  const nFactorsEl = document.getElementById('masemNFactorsMax');
-  if (nFactorsEl) {
-    const n = parseInt(nFactorsEl.value, 10);
-    if (Number.isFinite(n) && n > 0) {
-      p.n_factors_max = n;
-      p.n_factors = n;
-    }
-  }
+  // n_factors / n_factors_max are no longer surfaced in the form — they
+  // come from the preset's template_params defaults.
   // Data sources are fixed for this preset — every run extracts factor
   // loadings + factor correlations.  Scope follows: factor-loadings
   // workflows = concrete items.
@@ -267,7 +275,7 @@ function _attachMasemBuilderListeners() {
   if (_attachMasemBuilderListeners._attached) return;
   _attachMasemBuilderListeners._attached = true;
   const ids = [
-    'masemScaleName', 'masemNItems', 'masemNFactorsMax',
+    'masemScaleName', 'masemNItems',
     'masemCInput',
   ];
   ids.forEach(id => {
@@ -279,9 +287,12 @@ function _attachMasemBuilderListeners() {
 }
 
 /* "Use this prompt" — flushes any pending debounced render, makes sure
-   the preview is in state, and moves the user on to step 5.  Auto-
-   commit on every form change handles the bulk of the work; this just
-   advances the flow. */
+   the preview is in state, and advances the flow.  Auto-commit on every
+   form change handles the bulk of the work; this just decides where to
+   land:
+     * MASEMiner-mode users skip the "Review prompt" step entirely and
+       go straight to Upload (confirmPrompt takes care of step-6 setup).
+     * MetaPaperLens-mode users keep the Review-prompt step. */
 async function masemBuilderCommit() {
   await _doRefreshMasemPreview();
   const prompt = document.getElementById('masemPreviewBox').textContent || '';
@@ -290,7 +301,11 @@ async function masemBuilderCommit() {
     return;
   }
   // _doRefreshMasemPreview already mirrored the prompt into state.
-  goTo(5);
+  if (document.body.classList.contains('is-maseminer')) {
+    confirmPrompt();
+  } else {
+    goTo(5);
+  }
 }
 
 /* "Edit raw prompt" — drops into the existing manual-prompt textarea so

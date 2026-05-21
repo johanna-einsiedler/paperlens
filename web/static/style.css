@@ -109,6 +109,11 @@ body.is-maseminer {
    hidden by applyPreset() when a MASEM preset is active. */
 body.is-maseminer #modeGrid { display: none; }
 body.is-maseminer #masemStep1 { display: block; }
+
+/* MASEMiner skips the "Review prompt" step — the builder commits the
+   prompt directly into state and lands users on the Upload step.  In
+   MetaPaperLens that section is still visible. */
+body.is-maseminer #step5 { display: none; }
 #masemStep1 .option-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
 #masemStep1 .option-card h3 { font-size: 15px; }
 
@@ -3120,19 +3125,22 @@ kbd {
 
 .masem-starter-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
 }
 .masem-starter-card {
   appearance: none;
   background: var(--card);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  padding: 14px 16px;
   cursor: pointer;
   text-align: left;
   font-family: inherit;
   font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   transition: border-color 0.12s, background 0.12s;
 }
 .masem-starter-card:hover { border-color: var(--primary); }
@@ -3140,6 +3148,22 @@ kbd {
   border-color: var(--primary);
   background: var(--primary-light);
 }
+.masem-starter-icon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.masem-starter-card.active .masem-starter-icon {
+  background: rgba(255,255,255,0.7);
+}
+.masem-starter-icon svg { display: block; }
+.masem-starter-body { flex: 1 1 auto; min-width: 0; }
 .masem-starter-label {
   font-weight: 700;
   color: var(--text);
@@ -3156,13 +3180,13 @@ kbd {
    up across all three columns no matter how the hint text wraps. */
 .masem-scalar-row {
   display: grid;
-  grid-template-columns: 1fr 140px 140px;
+  grid-template-columns: 1fr 160px;
   gap: 4px 12px;
   grid-template-rows: auto auto auto;
   grid-template-areas:
-    "labelA labelB labelC"
-    "inputA inputB inputC"
-    "hintA  hintB  hintC";
+    "labelA labelB"
+    "inputA inputB"
+    "hintA  hintB";
   align-items: start;
 }
 @media (max-width: 640px) {
@@ -3629,6 +3653,35 @@ kbd {
   color: var(--text-muted);
   background: var(--bg);
   white-space: nowrap;
+}
+
+/* Trailing delete-row column on explicit ``_table`` arrays. */
+.rv-table th.rv-tbl-del-head,
+.rv-table td.rv-tbl-del {
+  width: 28px;
+  padding: 2px 6px;
+  text-align: center;
+}
+.rv-row-del {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.rv-table tr:hover .rv-row-del { opacity: 1; }
+.rv-row-del:hover,
+.rv-row-del:focus-visible {
+  color: #b42318;
+  background: #fee4e2;
+  outline: none;
 }
 
 /* Inline ✕ button on each column header / row label and the "+ col" / "+ row"
