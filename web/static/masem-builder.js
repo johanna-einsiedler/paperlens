@@ -124,9 +124,10 @@ async function _selectMasemStarter(presetId, isUserClick) {
   await _doRefreshMasemPreview();
 }
 
-/* This preset is factor-loadings-focused — data_sources is hard-wired
-   so users don't have to think about it. */
-const _FIXED_DATA_SOURCES = ["factor_loadings", "factor_correlations"];
+/* (Was a hard-wired factor-loadings data_sources list.  Removed —
+   data_sources now flows from each starter preset's own JSON so the
+   Direct (effect_sizes) and Indirect (factor_*) shapes are honoured
+   without the form overwriting them.) */
 
 /* Mirror the working params into the form widgets. */
 function _populateBuilderForm(params) {
@@ -186,10 +187,12 @@ function _readFormIntoParams() {
   }
   // n_factors / n_factors_max are no longer surfaced in the form — they
   // come from the preset's template_params defaults.
-  // Data sources are fixed for this preset — every run extracts factor
-  // loadings + factor correlations.  Scope follows: factor-loadings
-  // workflows = concrete items.
-  p.data_sources  = _FIXED_DATA_SOURCES.slice();
+  // ``data_sources`` is NOT overwritten here: each starter preset
+  // declares its own (``masem`` → ``["effect_sizes"]``, ``masem-tas20``
+  // → ``["factor_correlations", "factor_loadings"]``).  Overwriting it
+  // would force every starter through one fixed shape and silently
+  // rebuild the sub_views to match — which is what produced Factor-
+  // loadings tabs in Direct mode.
   p.content_scope = 'concrete_items';
   // Item labels textarea → item_texts list.
   const items = _parseItemTexts(document.getElementById('masemCInput').value);

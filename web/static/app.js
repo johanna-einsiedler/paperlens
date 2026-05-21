@@ -102,8 +102,6 @@ const PROVIDER_MODELS = {
     { value: 'gpt-4-turbo',  label: 'GPT-4 Turbo' },
   ],
   google:   [
-    { value: 'gemini-3-pro',     label: 'Gemini 3 Pro' },
-    { value: 'gemini-3-flash',   label: 'Gemini 3 Flash' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro' },
     { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
@@ -1043,8 +1041,6 @@ const _MODEL_RATES = {
   'gpt-4o':              {in: 2.50,  out: 10.00},
   'gpt-4o-mini':         {in: 0.15,  out: 0.60},
   'gpt-4-turbo':         {in: 10.00, out: 30.00},
-  'gemini-3-pro':        {in: 1.25,  out: 10.00},
-  'gemini-3-flash':      {in: 0.30,  out: 2.50},
   'gemini-2.5-pro':      {in: 1.25,  out: 5.00},
   'gemini-2.5-flash':    {in: 0.075, out: 0.30},
   'gemini-2.0-flash':    {in: 0.075, out: 0.30},
