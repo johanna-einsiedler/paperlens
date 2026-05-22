@@ -130,30 +130,27 @@ def test_get_preset_404_for_unknown(client):
 
 
 def test_masem_preset_declares_sub_views(client):
-    """The umbrella ``masem`` preset is the Direct-information variant —
-    it extracts pairwise effect sizes (plus study metadata) in the
-    unified ``effect_sizes._table`` schema that downstream MASEM tools
-    consume.  Sub-tabs mirror the Indirect-preset layout: ``correlations``
-    (carries the effect-sizes table) + ``descriptives`` (the metadata
-    block), declared explicitly in masem.json."""
+    """The umbrella ``masem`` preset (Direct-information variant) ships
+    three sub-tabs: Correlations (effect_sizes._table), Reliabilities
+    (reliabilities._table), and Descriptives (everything else).
+    Declared explicitly in masem.json."""
     r = client.get("/api/presets/masem")
     body = r.json()
     sub_views = body.get("sub_views")
     assert isinstance(sub_views, list)
-    assert len(sub_views) == 2
+    assert len(sub_views) == 3
     ids = [s["id"] for s in sub_views]
-    assert ids == ["correlations", "descriptives"]
-    # Every sub-view has a label and either include_keys or exclude_keys
+    assert ids == ["correlations", "reliabilities", "descriptives"]
     for sv in sub_views:
         assert "label" in sv and sv["label"]
         assert ("include_keys" in sv) or ("exclude_keys" in sv)
     by_id = {s["id"]: s for s in sub_views}
-    assert "effect_sizes" in by_id["correlations"]["include_keys"]
-    assert "effect_sizes" in by_id["descriptives"]["exclude_keys"]
-    # Evidence-key narrowing: highlights for the Correlations tab scoped
-    # to the effect_sizes table.
-    assert by_id["correlations"]["evidence_keys"] == ["effect_sizes"]
-    # Descriptives doesn't need narrowing — exclude_keys already does the job.
+    assert "effect_sizes"   in by_id["correlations"]["include_keys"]
+    assert "reliabilities"  in by_id["reliabilities"]["include_keys"]
+    assert "effect_sizes"   in by_id["descriptives"]["exclude_keys"]
+    assert "reliabilities"  in by_id["descriptives"]["exclude_keys"]
+    assert by_id["correlations"]["evidence_keys"]  == ["effect_sizes"]
+    assert by_id["reliabilities"]["evidence_keys"] == ["reliabilities"]
     assert "evidence_keys" not in by_id["descriptives"]
 
 
@@ -188,7 +185,7 @@ def test_umbrella_masem_is_blank_effect_sizes_starter(client):
     r = client.get("/api/presets/masem")
     body = r.json()
     p = body["template_params"]
-    assert p["data_sources"] == ["effect_sizes"]
+    assert p["data_sources"] == ["effect_sizes", "reliabilities"]
     # Factor-analysis fields stay blank in the Direct variant — those
     # are the Indirect variant's territory.
     assert p.get("factor_naming") in ([], None)
@@ -201,9 +198,9 @@ def test_umbrella_masem_is_blank_effect_sizes_starter(client):
     assert "es_id" in prompt
     # No factor-analytic content in this template.
     assert "## STEP 5: Extract factor loadings" not in prompt
-    # Sub-views: Correlations (carries the effect-sizes table) + Descriptives.
+    # Sub-views: Correlations + Reliabilities + Descriptives.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["correlations", "descriptives"]
+    assert sub_ids == ["correlations", "reliabilities", "descriptives"]
 
 
 def test_tas20_variant_renders_with_pre_baked_scaffold(client):
@@ -236,12 +233,12 @@ def test_tas20_variant_renders_with_pre_baked_scaffold(client):
     # The new template adds the confidence-self-assessment step
     assert "## STEP 9: Self-assess extraction confidence" in prompt
     assert '"extraction_confidence"' in prompt
-    # Sub-views match TAS-20 (factor correlations + factor loadings).
-    # Order follows ``data_sources`` — correlations first because the
-    # headline MASEM output is the inter-factor correlation matrix; the
-    # item-level loadings are the breakdown behind it.
+    # Sub-views match TAS-20 (factor loadings + factor correlations).
+    # Order follows ``data_sources`` — loadings first because reviewers
+    # typically validate the item-level structure before checking the
+    # inter-factor correlations that flow from it.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["correlations", "loadings", "descriptives"]
+    assert sub_ids == ["loadings", "correlations", "descriptives"]
 
 
 def test_tas20_variant_includes_user_supplied_item_texts(client):

@@ -70,7 +70,45 @@ For each row record:
   (matrix cells and prose-reported r-values). Use `"d"` for Cohen's d,
   `"OR"` for an odds ratio, etc.
 
-## STEP 3: Extract study/sample metadata
+## STEP 3: Extract reliability coefficients (when reported)
+
+Many primary studies report internal-consistency reliabilities (most
+commonly Cronbach's α) for each variable / scale — often on the
+diagonal of the correlation matrix or in a sentence such as "Cronbach's
+α was .89 for Extraversion".  Reliabilities let downstream MASEM
+analyses correct correlations for measurement attenuation, so they're
+worth capturing when available.
+
+Collect every reported reliability into a `reliabilities._table`:
+
+```json
+"reliabilities": {
+  "_table": [
+    {"rel_id": 1, "var": "<canonical>", "desc": "<verbatim>", "rel": <number>, "type": "<alpha|omega|test_retest|...>"}
+  ]
+}
+```
+
+Rules:
+
+- One row per reported reliability.  `rel_id` is a 1-indexed sequential
+  integer within this sample.
+- `var` is the canonical SHORT name from the listed variables (same
+  vocabulary as `var1`/`var2` in `effect_sizes`).
+- `desc` is the VERBATIM wording the paper uses for the variable
+  whose reliability is being reported.
+- `rel` is the numeric reliability value (e.g. `0.89`).
+- `type` describes the coefficient: `"alpha"` for Cronbach's α (the
+  default), `"omega"` for McDonald's ω, `"test_retest"` for retest
+  correlations, `"composite"`, etc.
+- If a paper reports several reliabilities for the same variable
+  (e.g. one per occasion, one per sub-sample), emit each as its own
+  row and disambiguate in `desc`.
+- If no reliability is reported, emit `"reliabilities": {"_table": []}`
+  — never invent values.
+- Evidence for each row: `field` = `"samples[i].reliabilities._table[j]"`.
+
+## STEP 4: Extract study/sample metadata
 
 For each sample, code the following metadata fields. Use `null` (not the
 empty string) when a value isn't reported.
@@ -90,7 +128,7 @@ empty string) when a value isn't reported.
 - **`age`** — mean age in years, as a number. `null` when not reported.
 - **`clinical`** — `0` non-clinical · `1` clinical · `2` mixed.
 
-## STEP 4: Build evidence records
+## STEP 5: Build evidence records
 
 For every row in `effect_sizes._table`, emit one evidence object in the
 top-level `evidence` list with:
@@ -106,7 +144,7 @@ top-level `evidence` list with:
 Also emit evidence for the sample-level metadata block(s) — a single
 record per sample with `field: "samples[i]"` is fine.
 
-## STEP 5: Variables to look for
+## STEP 6: Variables to look for
 
 Variables / scales / constructs to look for in this paper:
 
@@ -115,7 +153,7 @@ ${variables_block}
 If a paper reports an effect size between variables not on this list, drop
 that row (it's outside the scope of this meta-analysis).
 
-## STEP 6: Multiple samples
+## STEP 7: Multiple samples
 
 If the paper reports effect sizes for multiple sub-samples (e.g. by sex,
 clinical status, country, language version), emit each as a SEPARATE entry
@@ -123,12 +161,20 @@ in `samples[]` with its own `sample_id`, its own `effect_sizes._table`, and
 its own metadata block. Do not pool effect sizes across sub-samples unless
 the paper itself reports a pooled value.
 
-## STEP 7: Self-assess extraction confidence
+## STEP 8: Self-assess extraction confidence
 
 For EACH extracted sample, return an `extraction_confidence` object with
 one rating per high-level extraction target. Required keys:
 
 - `effect_sizes` — confidence in the effect-size table for this sample.
+- `metadata` — confidence in the study/sample metadata block.
+
+For EACH extracted sample, return an `extraction_confidence` object
+with one rating per high-level extraction target. Required keys:
+
+- `effect_sizes` — confidence in the effect-size table for this sample.
+- `reliabilities` — confidence in the reliability-coefficient table.
+  Use `"low"` if the paper reported no reliabilities (no rows to extract).
 - `metadata` — confidence in the study/sample metadata block.
 
 Each rating MUST be one of EXACTLY these three strings (lower-case):
@@ -165,6 +211,12 @@ Return EXACTLY this structure:
         ]
       },
 
+      "reliabilities": {
+        "_table": [
+          {"rel_id": 1, "var": "<canonical>", "desc": "<verbatim>", "rel": <number>, "type": "<alpha|omega|test_retest|...>"}
+        ]
+      },
+
       "pubyear":   number|null,
       "country":   "string|null",
       "continent": "string|null",
@@ -176,8 +228,9 @@ Return EXACTLY this structure:
       "clinical":  "0|1|2|null",
 
       "extraction_confidence": {
-        "effect_sizes": "medium",
-        "metadata":     "medium"
+        "effect_sizes":  "medium",
+        "reliabilities": "medium",
+        "metadata":      "medium"
       },
 
       "notes": "string"
@@ -192,7 +245,7 @@ Return EXACTLY this structure:
 # OUTPUT REQUIREMENTS
 
 - Return EXACTLY ONE JSON object — no prose, no markdown fences, nothing outside the braces.
-- Every sample MUST include `sample_id`, the `effect_sizes` object (even if `_table` is empty), the metadata block, and the `extraction_confidence` object with both required keys (`effect_sizes`, `metadata`) set to `"high"`, `"medium"`, or `"low"`.
+- Every sample MUST include `sample_id`, the `effect_sizes` object (even if `_table` is empty), the `reliabilities` object (even if `_table` is empty), the metadata block, and the `extraction_confidence` object with all three required keys (`effect_sizes`, `reliabilities`, `metadata`) set to `"high"`, `"medium"`, or `"low"`.
 - Every effect-size row MUST have all seven keys (`es_id`, `var1`, `var2`, `desc1`, `desc2`, `es`, `type`); use `null` for `es` only if explicitly unreported but the row should still be dropped in that case.
 - Numeric values are plain numbers, not strings. Use `null` (not `"null"`) for unreported scalars.
 - **ALL numbers MUST be pre-computed literal scalars** — never arithmetic expressions. JSON does not accept `100 * 1383 / 2221`; evaluate it yourself and emit `62.27`. This rule applies to every numeric field (`female`, `age`, `n`, `es`, etc.) — compute the final decimal value and write it as a bare number.

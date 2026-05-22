@@ -155,6 +155,19 @@ body.is-maseminer #masemStep1 { display: block; }
    prompt directly into state and lands users on the Upload step.  In
    MetaPaperLens that section is still visible. */
 body.is-maseminer #step5 { display: none; }
+
+/* MASEMiner skips step 1 ("Choose your task") entirely — the mode
+   itself already implies extraction, and the Direct/Indirect choice
+   surfaces in step 3.  Renumbering of the remaining steps (2→1, 3→2,
+   6→3) is done in JS once the body class is set. */
+body.is-maseminer #step1 { display: none; }
+
+/* Step 2's "Back" button would jump to the now-hidden step 1 — no
+   useful target in MASEMiner mode, so hide it.  The page header logo
+   (clickable, links to /maseminer) and the mode toggle on step 1 in
+   MetaPaperLens mode already cover the "get me back to the start"
+   cases. */
+body.is-maseminer #step2BackBtn { display: none; }
 #masemStep1 .option-grid { grid-template-columns: repeat(2, 1fr); gap: 16px; }
 #masemStep1 .option-card h3 { font-size: 15px; }
 

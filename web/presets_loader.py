@@ -1205,6 +1205,12 @@ _SUB_VIEW_SPECS = {
         "include_keys":  ["sample_id", "n", "effect_sizes"],
         "evidence_keys": ["effect_sizes"],
     },
+    "reliabilities": {
+        "id":            "reliabilities",
+        "label":         "Reliabilities",
+        "include_keys":  ["sample_id", "n", "reliabilities"],
+        "evidence_keys": ["reliabilities"],
+    },
 }
 
 

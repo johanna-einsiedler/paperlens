@@ -17,7 +17,7 @@
     "n_factors":            0,
     "factor_naming":        [],
     "cfa_item_assignment":  {},
-    "data_sources":         ["effect_sizes"],
+    "data_sources":         ["effect_sizes", "reliabilities"],
     "content_scope":        "concrete_items",
     "include_item_texts":   false,
     "item_texts":           [],
@@ -32,9 +32,15 @@
       "evidence_keys": ["effect_sizes"]
     },
     {
+      "id":            "reliabilities",
+      "label":         "Reliabilities",
+      "include_keys":  ["sample_id", "n", "reliabilities"],
+      "evidence_keys": ["reliabilities"]
+    },
+    {
       "id":           "descriptives",
       "label":        "Descriptives",
-      "exclude_keys": ["effect_sizes", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"]
+      "exclude_keys": ["effect_sizes", "reliabilities", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"]
     }
   ],
   "skip_to":           "setup",

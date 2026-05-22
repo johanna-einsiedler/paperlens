@@ -692,6 +692,22 @@ function showStep3Choice() {
   if (b) b.style.display = 'none';
 }
 
+/* "Back" handler for the manual-prompt textarea.  Normally returns the
+   user to the generic AI/manual picker (step3Choice), but when a MASEM
+   preset is active the user got here by clicking "Edit raw prompt" in
+   the MASEMiner builder — they expect Back to take them to the
+   Direct/Indirect template cards, not to a picker they never saw. */
+function goBackFromManualPrompt() {
+  if (typeof isMasemPreset === 'function' && isMasemPreset(state.activePreset)) {
+    document.getElementById('manualSection').style.display = 'none';
+    if (typeof openMasemBuilder === 'function') {
+      openMasemBuilder(state.activePreset.id);
+    }
+    return;
+  }
+  showStep3Choice();
+}
+
 function setInputMode(mode) {
   state.inputMode = mode;
   const isManual = mode === 'manual';
@@ -2092,11 +2108,20 @@ async function loadServerConfig() {
       if (typeof applyPreset === 'function') {
         Promise.resolve(applyPreset('masem')).catch(() => {});
       }
-      // MASEMiner skips the "Review prompt" step — renumber the
-      // upload-section header so the user sees 1·2·3·4 instead of
-      // 1·2·3·5.  CSS hides #step5 entirely.
-      const uploadNum = document.querySelector('#step6 .acc-num');
-      if (uploadNum) uploadNum.textContent = '4';
+      // MASEMiner skips step 1 ("Choose your task") and step 5
+      // ("Review prompt") — the user sees 1·2·3 mapped to
+      //   1 = Configure AI model   (real id #step2)
+      //   2 = Describe your task   (real id #step3)
+      //   3 = Upload your papers   (real id #step6)
+      // CSS hides #step1 + #step5; we just renumber the visible
+      // section headers here so the chips read 1·2·3.
+      const renumber = (sectionId, n) => {
+        const el = document.querySelector(`#${sectionId} .acc-num`);
+        if (el) el.textContent = n;
+      };
+      renumber('step2', '1');
+      renumber('step3', '2');
+      renumber('step6', '3');
     }
     // Update the upload-zone hint text now that we know the real limits
     const hint = document.getElementById('uploadLimitHint');
