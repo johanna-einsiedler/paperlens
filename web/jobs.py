@@ -146,9 +146,9 @@ def _run_extraction(
         force_text = use_text_extraction or provider == "deepseek"
 
         if force_text:
-            result, finish, n, usage = _run_text_path(job_id, model, api_key, prompt, pdf_bytes, base_url)
+            result, finish, n, usage, resolved_model = _run_text_path(job_id, model, api_key, prompt, pdf_bytes, base_url)
         else:
-            result, finish, n, usage = _run_vision_path(job_id, model, api_key, prompt, pdf_bytes, base_url)
+            result, finish, n, usage, resolved_model = _run_vision_path(job_id, model, api_key, prompt, pdf_bytes, base_url)
 
         _set_phase(job_id, "Highlighting evidence")
         # Build the structured evidence list (snippet + page + field + source).
@@ -183,6 +183,7 @@ def _run_extraction(
             evidence_count=n_snippets,
             finish_reason=finish,
             token_usage=usage,
+            resolved_model=resolved_model,
         )
     except _Cancelled:
         db.mark_cancelled(job_id)
@@ -240,19 +241,19 @@ def _run_vision_path(
         })
 
     _set_phase(job_id, "Calling vision model")
-    result, finish, usage = extract_with_images(
+    result, finish, usage, resolved = extract_with_images(
         model=model, api_key=api_key,
         content_blocks=content, extraction_images=images,
         prompt=prompt, page_instruction=page_instruction, n=n,
         base_url=base_url,
     )
-    return result, finish, n, usage
+    return result, finish, n, usage, resolved
 
 
 def _run_text_path(
     job_id: str, model: str, api_key: str, prompt: str, pdf_bytes: bytes,
     base_url: str | None,
-) -> tuple[str, str, int, dict]:
+) -> tuple[str, str, int, dict, str | None]:
     _set_phase(job_id, "Extracting text layer")
     markdown_text, n = pdf_to_markdown(pdf_bytes)
     if not markdown_text.strip():
@@ -267,9 +268,9 @@ def _run_text_path(
         "printed in the document itself."
     )
     _set_phase(job_id, "Calling text model")
-    result, finish, usage = extract_with_text(
+    result, finish, usage, resolved = extract_with_text(
         model=model, api_key=api_key,
         markdown_text=markdown_text, prompt=prompt, page_instruction=page_instruction,
         base_url=base_url,
     )
-    return result, finish, n, usage
+    return result, finish, n, usage, resolved

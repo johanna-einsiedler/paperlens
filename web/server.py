@@ -445,6 +445,8 @@ def get_job(job_id: str) -> dict:
         "evidence_total":  ev_total,                     # entries with a snippet
         "finish_reason":   row.get("finish_reason"),
         "token_usage":     row.get("token_usage"),
+        "model":           row.get("model"),             # alias the user selected
+        "resolved_model":  row.get("resolved_model"),    # dated snapshot the provider served
     }
 
 

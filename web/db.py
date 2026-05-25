@@ -76,6 +76,12 @@ _ADDITIVE_JOB_COLUMNS = [
     ("cancel_requested", "INTEGER DEFAULT 0"),
     ("prompt",           "TEXT"),
     ("model",            "TEXT"),
+    # The dated snapshot the provider's API actually served (e.g.
+    # ``gpt-5-2025-09-15``).  Captured from ``response.model`` /
+    # ``response.model_version`` so re-runs and audits know which exact
+    # model produced the output, even if the user's alias has since
+    # rolled forward.  NULL when the provider didn't surface one.
+    ("resolved_model",   "TEXT"),
 ]
 
 
@@ -163,6 +169,7 @@ def mark_done(
     evidence_count: int,
     finish_reason: str,
     token_usage: dict,
+    resolved_model: str | None = None,
 ) -> None:
     with _connect() as conn:
         conn.execute(
@@ -173,11 +180,12 @@ def mark_done(
                  evidence_count = ?,
                  finish_reason = ?,
                  token_usage = ?,
+                 resolved_model = ?,
                  phase = NULL,
                  updated_at = ?
                WHERE id = ?""",
             (result, pages_processed, evidence_count, finish_reason,
-             json.dumps(token_usage), time.time(), job_id),
+             json.dumps(token_usage), resolved_model, time.time(), job_id),
         )
 
 

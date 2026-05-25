@@ -139,6 +139,39 @@ def generate_text(
 _EMPTY_USAGE: dict = {"prompt": 0, "completion": 0, "total": 0}
 
 
+def _resolved_model(response, provider: str) -> str | None:
+    """Extract the dated snapshot the provider's API actually served.
+
+    Users pick an alias (``gpt-5``, ``gpt-4o``, ``gemini-2.5-pro`` ...) but
+    every provider resolves that to a dated model id (``gpt-5-2025-09-15``,
+    ``gemini-2.5-pro-002`` ...) in the response.  Capturing the resolved
+    id makes extractions reproducible — without it, the same alias can
+    silently roll forward to a new revision between runs and we'd have
+    no audit trail.
+
+    Returns the resolved id (str), or None if the response doesn't carry
+    one (older SDKs, malformed responses).  Callers persist it next to
+    the user-selected alias on the job row.
+    """
+    if response is None:
+        return None
+    if provider == "google":
+        # google-genai exposes the served snapshot as ``.model_version``;
+        # older revisions used ``.model``.  Try both.
+        for attr in ("model_version", "model"):
+            v = getattr(response, attr, None)
+            if isinstance(v, str) and v:
+                return v
+        return None
+    # OpenAI-compatible (openai, deepseek, mistral, vllm) — ``response.model``
+    # is the dated snapshot.  Some self-hosted vLLM servers echo the alias
+    # back unchanged; that's fine, we record what the server told us.
+    v = getattr(response, "model", None)
+    if isinstance(v, str) and v:
+        return v
+    return None
+
+
 def _openai_usage(response) -> dict:
     """Extract token counts from an OpenAI (or OpenAI-compatible) response."""
     u = getattr(response, "usage", None)
@@ -173,8 +206,11 @@ def extract_with_images(
     page_instruction: str,
     n: int,
     base_url: str | None = None,
-) -> tuple[str, str, dict]:
-    """Run vision-based extraction. Returns (result_text, finish_reason, token_usage)."""
+) -> tuple[str, str, dict, str | None]:
+    """Run vision-based extraction.
+    Returns ``(result_text, finish_reason, token_usage, resolved_model)``
+    where ``resolved_model`` is the dated snapshot the provider actually
+    served (e.g. ``gpt-5-2025-09-15``) or None if unavailable."""
     provider = get_provider(model, base_url)
 
     if provider == "google":
@@ -196,7 +232,7 @@ def extract_with_images(
             finish = response.candidates[0].finish_reason.name.lower()
         except Exception:
             finish = "stop"
-        return text.strip(), finish, _gemini_usage(response)
+        return text.strip(), finish, _gemini_usage(response), _resolved_model(response, "google")
 
     if provider == "mistral":
         # Mistral's Pixtral models accept the same OpenAI-style content
@@ -209,7 +245,12 @@ def extract_with_images(
             messages=[{"role": "user", "content": content_blocks}],
         )
         choice = response.choices[0]
-        return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+        return (
+            choice.message.content.strip(),
+            (choice.finish_reason or "stop"),
+            _openai_usage(response),
+            _resolved_model(response, "mistral"),
+        )
 
     # OpenAI or vLLM (OpenAI-compatible)
     client = _openai_compat_client(api_key, base_url)
@@ -218,7 +259,12 @@ def extract_with_images(
         messages=[{"role": "user", "content": content_blocks}],
     )
     choice = response.choices[0]
-    return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+    return (
+        choice.message.content.strip(),
+        (choice.finish_reason or "stop"),
+        _openai_usage(response),
+        _resolved_model(response, provider),
+    )
 
 
 # DeepSeek's output token limit (max_tokens must be ≤ 8192 per their API)
@@ -242,12 +288,13 @@ def extract_with_text(
     prompt: str,
     page_instruction: str,
     base_url: str | None = None,
-) -> tuple[str, str, dict]:
+) -> tuple[str, str, dict, str | None]:
     """Run text-based extraction (PDF text layer as markdown input).
 
     Works for all providers.  DeepSeek auto-chunks long documents because of its
     smaller context window; OpenAI and Gemini handle long documents in a single call.
-    Returns (result_text, finish_reason, token_usage).
+    Returns ``(result_text, finish_reason, token_usage, resolved_model)`` —
+    ``resolved_model`` is the dated snapshot the provider actually served.
     """
     provider = get_provider(model, base_url)
     full_prompt = f"{prompt}{page_instruction}\n\n{markdown_text}"
@@ -267,7 +314,7 @@ def extract_with_text(
             finish = response.candidates[0].finish_reason.name.lower()
         except Exception:
             finish = "stop"
-        return text.strip(), finish, _gemini_usage(response)
+        return text.strip(), finish, _gemini_usage(response), _resolved_model(response, "google")
 
     # ── Mistral (OpenAI-compatible, 128k context — no chunking) ───────────────
     if provider == "mistral":
@@ -277,7 +324,12 @@ def extract_with_text(
             messages=[{"role": "user", "content": full_prompt}],
         )
         choice = response.choices[0]
-        return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+        return (
+            choice.message.content.strip(),
+            (choice.finish_reason or "stop"),
+            _openai_usage(response),
+            _resolved_model(response, "mistral"),
+        )
 
     # ── OpenAI or vLLM (OpenAI-compatible) ───────────────────────────────────
     if provider in ("openai", "vllm"):
@@ -287,7 +339,12 @@ def extract_with_text(
             messages=[{"role": "user", "content": full_prompt}],
         )
         choice = response.choices[0]
-        return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+        return (
+            choice.message.content.strip(),
+            (choice.finish_reason or "stop"),
+            _openai_usage(response),
+            _resolved_model(response, provider),
+        )
 
     # ── DeepSeek (with auto-chunking for long documents) ─────────────────────
     import json as _json
@@ -303,7 +360,12 @@ def extract_with_text(
             max_tokens=_DEEPSEEK_MAX_OUTPUT_TOKENS,
         )
         choice = response.choices[0]
-        return choice.message.content.strip(), (choice.finish_reason or "stop"), _openai_usage(response)
+        return (
+            choice.message.content.strip(),
+            (choice.finish_reason or "stop"),
+            _openai_usage(response),
+            _resolved_model(response, "deepseek"),
+        )
 
     # Document is too long — chunk by page sections
     pages = _split_markdown_pages(markdown_text)
@@ -328,6 +390,7 @@ def extract_with_text(
     all_results: list[str] = []
     last_finish = "stop"
     total_usage: dict = {"prompt": 0, "completion": 0, "total": 0}
+    last_resolved: str | None = None
 
     for i, chunk in enumerate(chunks):
         chunk_instruction = (
@@ -348,10 +411,11 @@ def extract_with_text(
         total_usage["prompt"]     += u["prompt"]
         total_usage["completion"] += u["completion"]
         total_usage["total"]      += u["total"]
+        last_resolved = _resolved_model(response, "deepseek") or last_resolved
         print(f"[extract_with_text] chunk {i + 1}/{len(chunks)}: finish_reason={last_finish!r}", flush=True)
 
     if len(all_results) == 1:
-        return all_results[0], last_finish, total_usage
+        return all_results[0], last_finish, total_usage, last_resolved
 
     # Merge JSON arrays/objects from all chunks.
     # Strategy: parse each chunk result, collect all top-level arrays into one.
@@ -380,7 +444,7 @@ def extract_with_text(
             merged = _json.dumps({merge_key: merged_samples}, indent=2)
         else:
             merged = _json.dumps(merged_samples, indent=2)
-        return merged, last_finish, total_usage
+        return merged, last_finish, total_usage, last_resolved
 
     # Fallback: concatenate raw responses separated by a comment
-    return "\n\n".join(all_results), last_finish, total_usage
+    return "\n\n".join(all_results), last_finish, total_usage, last_resolved

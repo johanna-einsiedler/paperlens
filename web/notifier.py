@@ -132,6 +132,11 @@ def _build_results_attachment(batch_id: str, jobs_in_batch: list[dict]) -> bytes
             "filename":                j.get("filename") or "paper.pdf",
             "pages_processed":         j.get("pages_processed") or 0,
             "token_usage":             j.get("token_usage") or None,
+            "model":                   j.get("model") or "",
+            # Dated snapshot the provider actually served — captured from
+            # ``response.model`` / ``response.model_version`` so the export
+            # remains reproducible if the alias later rolls forward.
+            "resolved_model":          j.get("resolved_model") or None,
             "original_model_response": j.get("result") or "",
         } for j in done],
     }
