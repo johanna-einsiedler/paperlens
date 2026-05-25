@@ -236,6 +236,14 @@ function goTo(step) {
    beside the section title (e.g. "Extract data" once mode is selected). */
 function updateSectionStatuses(step) {
   const currentSection = STEP_TO_SECTION_NUM[step] || (step === 8 ? 6 : 1);
+  // In MASEMiner mode the user sees a 3-step flow — step1 ("Choose
+  // your task") and step5 ("Review prompt") are hidden, so the visible
+  // chips need to read 1/2/3 instead of the raw 2/3/5 they carry in
+  // MetaPaperLens mode.  This map is the single source of truth for
+  // what number to render in each header in MASEMiner mode; everything
+  // else (active / done class, sidebar mirror) stays unchanged.
+  const isMasem    = document.body.classList.contains('is-maseminer');
+  const masemLabel = { step2: '1', step3: '2', step6: '3' };
   for (let n = 1; n <= 5; n++) {
     const sectionId = ['step1', 'step2', 'step3', 'step5', 'step6'][n - 1];
     const el        = document.getElementById(sectionId);
@@ -245,9 +253,13 @@ function updateSectionStatuses(step) {
     if      (n  < currentSection) kind = 'acc-done';
     else if (n === currentSection) kind = 'acc-active';
     el.classList.add(kind);
-    // Swap the number for a ✓ on completed sections
+    // Swap the number for a ✓ on completed sections.  In MASEMiner
+    // mode use the remapped label so the chips read 1·2·3 not 2·3·5.
     const num = el.querySelector('.acc-num');
-    if (num) num.textContent = (kind === 'acc-done') ? '✓' : String(n);
+    if (num) {
+      const label = isMasem ? (masemLabel[sectionId] || String(n)) : String(n);
+      num.textContent = (kind === 'acc-done') ? '✓' : label;
+    }
   }
   // Mirror the same active/done state into the left sidebar tracker.
   _updateSidebarSteps(currentSection, step === 8);
