@@ -246,7 +246,7 @@ def test_extract_returns_job_id_then_polls_to_done(client):
 
     # Mock both the vision and text extraction paths to return canned output.
     def fake_extract_with_images(**kwargs):
-        return ('{"samples": [{"n": 147}]}', "stop", {"prompt": 100, "completion": 50, "total": 150})
+        return ('{"samples": [{"n": 147}]}', "stop", {"prompt": 100, "completion": 50, "total": 150}, "gpt-4o-mini-2024-07-18")
 
     with patch("jobs.extract_with_images", side_effect=fake_extract_with_images):
         r = client.post(
@@ -283,7 +283,7 @@ def test_extract_routes_deepseek_to_text_path(client):
     pdf = _make_pdf_bytes()
 
     def fake_extract_with_text(**kwargs):
-        return ('[{"sample_id":"a"}]', "stop", {"prompt": 10, "completion": 5, "total": 15})
+        return ('[{"sample_id":"a"}]', "stop", {"prompt": 10, "completion": 5, "total": 15}, "deepseek-chat-v3")
 
     with patch("jobs.extract_with_text", side_effect=fake_extract_with_text) as mk:
         r = client.post(
@@ -322,7 +322,7 @@ def test_get_job_returns_evidence_total(client):
     )
 
     def fake_extract(**kwargs):
-        return (no_page_result, "stop", {"prompt": 1, "completion": 1, "total": 2})
+        return (no_page_result, "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")
 
     with patch("jobs.extract_with_images", side_effect=fake_extract):
         r = client.post(
@@ -454,7 +454,7 @@ def test_extract_creates_batch_and_links_job(client):
     pdf = _make_pdf_bytes()
     bid = "test-batch-1"
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         r = client.post(
             "/api/extract",
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x",
@@ -485,7 +485,7 @@ def test_list_batches_aggregates_counts(client):
     sid = "session-A"
     headers = {"X-Session-Id": sid}
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract", headers=headers,
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b1"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
@@ -509,7 +509,7 @@ def test_list_batches_isolates_sessions(client):
     and the History endpoint without a session id returns nothing."""
     pdf = _make_pdf_bytes()
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract", headers={"X-Session-Id": "alice"},
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "alice-batch"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
@@ -670,7 +670,7 @@ def test_extract_rejects_batch_over_limit(client, monkeypatch):
     bid = "test-cap"
 
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         # Two distinct filenames → both accepted
         for name in ("a.pdf", "b.pdf"):
             r = client.post(
@@ -698,7 +698,7 @@ def test_extract_allows_rerun_over_limit(client, monkeypatch):
     bid = "test-rerun-cap"
 
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         # Fill the batch to its cap with two distinct filenames
         for name in ("a.pdf", "b.pdf"):
             r = client.post(
@@ -730,7 +730,7 @@ def test_set_batch_email_validates(client):
     # Set up a real batch first
     pdf = _make_pdf_bytes()
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract",
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b-em"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
@@ -748,7 +748,7 @@ def test_set_batch_email_attaches_address_to_batch(client):
     import db as _db
     pdf = _make_pdf_bytes()
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract",
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b-em2"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
@@ -765,7 +765,7 @@ def test_set_batch_email_after_completion_sends_immediately(client, capsys):
     """If user adds email after the batch finished, fire the email right away."""
     pdf = _make_pdf_bytes()
     with patch("jobs.extract_with_images",
-               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2})):
+               return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract",
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b-em3"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},

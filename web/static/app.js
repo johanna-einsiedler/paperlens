@@ -1551,6 +1551,10 @@ async function processPaper(paper) {
     paper.evidenceCount     = result.evidence_count ?? null;
     paper.evidenceTotal     = result.evidence_total ?? null;
     paper.tokenUsage        = result.token_usage    ?? null;
+    // Dated model snapshot the provider actually served (e.g.
+    // ``gpt-5-2025-09-15``).  Captured per-paper so the eventual
+    // JSON export carries proof of which model produced the output.
+    paper.resolvedModel     = result.resolved_model ?? null;
 
     if (state.activePaperId === null) {
       state.activePaperId = paper.id;
@@ -2201,6 +2205,7 @@ async function loadPastBatch(batchId) {
       evidencePageIdx:    0,
       evidenceCount:      j.evidence_count ?? null,
       tokenUsage:         j.token_usage    ?? null,
+      resolvedModel:      j.resolved_model ?? null,
       error:              j.error || null,
       overrides:          {},
     };
@@ -2330,18 +2335,35 @@ function renderTokenFooter(paper) {
   const el = document.getElementById('tokenSummary');
   if (!el) return;
   const u = paper.tokenUsage;
-  if (!u || (!u.prompt && !u.completion && !u.total)) {
+  const hasTokens = u && (u.prompt || u.completion || u.total);
+  const resolved  = paper.resolvedModel || null;
+  if (!hasTokens && !resolved) {
     el.style.display = 'none';
     return;
   }
-  const fmt = n => n.toLocaleString();
-  el.innerHTML =
-    `<span class="token-label">Tokens</span>` +
-    `<span class="token-stat">${fmt(u.prompt)} in</span>` +
-    `<span class="token-sep">·</span>` +
-    `<span class="token-stat">${fmt(u.completion)} out</span>` +
-    `<span class="token-sep">·</span>` +
-    `<span class="token-stat token-total">${fmt(u.total)} total</span>`;
+  const parts = [];
+  if (hasTokens) {
+    const fmt = n => (n || 0).toLocaleString();
+    parts.push(
+      `<span class="token-label">Tokens</span>` +
+      `<span class="token-stat">${fmt(u.prompt)} in</span>` +
+      `<span class="token-sep">·</span>` +
+      `<span class="token-stat">${fmt(u.completion)} out</span>` +
+      `<span class="token-sep">·</span>` +
+      `<span class="token-stat token-total">${fmt(u.total)} total</span>`
+    );
+  }
+  if (resolved) {
+    // ``model`` carries the alias the user picked; ``resolvedModel``
+    // the dated snapshot the API served.  Show the snapshot so the
+    // user can tell which exact build produced the output.  Tooltip
+    // surfaces the alias for context.
+    parts.push(
+      `<span class="token-sep">·</span>` +
+      `<span class="token-stat" title="Alias requested: ${escHtml(state.model || '')}">${escHtml(resolved)}</span>`
+    );
+  }
+  el.innerHTML = parts.join('');
   el.style.display = 'inline-flex';
 }
 
@@ -4530,6 +4552,8 @@ function downloadResult() {
     evidence_present:   evidence,
     pages_processed:    p.pagesProcessed,
     token_usage:        p.tokenUsage || null,
+    model:              state.model,
+    resolved_model:     p.resolvedModel || null,
     entries:            p.entries || null,
     human_overrides:    _overrideList(p),
     llm_raw_response:   p.result || '',
@@ -4690,6 +4714,11 @@ function downloadAllPapers() {
       evidence_present:        (p.evidenceTotal || 0) > 0,
       pages_processed:         p.pagesProcessed,
       token_usage:             p.tokenUsage || null,
+      // ``model`` is the alias the user picked.  ``resolved_model`` is
+      // the dated snapshot the provider actually served (e.g.
+      // ``gpt-5-2025-09-15``) — the reproducibility-grade record.
+      model:                   state.model,
+      resolved_model:          p.resolvedModel || null,
       entries:                 p.entries,
       human_overrides:         _overrideList(p),
       original_model_response: p.result,
@@ -4896,6 +4925,7 @@ function commitLoadJson() {
       evidencePageIdx: 0,
       evidenceCount:   null,
       tokenUsage:      p.token_usage || null,
+      resolvedModel:   p.resolved_model || null,
       pagesProcessed:  p.pages_processed || 0,
       error:           null,
       overrides:       reconstructOverrides(p.human_overrides),

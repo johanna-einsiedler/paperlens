@@ -99,8 +99,13 @@ def test_gemini_usage_handles_missing_metadata():
 
 # ── generate_text routing ────────────────────────────────────────────────────
 
-def _mock_chat_response(text="ok", finish="stop", prompt=10, completion=20):
-    """Build a fake OpenAI chat completion response."""
+def _mock_chat_response(text="ok", finish="stop", prompt=10, completion=20, model="gpt-4o-2024-08-06"):
+    """Build a fake OpenAI chat completion response.
+
+    The ``model`` field carries the dated snapshot the API would
+    actually serve — providers.py captures it as ``resolved_model`` so
+    the export can record which exact build produced the output.
+    """
     return SimpleNamespace(
         choices=[SimpleNamespace(
             message=SimpleNamespace(content=text),
@@ -110,6 +115,7 @@ def _mock_chat_response(text="ok", finish="stop", prompt=10, completion=20):
             prompt_tokens=prompt, completion_tokens=completion,
             total_tokens=prompt + completion,
         ),
+        model=model,
     )
 
 
@@ -151,10 +157,10 @@ def test_generate_text_deepseek_path():
 def test_extract_with_images_openai_returns_token_usage():
     fake_client = MagicMock()
     fake_client.chat.completions.create.return_value = _mock_chat_response(
-        text='{"a":1}', prompt=500, completion=200
+        text='{"a":1}', prompt=500, completion=200, model="gpt-4o-2024-08-06"
     )
     with patch.object(providers, "_openai_compat_client", return_value=fake_client):
-        result, finish, usage = providers.extract_with_images(
+        result, finish, usage, resolved = providers.extract_with_images(
             model="gpt-4o",
             api_key="key",
             content_blocks=[{"type": "text", "text": "go"}],
@@ -166,6 +172,8 @@ def test_extract_with_images_openai_returns_token_usage():
     assert result == '{"a":1}'
     assert finish == "stop"
     assert usage == {"prompt": 500, "completion": 200, "total": 700}
+    # Resolved model = dated snapshot the API echoed back (vs the alias).
+    assert resolved == "gpt-4o-2024-08-06"
 
 
 # ── extract_with_text routing ────────────────────────────────────────────────
@@ -173,28 +181,30 @@ def test_extract_with_images_openai_returns_token_usage():
 def test_extract_with_text_openai_path():
     fake_client = MagicMock()
     fake_client.chat.completions.create.return_value = _mock_chat_response(
-        text='{"ok":true}'
+        text='{"ok":true}', model="gpt-4o-2024-11-20"
     )
     with patch.object(providers, "_openai_compat_client", return_value=fake_client):
-        result, finish, usage = providers.extract_with_text(
+        result, finish, usage, resolved = providers.extract_with_text(
             "gpt-4o", "key", "page text", "prompt", "instr"
         )
     assert result == '{"ok":true}'
     assert usage["total"] == 30  # 10 prompt + 20 completion
+    assert resolved == "gpt-4o-2024-11-20"
 
 
 def test_extract_with_text_deepseek_short_doc_no_chunking():
     fake_client = MagicMock()
     fake_client.chat.completions.create.return_value = _mock_chat_response(
-        text='[{"x":1}]'
+        text='[{"x":1}]', model="deepseek-chat-v3"
     )
     with patch.object(providers.openai, "OpenAI", return_value=fake_client):
-        result, finish, usage = providers.extract_with_text(
+        result, finish, usage, resolved = providers.extract_with_text(
             "deepseek-chat", "key", "short text", "prompt", "instr"
         )
     assert result == '[{"x":1}]'
     # Single call, no chunking
     assert fake_client.chat.completions.create.call_count == 1
+    assert resolved == "deepseek-chat-v3"
 
 
 def test_extract_provider_message_from_openai_body():
