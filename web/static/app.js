@@ -94,6 +94,7 @@ const state = {
 // match the active extraction mode.
 const PROVIDER_MODELS = {
   openai:   [
+    { value: 'gpt-5.5',      label: 'GPT-5.5' },
     { value: 'gpt-5-mini',   label: 'GPT-5 Mini' },
     { value: 'gpt-5',        label: 'GPT-5' },
     { value: 'gpt-5-nano',   label: 'GPT-5 Nano' },
@@ -1063,6 +1064,7 @@ function renderScannedBatchWarning() {
    USD per 1M tokens.  Numbers reflect public rate cards as of mid-2025; they
    drift, so the estimate is framed as a range and labelled "approximate". */
 const _MODEL_RATES = {
+  'gpt-5.5':             {in: 5.00,  out: 30.00},
   'gpt-5':               {in: 1.25,  out: 10.00},
   'gpt-5-mini':          {in: 0.25,  out: 2.00},
   'gpt-5-nano':          {in: 0.05,  out: 0.40},
