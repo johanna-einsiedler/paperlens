@@ -96,7 +96,15 @@ function _renderMasemStarterCards() {
 
 /* Switch to a starter preset.  Loads the preset's defaults (cached
    per-id), copies them into the form's working params, populates the
-   form widgets, and re-renders the live preview. */
+   form widgets, swaps ``state.activePreset`` so every reader keys
+   off the right preset, and re-renders the live preview.
+
+   The activePreset swap is critical: several code paths branch on
+   ``state.activePreset.id`` directly (manual-entry scaffold, banner
+   wordmark, builder reopen).  If we only updated the builder-local
+   ``_MASEM_BUILDER_STATE.starter`` and the sub_views array, those
+   paths would silently read stale Direct-vs-Indirect routing — the
+   user picks Indirect, sees Direct sub-views on the result panel. */
 async function _selectMasemStarter(presetId, isUserClick) {
   let preset = _MASEM_BUILDER_STATE.presetCache[presetId];
   if (!preset) {
@@ -112,6 +120,12 @@ async function _selectMasemStarter(presetId, isUserClick) {
   }
   _MASEM_BUILDER_STATE.starter = presetId;
   _MASEM_BUILDER_STATE.params  = JSON.parse(JSON.stringify(preset.template_params || {}));
+  // Mirror the new preset onto state.activePreset so id / sub_views /
+  // prompt are all consistent.  Mutate the existing object rather than
+  // reassigning so any outside references stay valid.
+  if (typeof state !== 'undefined') {
+    state.activePreset = JSON.parse(JSON.stringify(preset));
+  }
   _renderMasemStarterCards();
   _populateBuilderForm(_MASEM_BUILDER_STATE.params);
   // Immediate (non-debounced) render on starter switch so the auto-

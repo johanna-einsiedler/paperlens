@@ -1081,6 +1081,10 @@ def _render_full_json_schema(fl: bool, fc: bool, cmat: bool, scor: bool, es: boo
             '',
         ])
     # Metadata fields (always present).  ``res`` is gated on fl.
+    # NOTE: key is ``female`` (not ``sex``) for consistency with the
+    # Direct-information schema in masem-effect-sizes.template.md and
+    # with section 7.7 of this template.  Both keys mean "percentage of
+    # female participants, 0–100".
     lines.extend([
         '      "pubyear":   number|null,',
         '      "country":   "string|null",',
@@ -1088,7 +1092,7 @@ def _render_full_json_schema(fl: bool, fc: bool, cmat: bool, scor: bool, es: boo
         '      "lang":      "string|null",',
         '      "pubtype":   "1|2|3|4|5|null",',
         '      "n":         "integer|null",',
-        '      "sex":       "number 0..100 |null",',
+        '      "female":    "number 0..100 |null",',
         '      "age":       "number|null",',
         '      "clinical":  "0|1|2|null",',
     ])

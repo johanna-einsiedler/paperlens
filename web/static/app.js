@@ -2567,7 +2567,23 @@ function enterManualMode(paperId) {
    For the MASEM preset the shape matches the extraction schema exactly so
    downstream tooling sees a familiar structure even when the LLM failed. */
 function _buildManualScaffold(activePreset) {
-  if (activePreset?.id === 'masem') {
+  if (!activePreset) return [{}];
+  // Pick the scaffold shape from the preset's id.  The Direct
+  // (``masem``) variant returns one empty effect-size table plus the
+  // sample metadata; the Indirect (``masem-tas20``) variant returns a
+  // factor-loading/correlation dotted-key matrix.  Hard-coded shapes
+  // were left over from when ``masem`` was the only preset and meant
+  // factor analysis — easy to misread now that ``masem`` means Direct.
+  if (activePreset.id === 'masem') {
+    return [{
+      sample_id: '',
+      effect_sizes:  { _table: [] },
+      reliabilities: { _table: [] },
+      pubyear: null, country: '', continent: '', lang: '', pubtype: null,
+      n: null, female: null, age: null, clinical: null, notes: '',
+    }];
+  }
+  if (activePreset.id === 'masem-tas20' || /^masem-/.test(activePreset.id || '')) {
     const factor_loadings = {};
     for (let f = 1; f <= 5; f++) {
       for (let i = 1; i <= 20; i++) factor_loadings[`F${f}.${i}`] = null;
@@ -2579,7 +2595,7 @@ function _buildManualScaffold(activePreset) {
     return [{
       sample_id: '', factor_loadings, factor_correlations,
       pubyear: null, country: '', continent: '', lang: '', pubtype: null,
-      n: null, sex: null, age: null, clinical: null, res: null,
+      n: null, female: null, age: null, clinical: null, res: null,
       nfac: null, cfa: null, met: null, rot: null, notes: '',
     }];
   }

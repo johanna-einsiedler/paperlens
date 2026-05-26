@@ -163,12 +163,6 @@ the paper itself reports a pooled value.
 
 ## STEP 8: Self-assess extraction confidence
 
-For EACH extracted sample, return an `extraction_confidence` object with
-one rating per high-level extraction target. Required keys:
-
-- `effect_sizes` — confidence in the effect-size table for this sample.
-- `metadata` — confidence in the study/sample metadata block.
-
 For EACH extracted sample, return an `extraction_confidence` object
 with one rating per high-level extraction target. Required keys:
 
