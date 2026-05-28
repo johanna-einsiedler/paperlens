@@ -2604,11 +2604,10 @@ body.wide-mode .app {
   will-change: transform;
 }
 .highlight-overlay .highlight-rect {
-  fill: rgba(250, 204, 21, 0.42);    /* yellow-400 with translucency */
-  stroke: rgba(202, 138, 4, 0.65);
-  stroke-width: 1;
+  fill: rgba(250, 204, 21, 0.25);    /* yellow-400, lighter wash */
+  stroke: none;                      /* borderless — just a soft tint */
   pointer-events: auto;              /* re-enable so the <title> tooltip works */
-  transition: fill 0.15s, stroke 0.15s;
+  transition: fill 0.15s;
 }
 
 /* The rect tied to the cell the user just clicked.  Distinct teal

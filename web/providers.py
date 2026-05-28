@@ -46,6 +46,13 @@ def extract_provider_message(exc: Exception) -> str:
 # their official clients.
 _DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 _MISTRAL_BASE_URL  = "https://api.mistral.ai/v1"
+# Anthropic exposes an OpenAI-compatible endpoint, so we drive Claude
+# through the same openai SDK + a custom base_url (like DeepSeek/Mistral)
+# rather than pulling in the anthropic package.  The Messages API
+# requires an explicit output cap, so anthropic calls always pass
+# max_tokens.
+_ANTHROPIC_BASE_URL    = "https://api.anthropic.com/v1"
+_ANTHROPIC_MAX_TOKENS  = 8192
 
 
 def get_provider(model: str, base_url: str | None = None) -> str:
@@ -56,6 +63,8 @@ def get_provider(model: str, base_url: str | None = None) -> str:
         return "google"
     if model.startswith("deepseek"):
         return "deepseek"
+    if model.startswith("claude"):
+        return "anthropic"
     # Mistral ships text-only ``mistral-*`` and vision-capable ``pixtral-*``
     # models.  Both live on the same Mistral endpoint.
     if model.startswith(("mistral", "pixtral")):
@@ -117,6 +126,16 @@ def generate_text(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
+        )
+        return response.choices[0].message.content.strip()
+
+    if provider == "anthropic":
+        client = openai.OpenAI(api_key=api_key, base_url=_ANTHROPIC_BASE_URL)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=_ANTHROPIC_MAX_TOKENS,
         )
         return response.choices[0].message.content.strip()
 
@@ -252,6 +271,23 @@ def extract_with_images(
             _resolved_model(response, "mistral"),
         )
 
+    if provider == "anthropic":
+        # Claude models accept the same OpenAI-style image_url blocks via
+        # the compatibility endpoint.  max_tokens is mandatory.
+        client = openai.OpenAI(api_key=api_key, base_url=_ANTHROPIC_BASE_URL)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": content_blocks}],
+            max_tokens=_ANTHROPIC_MAX_TOKENS,
+        )
+        choice = response.choices[0]
+        return (
+            choice.message.content.strip(),
+            (choice.finish_reason or "stop"),
+            _openai_usage(response),
+            _resolved_model(response, "anthropic"),
+        )
+
     # OpenAI or vLLM (OpenAI-compatible)
     client = _openai_compat_client(api_key, base_url)
     response = client.chat.completions.create(
@@ -329,6 +365,22 @@ def extract_with_text(
             (choice.finish_reason or "stop"),
             _openai_usage(response),
             _resolved_model(response, "mistral"),
+        )
+
+    # ── Anthropic / Claude (OpenAI-compatible, large context — no chunking) ───
+    if provider == "anthropic":
+        client = openai.OpenAI(api_key=api_key, base_url=_ANTHROPIC_BASE_URL)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": full_prompt}],
+            max_tokens=_ANTHROPIC_MAX_TOKENS,
+        )
+        choice = response.choices[0]
+        return (
+            choice.message.content.strip(),
+            (choice.finish_reason or "stop"),
+            _openai_usage(response),
+            _resolved_model(response, "anthropic"),
         )
 
     # ── OpenAI or vLLM (OpenAI-compatible) ───────────────────────────────────

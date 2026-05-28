@@ -87,12 +87,12 @@ const state = {
     }
 */
 
-// Models grouped per provider.  First option is the dropdown default and is
-// chosen to be a sensible text-mode LLM — vision-capable models are listed
-// after, tagged "(vision)" so the choice is explicit.  Recommendation
-// labels were removed because they pushed an opinion that often didn't
-// match the active extraction mode.
-const PROVIDER_MODELS = {
+// Models grouped per provider.  These are the BAKED-IN FALLBACK list —
+// loadModelsConfig() overwrites them at startup from /static/models.json
+// (regenerated weekly by the model-sync GitHub Action).  If that fetch
+// fails or the file is malformed, these defaults keep the app working.
+// Declared with ``let`` so the loader can reassign them.
+let PROVIDER_MODELS = {
   openai:   [
     { value: 'gpt-5.5',      label: 'GPT-5.5' },
     { value: 'gpt-5-mini',   label: 'GPT-5 Mini' },
@@ -117,37 +117,46 @@ const PROVIDER_MODELS = {
     { value: 'deepseek-chat',     label: 'DeepSeek Chat' },
     { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner (R1)' },
   ],
+  anthropic: [
+    { value: 'claude-opus-4-1',   label: 'Claude Opus 4.1' },
+    { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+    { value: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5' },
+  ],
   vllm: [], // model name is entered as free text
 };
 
 const PROVIDER_KEY_PLACEHOLDER = {
-  openai:   'sk-...',
-  google:   'AIza...',
-  mistral:  'your Mistral API key',
-  deepseek: 'sk-...',
-  vllm:     'any string (or leave blank if auth is disabled)',
+  openai:    'sk-...',
+  google:    'AIza...',
+  mistral:   'your Mistral API key',
+  deepseek:  'sk-...',
+  anthropic: 'sk-ant-...',
+  vllm:      'any string (or leave blank if auth is disabled)',
 };
 
 const PROVIDER_KEY_LABEL = {
-  openai:   'OpenAI API key',
-  google:   'Google Gemini API key',
-  mistral:  'Mistral API key',
-  deepseek: 'DeepSeek API key',
-  vllm:     'API key',
+  openai:    'OpenAI API key',
+  google:    'Google Gemini API key',
+  mistral:   'Mistral API key',
+  deepseek:  'DeepSeek API key',
+  anthropic: 'Anthropic API key',
+  vllm:      'API key',
 };
 
 function getProvider(model) {
   if (state.provider === 'vllm')    return 'vllm';
   if (model.startsWith('gemini'))   return 'google';
   if (model.startsWith('deepseek')) return 'deepseek';
+  if (model.startsWith('claude'))   return 'anthropic';
   if (model.startsWith('mistral') || model.startsWith('pixtral')) return 'mistral';
   return 'openai';
 }
 
 // Returns true for vision-based models.  Text-only: DeepSeek and the plain
-// ``mistral-*`` family.  ``pixtral-*`` models on Mistral support vision.
-// vLLM models default to vision — user can toggle to text extraction if
-// their hosted model doesn't support image input.
+// ``mistral-*`` family.  ``pixtral-*`` models on Mistral support vision;
+// Claude models are all vision-capable.  vLLM models default to vision —
+// user can toggle to text extraction if their hosted model doesn't
+// support image input.
 function isVisionModel(model) {
   if (model.startsWith('deepseek')) return false;
   if (model.startsWith('mistral'))  return false;   // pixtral-* still passes
@@ -272,7 +281,7 @@ function updateSectionStatuses(step) {
       : state.loadedFromFile        ? 'Review existing results'
       : '',
     2: state.model
-      ? `${({openai:'OpenAI', google:'Gemini', mistral:'Mistral', deepseek:'DeepSeek', vllm:'Custom'}[state.provider] || state.provider)} · ${state.model}`
+      ? `${({openai:'OpenAI', google:'Gemini', mistral:'Mistral', deepseek:'DeepSeek', anthropic:'Anthropic', vllm:'Custom'}[state.provider] || state.provider)} · ${state.model}`
       : '',
     3: state.generatedPrompt
       ? (state.inputMode === 'manual' ? 'Custom prompt' : 'Prompt generated')
@@ -421,9 +430,10 @@ function autoSaveSession() {
    prior Gemini session).  Detects keys whose shape clearly belongs to a
    different provider and wipes the bad entry. */
 const _PROVIDER_KEY_SHAPE = {
-  google:   /^AIza[0-9A-Za-z_\-]{20,}$/,
-  openai:   /^sk-[0-9A-Za-z_\-]{20,}$/,
-  deepseek: /^sk-[0-9A-Za-z_\-]{20,}$/,
+  google:    /^AIza[0-9A-Za-z_\-]{20,}$/,
+  openai:    /^sk-[0-9A-Za-z_\-]{20,}$/,
+  deepseek:  /^sk-[0-9A-Za-z_\-]{20,}$/,
+  anthropic: /^sk-ant-[0-9A-Za-z_\-]{20,}$/,
   // Mistral keys are short opaque strings (no fixed prefix) — they don't
   // look like any other provider's pattern, so we leave them out of the
   // shape table.  _looksWrongForProvider returns false when the active
@@ -505,9 +515,49 @@ function clearAutoSave() {
   try { localStorage.removeItem(_AUTO_SAVE_KEY); } catch (_) { /* ignore */ }
 }
 
+/* Load the weekly-synced model list + pricing from /static/models.json.
+   Overwrites the baked-in PROVIDER_MODELS / _MODEL_RATES fallbacks.  Any
+   failure (missing file, malformed JSON, empty providers) is swallowed —
+   the fallbacks stay in place so the app never breaks on a bad sync. */
+async function loadModelsConfig() {
+  try {
+    const res = await fetch('/static/models.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && data.providers && typeof data.providers === 'object') {
+      const next = {};
+      for (const [prov, list] of Object.entries(data.providers)) {
+        if (!Array.isArray(list)) continue;
+        next[prov] = list
+          .filter(m => m && m.value)
+          .map(m => ({ value: m.value, label: m.label || m.value }));
+      }
+      // vLLM is free-text entry (no model list) — preserve whatever the
+      // fallback had so the provider stays selectable.
+      if (!next.vllm) next.vllm = PROVIDER_MODELS.vllm || [];
+      // Only adopt if at least one provider actually has models.
+      if (Object.values(next).some(l => l.length)) PROVIDER_MODELS = next;
+    }
+    if (data && data.rates && typeof data.rates === 'object') {
+      const rates = {};
+      for (const [model, r] of Object.entries(data.rates)) {
+        if (r && typeof r.in === 'number' && typeof r.out === 'number') {
+          rates[model] = { in: r.in, out: r.out };
+        }
+      }
+      if (Object.keys(rates).length) _MODEL_RATES = rates;
+    }
+    // Re-render the dropdown now that the live list is in (the initial
+    // onProviderChange ran against the fallback).  Preserves the current
+    // selection if it still exists in the refreshed list.
+    onProviderChange();
+  } catch (_) { /* keep baked-in fallback */ }
+}
+
 // Initialise the model list on page load
 document.addEventListener('DOMContentLoaded', () => {
-  onProviderChange(); // populate model list for default provider
+  onProviderChange(); // populate model list for default provider (fallback)
+  loadModelsConfig(); // then overwrite with the weekly-synced list + rates
   initUploadZone();
   initResultDisplay();
   initZoomPan();
@@ -848,13 +898,27 @@ function regenerate() {
   else callGenerateAPI();
 }
 
+/* First vision-capable model for a provider, or null if it has none.
+   Used to suggest a same-provider alternative when the user has a
+   text-only model selected but wants image (VLM) extraction. */
+function _suggestVisionModel(provider) {
+  const vis = _visionModelsForProvider(provider);
+  return vis.length ? vis[0] : null;   // {value, label}
+}
+
 function confirmPrompt() {
   document.getElementById('promptSummaryText').textContent  = state.generatedPrompt;
   document.getElementById('promptSummaryModel').textContent = state.model;
   const note = document.getElementById('visionNote');
   if (!isVisionModel(state.model)) {
+    // Text-only model — explain it won't do image analysis, and point
+    // the user at a vision-capable model (preferring the same provider).
+    const sug = _suggestVisionModel(state.provider);
+    const suggestion = sug
+      ? ` Not compatible with image (VLM) extraction — for scanned PDFs or image-only tables, switch to a vision model such as ${sug.label} (same provider) in step 1.`
+      : ` Not compatible with image (VLM) extraction, and this provider has no vision model — switch to OpenAI, Anthropic, Gemini, or Mistral (Pixtral) in step 1 for image-based extraction.`;
     note.textContent =
-      `ℹ️ ${state.model} uses text extraction from the PDF's text layer instead of image analysis. Works well for native text PDFs; scanned papers may not extract correctly.`;
+      `ℹ️ ${state.model} uses text extraction from the PDF's text layer instead of image analysis.${suggestion}`;
     note.style.display = 'block';
   } else {
     note.style.display = 'none';
@@ -1061,9 +1125,11 @@ function renderScannedBatchWarning() {
 }
 
 /* ── Cost estimator ─────────────────────────────────────────────────────────
-   USD per 1M tokens.  Numbers reflect public rate cards as of mid-2025; they
-   drift, so the estimate is framed as a range and labelled "approximate". */
-const _MODEL_RATES = {
+   USD per 1M tokens.  BAKED-IN FALLBACK — loadModelsConfig() overwrites this
+   from /static/models.json (regenerated weekly).  Declared ``let`` so the
+   loader can reassign it; a model with no entry here shows "no estimate"
+   rather than breaking. */
+let _MODEL_RATES = {
   'gpt-5.5':             {in: 5.00,  out: 30.00},
   'gpt-5':               {in: 1.25,  out: 10.00},
   'gpt-5-mini':          {in: 0.25,  out: 2.00},
@@ -1146,9 +1212,12 @@ function _estimatePagesFromBytes(bytes) {
 
 function estimateBatchCostUsd() {
   // Self-hosted (vLLM / Ollama) — cost is the user's own compute, not USD.
-  if (state.provider === 'vllm') return null;
+  if (state.provider === 'vllm') return { selfHosted: true };
   const rate = _MODEL_RATES[state.model];
-  if (!rate) return null;
+  // No rate on file for this model (e.g. the weekly model sync added a
+  // model whose price LiteLLM doesn't list yet).  Signal "no estimate"
+  // rather than breaking — renderCostEstimate hides the dollar figure.
+  if (!rate) return { noRate: true };
 
   const useText = state.useTextExtraction || state.provider === 'deepseek';
   let inputTokens = 0;
@@ -1194,11 +1263,20 @@ function renderCostEstimate() {
     return;
   }
   const est = estimateBatchCostUsd();
-  if (est === null) {
-    // Self-hosted or unknown model — skip the dollar amount but show a note
-    el.style.display     = 'flex';
+  if (!est || est.selfHosted) {
+    // Self-hosted (vLLM / Ollama) — cost is the user's own compute.
+    el.style.display = 'flex';
     el.innerHTML = `<span class="cost-est-icon">≈</span>
       <span><strong>Self-hosted model</strong> — runs on your own server, no per-token cost.</span>`;
+    return;
+  }
+  if (est.noRate) {
+    // We have no published price for this model (common right after the
+    // weekly model sync adds a brand-new model).  Hide the dollar figure
+    // entirely rather than show a misleading number or break.
+    el.style.display = 'flex';
+    el.innerHTML = `<span class="cost-est-icon">≈</span>
+      <span>No price on file for <strong>${escHtml(state.model)}</strong> yet — cost estimate unavailable. Actual token usage is still reported after the run.</span>`;
     return;
   }
   // Show a ±50 % range to communicate genuine uncertainty
@@ -2767,8 +2845,9 @@ function _kickOffVisionRerun(paper) {
 
   if (visionModels.length === 0 && !currentIsVision) {
     showToast(
-      `${provider} has no vision-capable models. Switch to OpenAI / Gemini / Mistral (Pixtral) ` +
-      `or a vLLM endpoint with vision in step 2 first, then re-run.`,
+      `${state.model} is not compatible with VLM (image) extraction, and ${provider} has no ` +
+      `vision-capable model. Switch to OpenAI, Anthropic, Gemini, or Mistral (Pixtral) in ` +
+      `step 1, then re-run.`,
     );
     paper.forceMode = null;
     return;
