@@ -94,6 +94,12 @@ def probe_text_layer(pdf_bytes: bytes) -> dict:
 
       ``total_pages``         number of pages (capped at MAX_PAGES)
       ``total_text_chars``    total text-layer characters across all pages
+      ``page_dims_px``        per-page ``[width, height]`` in pixels at the
+                              extraction DPI (EXTRACTION_DPI).  Derived from
+                              the page's point size — no rendering needed —
+                              so the client can compute an exact vision-mode
+                              token estimate (the page image we'd send is a
+                              deterministic render at this DPI).
       ``scanned_pages``       1-indexed pages classified as scans — either
                               the text layer is empty OR the page is
                               dominated by a single full-page image
@@ -116,10 +122,19 @@ def probe_text_layer(pdf_bytes: bytes) -> dict:
     n          = min(len(doc), MAX_PAGES)
     scanned    = []
     total_chars = 0
+    page_dims_px: list[list[int]] = []
+    _dpi_scale = EXTRACTION_DPI / 72.0   # points → pixels at our render DPI
     for i in range(n):
         page = doc[i]
         chars = len(page.get_text("text").strip())
         total_chars += chars
+        # Pixel dimensions of the image we WOULD render for vision mode —
+        # derived from the page's point size, no rasterisation needed.
+        rect = page.rect
+        page_dims_px.append([
+            max(1, round(rect.width  * _dpi_scale)),
+            max(1, round(rect.height * _dpi_scale)),
+        ])
         if _is_scanned_page(page):
             scanned.append(i + 1)
     doc.close()
@@ -127,6 +142,7 @@ def probe_text_layer(pdf_bytes: bytes) -> dict:
     return {
         "total_pages":        n,
         "total_text_chars":   total_chars,
+        "page_dims_px":       page_dims_px,
         "scanned_pages":      scanned,
         # "Text-readable" if more than half of the pages are not scans.
         "text_layer_present": n > 0 and len(scanned) <= n // 2,

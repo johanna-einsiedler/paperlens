@@ -1082,11 +1082,52 @@ const _MODEL_RATES = {
   'mistral-small-latest':{in: 0.20,  out: 0.60},
 };
 
-/* Rough tokens-per-page when the PDF is sent as page images.  OpenAI's
-   high-detail vision tokenises a 1700×2200 page as ~1100 input tokens.
-   Gemini is similar order of magnitude.  vLLM/Ollama vary widely so we
-   show "self-hosted" instead of dollars. */
-const _VISION_TOKENS_PER_PAGE = 1100;
+/* Fallback tokens-per-page when we don't have the page's real pixel
+   dimensions (probe missing / errored).  When dimensions ARE known we
+   compute a model-specific count via _visionTokensForPage below. */
+const _VISION_TOKENS_PER_PAGE = 1450;   // ~US-letter at 200 DPI, OpenAI high-detail
+
+/* Estimate the input-token cost of ONE page image for a given model,
+   from its rendered pixel dimensions (width, height at EXTRACTION_DPI).
+
+   Image tokenisation is model-family-specific and the providers change
+   it over time, so these are best-effort formulas — accurate for the
+   common cases, with a flat fallback for anything unrecognised:
+
+   - OpenAI "tile" models (gpt-4o, gpt-4-turbo): downscale to fit
+     2048², then shortest side to 768, count 512² tiles, 85 + 170·tiles.
+   - OpenAI "patch" models (gpt-5 family): 32×32-pixel patches, capped.
+   - Gemini: ~258 tokens per 768² tile (flat 258 for small images).
+   - Anything else / unknown: the flat per-page fallback. */
+function _visionTokensForPage(model, w, h) {
+  w = w || 1700; h = h || 2200;
+  const m = (model || '').toLowerCase();
+
+  // OpenAI patch-based (GPT-5 family): 1 token per 32×32 patch, capped.
+  if (m.startsWith('gpt-5')) {
+    const patches = Math.ceil(w / 32) * Math.ceil(h / 32);
+    return Math.min(patches, 1536);
+  }
+  // OpenAI tile-based (gpt-4o, gpt-4-turbo, gpt-4o-mini).
+  if (m.startsWith('gpt-4')) {
+    let pw = w, ph = h;
+    const fit = 2048 / Math.max(pw, ph);
+    if (fit < 1) { pw = Math.round(pw * fit); ph = Math.round(ph * fit); }
+    const shortest = Math.min(pw, ph);
+    if (shortest > 768) { const s = 768 / shortest; pw = Math.round(pw * s); ph = Math.round(ph * s); }
+    const tiles = Math.ceil(pw / 512) * Math.ceil(ph / 512);
+    const base  = 85 + 170 * tiles;
+    // gpt-4o-mini bills image tokens at a large multiple of the base.
+    return m.includes('mini') ? base * 33 : base;
+  }
+  // Gemini: 258 tokens per 768×768 tile (flat 258 when it fits in one).
+  if (m.startsWith('gemini')) {
+    const tiles = Math.max(1, Math.ceil(w / 768) * Math.ceil(h / 768));
+    return tiles * 258;
+  }
+  // Unknown model — flat fallback.
+  return _VISION_TOKENS_PER_PAGE;
+}
 /* Rough chars-per-byte ratio for native-text PDFs (extracted text is
    usually 25-40% of the file size).  Then ~4 chars per token. */
 const _TEXT_CHARS_PER_BYTE = 0.30;
@@ -1111,20 +1152,38 @@ function estimateBatchCostUsd() {
 
   const useText = state.useTextExtraction || state.provider === 'deepseek';
   let inputTokens = 0;
+  let exact = true;   // true while every paper used real probe data
   for (const f of state.selectedFiles) {
+    // Prefer the upfront /api/check-pdf probe (exact page count + text
+    // chars + per-page pixel dims) over the file-size heuristic.  The
+    // probe runs on upload, so its data is usually ready by estimate time.
+    const probe = (f.probe && !f.probe.error) ? f.probe : null;
     if (useText) {
-      const chars = f.size * _TEXT_CHARS_PER_BYTE;
-      inputTokens += chars / _TEXT_CHARS_PER_TOKEN;
+      if (probe && typeof probe.total_text_chars === 'number') {
+        inputTokens += probe.total_text_chars / _TEXT_CHARS_PER_TOKEN;
+      } else {
+        inputTokens += (f.size * _TEXT_CHARS_PER_BYTE) / _TEXT_CHARS_PER_TOKEN;
+        exact = false;
+      }
     } else {
-      const pages = _estimatePagesFromBytes(f.size);
-      inputTokens += pages * _VISION_TOKENS_PER_PAGE;
+      if (probe && Array.isArray(probe.page_dims_px) && probe.page_dims_px.length) {
+        for (const [w, h] of probe.page_dims_px) {
+          inputTokens += _visionTokensForPage(state.model, w, h);
+        }
+      } else if (probe && typeof probe.total_pages === 'number') {
+        inputTokens += probe.total_pages * _VISION_TOKENS_PER_PAGE;
+        exact = false;
+      } else {
+        inputTokens += _estimatePagesFromBytes(f.size) * _VISION_TOKENS_PER_PAGE;
+        exact = false;
+      }
     }
     // Add prompt overhead (~ length of the generated prompt) per paper
     inputTokens += (state.generatedPrompt?.length || 4000) / 4;
   }
   const outputTokens = _OUTPUT_TOKENS_PER_PAPER * state.selectedFiles.length;
   const usd = (inputTokens / 1e6) * rate.in + (outputTokens / 1e6) * rate.out;
-  return { usd, inputTokens, outputTokens, useText };
+  return { usd, inputTokens, outputTokens, useText, exact };
 }
 
 function renderCostEstimate() {
@@ -1143,9 +1202,10 @@ function renderCostEstimate() {
     return;
   }
   // Show a ±50 % range to communicate genuine uncertainty
-  const low  = est.usd * 0.5;
-  const high = est.usd * 1.5;
-  const fmt  = n => n < 0.01 ? '< 0.01' : n.toFixed(n < 1 ? 2 : 2);
+  const spread = est.exact ? 0.25 : 0.5;
+  const low  = est.usd * (1 - spread);
+  const high = est.usd * (1 + spread);
+  const fmt  = n => n < 0.01 ? '< 0.01' : n.toFixed(2);
   const n    = state.selectedFiles.length;
   el.style.display = 'flex';
   el.innerHTML =
@@ -1153,7 +1213,9 @@ function renderCostEstimate() {
     `<span><strong>Estimated cost: \$${fmt(low)} – \$${fmt(high)}</strong> ` +
     `for ${n} paper${n !== 1 ? 's' : ''} on ${escHtml(state.model)} ` +
     `(${est.useText ? 'text' : 'vision'} mode). ` +
-    `<span class="cost-est-note">Approximate — actual usage may vary.</span></span>`;
+    `<span class="cost-est-note">${est.exact
+      ? 'Input measured from the PDF; only output size is estimated.'
+      : 'Approximate — actual usage may vary.'}</span></span>`;
 }
 
 /* ── Vision request-size warning ───────────────────────────────────────────
@@ -3858,6 +3920,11 @@ function isDottedNumericTable(obj) {
   // match the dotted regex, which keeps generic dicts from being
   // misclassified while making the table renderer robust to common
   // model abbreviations.
+  //
+  // A single group (e.g. a one-dimensional factor solution with only
+  // F1.1…F1.n) is accepted too: renderDottedTable renders it as a
+  // clean two-column "Item | F1" table rather than the misleading
+  // multi-column card grid the numgrid fallback produced.
   const groups = new Set();
   const items  = new Set();
   let matches = 0;
@@ -3871,7 +3938,7 @@ function isDottedNumericTable(obj) {
     matches++;
   }
   return matches >= 4
-      && groups.size >= 2
+      && groups.size >= 1
       && items.size  >= 2
       && matches >= keys.length * 0.75;
 }

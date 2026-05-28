@@ -267,6 +267,13 @@ def test_probe_text_layer_classifies_text_pdf(native_pdf_bytes):
     assert p["total_text_chars"] > 0
     assert p["text_layer_present"] is True
     assert isinstance(p["scanned_pages"], list)
+    # Per-page pixel dims at the extraction DPI — one [w, h] per page,
+    # derived from the page's point size (no rendering).  Used by the
+    # client to compute an exact vision-mode token estimate.
+    assert isinstance(p["page_dims_px"], list)
+    assert len(p["page_dims_px"]) == 3
+    for dims in p["page_dims_px"]:
+        assert len(dims) == 2 and dims[0] > 0 and dims[1] > 0
 
 
 def test_probe_text_layer_classifies_image_only_pdf():
