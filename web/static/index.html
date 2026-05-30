@@ -131,6 +131,13 @@
       <div class="preset-hero-logo" role="img" aria-label="MASEMiner">
         <img src="/static/maseminer-logo.svg" alt="MASEMiner" class="masem-logo-img" />
       </div>
+      <!-- Explainer video.  Autoplay requires ``muted`` in every modern
+           browser; ``playsinline`` keeps it inline on mobile Safari.
+           Controls are exposed so users can unmute / pause. -->
+      <video class="explainer-video" autoplay muted loop playsinline controls preload="metadata"
+             aria-label="MASEMiner explainer video">
+        <source src="/static/info_video_maseminer.mp4" type="video/mp4" />
+      </video>
       <p class="preset-hero-tagline">
         Extract MASEM-relevant statistical information and study metadata from primary studies
         for Meta-Analytic Structural Equation Modeling — with human-in-the-loop review.
@@ -193,6 +200,13 @@
 
       <!-- Mode grid (hidden when JSON upload panel is active) -->
       <div id="modeGrid">
+        <!-- Explainer video.  Autoplay requires ``muted`` in every
+             modern browser; ``playsinline`` keeps it inline on mobile
+             Safari.  Controls are exposed so users can unmute / pause. -->
+        <video class="explainer-video" autoplay muted loop playsinline controls preload="metadata"
+               aria-label="MetaPaperLens explainer video">
+          <source src="/static/info_video_meta_paperlens.mp4" type="video/mp4" />
+        </video>
         <h2>What would you like to do?</h2>
         <p class="subtitle">Choose a task to get started</p>
 

@@ -1661,6 +1661,20 @@ header p {
   width: 100%;
   height: auto;
 }
+
+/* Explainer video — embedded under the logo on the MetaPaperLens
+   landing (step 1 ``modeGrid``) and the MASEMiner welcome hero.
+   Centered, capped at a comfortable read-along width, with a subtle
+   shadow so it reads as a media block. */
+.explainer-video {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto 20px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  background: #000;
+}
 .preset-hero-mark {
   flex-shrink: 0;
   width: 120px;

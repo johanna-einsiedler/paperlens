@@ -106,6 +106,12 @@ function _renderMasemStarterCards() {
    paths would silently read stale Direct-vs-Indirect routing — the
    user picks Indirect, sees Direct sub-views on the result panel. */
 async function _selectMasemStarter(presetId, isUserClick) {
+  // Idempotent: clicking the already-active task card is a no-op.
+  // Without this guard, every re-click re-fetches the preset, resets
+  // the builder form, and overwrites ``state.generatedPrompt`` —
+  // which destroys any custom edits the user made in the manual
+  // textarea.  Only an actual STARTER CHANGE should regenerate.
+  if (isUserClick && _MASEM_BUILDER_STATE.starter === presetId) return;
   let preset = _MASEM_BUILDER_STATE.presetCache[presetId];
   if (!preset) {
     try {

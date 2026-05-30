@@ -759,13 +759,18 @@ function showStep3Choice() {
    user to the generic AI/manual picker (step3Choice), but when a MASEM
    preset is active the user got here by clicking "Edit raw prompt" in
    the MASEMiner builder — they expect Back to take them to the
-   Direct/Indirect template cards, not to a picker they never saw. */
+   Direct/Indirect template cards, not to a picker they never saw.
+
+   Critically, we just toggle visibility — we do NOT call
+   ``openMasemBuilder`` here, because that re-fetches the preset and
+   resets the builder form + overwrites the user's custom-edited
+   prompt.  Switching task (clicking a different Direct/Indirect card)
+   is what regenerates the prompt; navigating back must not. */
 function goBackFromManualPrompt() {
   if (typeof isMasemPreset === 'function' && isMasemPreset(state.activePreset)) {
     document.getElementById('manualSection').style.display = 'none';
-    if (typeof openMasemBuilder === 'function') {
-      openMasemBuilder(state.activePreset.id);
-    }
+    const builder = document.getElementById('masemBuilder');
+    if (builder) builder.style.display = '';
     return;
   }
   showStep3Choice();
@@ -2653,7 +2658,15 @@ function displayPaper(paper) {
     nav.style.display = 'none';
     const hasContent = (paper.result || '').trim().length > 0;
     if (hasContent) {
-      const presetLabel = state.activePreset?.title || 'paper';
+      // Use the Direct/Indirect task framing the user actually picked,
+      // rather than the internal preset title (which surfaces the
+      // implementation id like "MASEMiner — TAS-20" that's meaningless
+      // to a user who picked "Indirect information" in step 3).
+      const pid = state.activePreset?.id;
+      const presetLabel =
+        pid === 'masem'        ? 'MASEMiner — direct information' :
+        pid === 'masem-tas20'  ? 'MASEMiner — indirect information' :
+        (state.activePreset?.title || 'paper');
       display.innerHTML = `
         <div class="extraction-failed-panel">
           <div class="extraction-failed-warn">
