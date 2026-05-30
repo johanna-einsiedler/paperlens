@@ -2257,15 +2257,17 @@ async function loadServerConfig() {
       // already links to /).
       const logoLink = document.getElementById('headerLogoLink');
       if (logoLink) logoLink.href = '/maseminer';
-      // Step 1 in MASEMiner mode is now just a MetaPaperLens/MASEMiner
-      // mode toggle (rendered statically in index.html) — no per-render
-      // population needed.  Auto-apply the umbrella ``masem`` preset so
-      // step 2+ work without requiring the user to pick a starter.
-      // The Direct/Indirect task choice surfaces in step 3.
+      // Step 1 in MASEMiner mode is the MetaPaperLens/MASEMiner mode
+      // toggle (rendered statically in index.html) — no per-render
+      // population needed.  The ``masem`` preset is applied when the
+      // user clicks "Get started" on the welcome hero
+      // (``startPresetFromLanding`` → ``applyPreset`` → ``goTo(2)``).
+      // We do NOT auto-apply it here: that would fire ``goTo(2)``
+      // immediately, and ``goTo`` hides every ``.preset-landing``
+      // element — which would kill the welcome hero before the user
+      // ever saw it.  The Direct/Indirect task choice surfaces in
+      // step 3 once the user has entered the flow.
       state.mode = 'extraction';
-      if (typeof applyPreset === 'function') {
-        Promise.resolve(applyPreset('masem')).catch(() => {});
-      }
       // MASEMiner skips step 1 ("Choose your task") and step 5
       // ("Review prompt") — the user sees 1·2·3 mapped to
       //   1 = Configure AI model   (real id #step2)
