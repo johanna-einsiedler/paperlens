@@ -46,14 +46,22 @@ done
 
 # ── Static frontend ───────────────────────────────────────────────────────
 for f in index.html app.js masem-builder.js style.css \
-         logo.svg maseminer-logo.svg maseminer-mark.svg; do
+         logo.svg maseminer-logo.svg maseminer-mark.svg \
+         models.json info_video_maseminer.mp4; do
   cp "$SRC_WEB/static/$f" "$DEST/static/$f"
 done
 
 # ── MASEMiner presets only — strip non-masem* and archives ────────────────
-cp "$SRC_WEB/presets/masem.json"        "$DEST/presets/"
-cp "$SRC_WEB/presets/masem-tas20.json"  "$DEST/presets/"
-cp "$SRC_WEB/presets/masem.template.md" "$DEST/presets/"
+# Both prompt templates are required: masem-effect-sizes.template.md is
+# the Direct-information variant referenced by masem.json, and
+# masem.template.md is the Indirect (factor-analytic) one used by
+# masem-ncs18.json (the NCS-18 example starter — picked over TAS-20 to
+# avoid scale-copyright friction in the publicly distributed mirror).
+# Omitting either breaks the corresponding preset.
+cp "$SRC_WEB/presets/masem.json"                    "$DEST/presets/"
+cp "$SRC_WEB/presets/masem-ncs18.json"              "$DEST/presets/"
+cp "$SRC_WEB/presets/masem.template.md"             "$DEST/presets/"
+cp "$SRC_WEB/presets/masem-effect-sizes.template.md" "$DEST/presets/"
 
 # ── Test suite (smoke-reassurance for users) ──────────────────────────────
 for f in "$SRC_WEB"/tests/*.py; do
