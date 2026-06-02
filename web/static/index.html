@@ -188,6 +188,15 @@
   <!-- One-pager accordion: configuration sections 1–5 -->
   <div class="onepager" id="onepager">
 
+  <!-- Explainer video — sits above the step-1 accordion so it's the
+       first thing a visitor sees under the header.  Hidden in
+       MASEMiner mode (which has its own video inside the welcome
+       hero); CSS rule in style.css. -->
+  <video class="explainer-video onepager-video" autoplay muted loop playsinline controls preload="metadata"
+         aria-label="MetaPaperLens explainer video">
+    <source src="/static/info_video_meta_paperlens.mp4" type="video/mp4" />
+  </video>
+
   <!-- Section 1: Mode selection -->
   <details class="acc-section" id="step1" open>
     <summary class="acc-header">
@@ -200,13 +209,6 @@
 
       <!-- Mode grid (hidden when JSON upload panel is active) -->
       <div id="modeGrid">
-        <!-- Explainer video.  Autoplay requires ``muted`` in every
-             modern browser; ``playsinline`` keeps it inline on mobile
-             Safari.  Controls are exposed so users can unmute / pause. -->
-        <video class="explainer-video" autoplay muted loop playsinline controls preload="metadata"
-               aria-label="MetaPaperLens explainer video">
-          <source src="/static/info_video_meta_paperlens.mp4" type="video/mp4" />
-        </video>
         <h2>What would you like to do?</h2>
         <p class="subtitle">Choose a task to get started</p>
 
@@ -555,7 +557,7 @@
             <label class="masem-scalar">
               <span class="masem-scalar-label">Scale name</span>
               <input type="text" id="masemScaleName"
-                     placeholder="e.g. Toronto Alexithymia Scale (TAS-20)" />
+                     placeholder="e.g. Need for Cognition Scale (NCS-18)" />
               <span class="masem-scalar-hint">Full name + abbreviation</span>
             </label>
             <label class="masem-scalar masem-scalar-narrow">

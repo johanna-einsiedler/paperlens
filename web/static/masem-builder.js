@@ -37,7 +37,7 @@ const _MASEM_STARTERS = [
   { id: 'masem',          label: 'Direct information',
     tagline: 'Extract correlations from text and table(s).',
     icon: _MASEM_STARTER_ICON_DIRECT },
-  { id: 'masem-tas20',    label: 'Indirect information',
+  { id: 'masem-ncs18',    label: 'Indirect information',
     tagline: 'Extract factor loadings and factor correlations from text and table(s).',
     icon: _MASEM_STARTER_ICON_INDIRECT },
 ];
@@ -208,8 +208,8 @@ function _readFormIntoParams() {
   // n_factors / n_factors_max are no longer surfaced in the form — they
   // come from the preset's template_params defaults.
   // ``data_sources`` is NOT overwritten here: each starter preset
-  // declares its own (``masem`` → ``["effect_sizes"]``, ``masem-tas20``
-  // → ``["factor_correlations", "factor_loadings"]``).  Overwriting it
+  // declares its own (``masem`` → ``["records"]``, ``masem-ncs18``
+  // → ``["factor_loadings", "factor_correlations"]``).  Overwriting it
   // would force every starter through one fixed shape and silently
   // rebuild the sub_views to match — which is what produced Factor-
   // loadings tabs in Direct mode.

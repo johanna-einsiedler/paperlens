@@ -2,11 +2,11 @@
   "id":                "masem",
   "title":             "MASEMiner",
   "tagline":           "Extract pairwise effect sizes and study metadata from primary studies for Meta-Analytic Structural Equation Modeling",
-  "description":       "MASEMiner — Direct information variant.  Extracts every reported pairwise effect size (correlations from matrices and prose, plus any other bivariate effect-size statistic) and coded study metadata, in the unified `effect_sizes._table` schema that downstream MASEM tools consume.  The matching Indirect-information variant (masem-tas20) extracts factor loadings and factor correlations instead.",
+  "description":       "MASEMiner — Direct information variant.  Extracts pairwise effect sizes (and the reliability + instrument metadata reported with them) into a flat `records[]` array per sample, plus coded study metadata.  The matching Indirect-information variant (masem-ncs18) extracts factor loadings and factor correlations instead.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
-  "task_description":  "Extract every reported pairwise effect size (with canonical and verbatim variable labels) and coded study/sample metadata for every sample reported in the paper.",
+  "task_description":  "Extract every reported pairwise effect size (with canonical and verbatim variable labels, sample size, reliability, and instrument metadata) and coded study/sample metadata for every sample reported in the paper.",
   "context":           "MASEMiner workflow for primary studies that report effect sizes directly (correlation matrices, prose-reported correlations, or other bivariate effect-size statistics).",
   "prompt_template_file": "masem-effect-sizes.template.md",
   "template_params": {
@@ -17,7 +17,7 @@
     "n_factors":            0,
     "factor_naming":        [],
     "cfa_item_assignment":  {},
-    "data_sources":         ["effect_sizes", "reliabilities"],
+    "data_sources":         ["records"],
     "content_scope":        "concrete_items",
     "include_item_texts":   false,
     "item_texts":           [],
@@ -28,19 +28,13 @@
     {
       "id":            "correlations",
       "label":         "Correlations",
-      "include_keys":  ["sample_id", "n", "effect_sizes"],
-      "evidence_keys": ["effect_sizes"]
-    },
-    {
-      "id":            "reliabilities",
-      "label":         "Reliabilities",
-      "include_keys":  ["sample_id", "n", "reliabilities"],
-      "evidence_keys": ["reliabilities"]
+      "include_keys":  ["sample_id", "records"],
+      "evidence_keys": ["records"]
     },
     {
       "id":           "descriptives",
       "label":        "Descriptives",
-      "exclude_keys": ["effect_sizes", "reliabilities", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"]
+      "exclude_keys": ["records", "effect_sizes", "reliabilities", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"]
     }
   ],
   "skip_to":           "setup",

@@ -117,8 +117,9 @@ def test_get_preset_returns_full_dict(client):
     # presets bypass the LLM-generation step that normally appends it)
     prompt = body["prompt"]
     # Some preset shape that the renderer can table-ify — either the explicit
-    # `_table` marker OR the dotted-key format (F1.1, R1.2, ...)
-    assert ("_table" in prompt) or ("F1.1" in prompt) or ("R1.2" in prompt)
+    # `_table` marker, the dotted-key format (F1.1, R1.2), or the new Direct
+    # ``records[]`` array of objects.
+    assert ("_table" in prompt) or ("F1.1" in prompt) or ("R1.2" in prompt) or ("records" in prompt)
     assert "evidence" in prompt.lower()
     assert "snippet" in prompt.lower()
     assert "page" in prompt.lower()
@@ -131,123 +132,118 @@ def test_get_preset_404_for_unknown(client):
 
 def test_masem_preset_declares_sub_views(client):
     """The umbrella ``masem`` preset (Direct-information variant) ships
-    three sub-tabs: Correlations (effect_sizes._table), Reliabilities
-    (reliabilities._table), and Descriptives (everything else).
-    Declared explicitly in masem.json."""
+    two sub-tabs: Correlations (the per-sample ``records[]`` array) and
+    Descriptives (everything else).  Reliability and instrument fields
+    live inline on each record (``rel1``, ``rel2``, ``instr1``,
+    ``instr2``) rather than in a separate top-level array, so there is
+    no longer a separate Reliabilities tab.  Declared explicitly in
+    masem.json."""
     r = client.get("/api/presets/masem")
     body = r.json()
     sub_views = body.get("sub_views")
     assert isinstance(sub_views, list)
-    assert len(sub_views) == 3
+    assert len(sub_views) == 2
     ids = [s["id"] for s in sub_views]
-    assert ids == ["correlations", "reliabilities", "descriptives"]
+    assert ids == ["correlations", "descriptives"]
     for sv in sub_views:
         assert "label" in sv and sv["label"]
         assert ("include_keys" in sv) or ("exclude_keys" in sv)
     by_id = {s["id"]: s for s in sub_views}
-    assert "effect_sizes"   in by_id["correlations"]["include_keys"]
-    assert "reliabilities"  in by_id["reliabilities"]["include_keys"]
-    assert "effect_sizes"   in by_id["descriptives"]["exclude_keys"]
-    assert "reliabilities"  in by_id["descriptives"]["exclude_keys"]
-    assert by_id["correlations"]["evidence_keys"]  == ["effect_sizes"]
-    assert by_id["reliabilities"]["evidence_keys"] == ["reliabilities"]
+    assert "records" in by_id["correlations"]["include_keys"]
+    assert "records" in by_id["descriptives"]["exclude_keys"]
+    assert by_id["correlations"]["evidence_keys"] == ["records"]
     assert "evidence_keys" not in by_id["descriptives"]
 
 
-# ── Variants (TAS-20 example, hidden from landing) ────────────────────────
+# ── Variants (NCS-18 example, hidden from landing) ────────────────────────
 
 def test_landing_lists_only_umbrella_masem(client):
     """The landing-list endpoint should surface only the parent ``masem``
-    preset; variant starters (e.g. ``masem-tas20``) are reachable via
+    preset; variant starters (e.g. ``masem-ncs18``) are reachable via
     the in-app builder but should not clutter the landing-screen
     workflow picker."""
     r = client.get("/api/presets")
     ids = [p["id"] for p in r.json()["presets"]]
     assert "masem" in ids
-    assert "masem-tas20" not in ids
+    assert "masem-ncs18" not in ids
 
 
 def test_variant_preset_still_fetchable_by_id(client):
     """Hidden landing presets must still be loadable by id (the in-app
     builder posts to /api/build-preset-prompt with the variant id)."""
-    r = client.get("/api/presets/masem-tas20")
+    r = client.get("/api/presets/masem-ncs18")
     assert r.status_code == 200
     body = r.json()
     assert body.get("landing_hidden") is True
 
 
-def test_umbrella_masem_is_blank_effect_sizes_starter(client):
+def test_umbrella_masem_is_blank_records_starter(client):
     """The umbrella ``masem`` preset is the Direct-information variant:
-    it extracts pairwise effect sizes directly (correlations from
-    matrices, prose, and other bivariate statistics) plus metadata.
-    No factor-analysis fields are pre-baked — the matching Indirect-
-    information starter (``masem-tas20``) covers that path."""
+    it extracts pairwise effect sizes (plus inline reliability and
+    instrument metadata) into a flat ``records[]`` array per sample,
+    alongside coded study metadata.  No factor-analysis fields are
+    pre-baked — the matching Indirect-information starter
+    (``masem-ncs18``) covers that path."""
     r = client.get("/api/presets/masem")
     body = r.json()
     p = body["template_params"]
-    assert p["data_sources"] == ["effect_sizes", "reliabilities"]
+    assert p["data_sources"] == ["records"]
     # Factor-analysis fields stay blank in the Direct variant — those
     # are the Indirect variant's territory.
     assert p.get("factor_naming") in ([], None)
     assert p.get("cfa_item_assignment") in ({}, None)
     assert p.get("item_texts") in ([], None)
     # Rendered prompt is the effect-sizes template (no factor-analytic
-    # steps).  Headline structure: pairwise effect sizes + metadata.
+    # steps).  Headline structure: per-sample ``records[]`` of effect
+    # sizes + inline reliability/instrument fields + sample metadata.
     prompt = body["prompt"]
-    assert "effect_sizes" in prompt
-    assert "es_id" in prompt
+    assert "records" in prompt
+    assert '"var1"' in prompt
+    assert '"rel1_type"' in prompt
     # No factor-analytic content in this template.
-    assert "## STEP 5: Extract factor loadings" not in prompt
-    # Sub-views: Correlations + Reliabilities + Descriptives.
+    assert "EXTRACT FACTOR LOADINGS" not in prompt
+    # Sub-views: Correlations + Descriptives.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["correlations", "reliabilities", "descriptives"]
+    assert sub_ids == ["correlations", "descriptives"]
 
 
-def test_tas20_variant_renders_with_pre_baked_scaffold(client):
-    """The TAS-20 sub-preset ships the TAS-20 scaffold inside the SCALE
-    SPECIFICATION header: scale name, item count, max factors, and the
-    auto-generated factor_key_mapping.  Verbatim TAS-20 item texts are
-    NOT shipped — the scale is copyrighted and users paste their own
-    items via the in-app builder.  The factor_labels block (DIF / DDF /
-    EOT) was removed because it confused the model on papers using
-    non-standard factor names."""
-    r = client.get("/api/presets/masem-tas20")
+def test_ncs18_variant_renders_with_pre_baked_scaffold(client):
+    """The NCS-18 sub-preset ships the NCS-18 scaffold inside the
+    VARIABLE SCALE CONFIGURATION header: scale name, item count, the
+    18 verbatim item texts (NCS-18 was chosen as the default example
+    because its items can be distributed without the scale-copyright
+    friction of TAS-20), and the auto-generated factor_key_mapping."""
+    r = client.get("/api/presets/masem-ncs18")
     assert r.status_code == 200
     body = r.json()
     prompt = body["prompt"]
-    # SCALE SPECIFICATION header + values
-    assert "# SCALE SPECIFICATION" in prompt
-    assert "[scale_name]: Toronto Alexithymia Scale (TAS-20)" in prompt
-    assert "[n_items]: 20" in prompt
-    assert "[n_factors_max]: 5" in prompt
-    # factor_labels block must NOT be in the prompt anymore
-    assert "[factor_labels]" not in prompt
-    assert "F1 = DIF" not in prompt
-    # Factor-key mapping auto-generated for the 5 factors — still there
+    # VARIABLE SCALE CONFIGURATION block + values
+    assert "VARIABLE SCALE CONFIGURATION" in prompt
+    assert "[scale_name]: Need for Cognition Scale (NCS-18)" in prompt
+    assert "[n_items]: 18" in prompt
+    # Factor-key mapping auto-generated for the default 2 factors.
     assert "[factor_key_mapping]" in prompt
     assert "F-I, FI, Factor I, Factor 1, Component 1 -> F1" in prompt
-    assert "F-V, FV, Factor V, Factor 5, Component 5 -> F5" in prompt
-    # Item-text list — copyrighted TAS-20 items must NOT be shipped.
-    assert "I am often confused about what emotion I am feeling." not in prompt
-    assert "Looking for hidden meanings in movies or plays" not in prompt
-    # The new template adds the confidence-self-assessment step
-    assert "## STEP 9: Self-assess extraction confidence" in prompt
+    assert "F-II, FII, Factor II, Factor 2, Component 2 -> F2" in prompt
+    # Item-text list ships verbatim — the whole point of switching the
+    # default example from TAS-20 to NCS-18.
+    assert "1: I would prefer complex to simple problems." in prompt
+    assert "18: I usually end up deliberating about issues even when they do not affect me personally." in prompt
+    # New template uses uppercased ``# STEP 9: ...`` heading.
+    assert "STEP 9: SELF-ASSESS EXTRACTION CONFIDENCE" in prompt
     assert '"extraction_confidence"' in prompt
-    # Sub-views match TAS-20 (factor loadings + factor correlations).
-    # Order follows ``data_sources`` — loadings first because reviewers
-    # typically validate the item-level structure before checking the
-    # inter-factor correlations that flow from it.
+    # Sub-views: factor loadings + factor correlations + descriptives.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
     assert sub_ids == ["loadings", "correlations", "descriptives"]
 
 
-def test_tas20_variant_includes_user_supplied_item_texts(client):
+def test_ncs18_variant_includes_user_supplied_item_texts(client):
     """Users paste their own item texts into the Item labels textarea.
     When that posts back through /api/build-preset-prompt with the
-    TAS-20 starter, the rendered prompt must surface those item texts
-    in the SCALE SPECIFICATION block."""
+    NCS-18 (or any masem-* Indirect) starter, the rendered prompt must
+    surface those item texts in the VARIABLE SCALE CONFIGURATION block."""
     r = client.post("/api/build-preset-prompt", json={
-        "preset_id": "masem-tas20",
+        "preset_id": "masem-ncs18",
         "template_params": {
             "item_texts": [
                 "User-pasted item 1",
@@ -264,27 +260,23 @@ def test_tas20_variant_includes_user_supplied_item_texts(client):
 
 
 def test_extraction_confidence_block_in_default_prompt(client):
-    """Both the Direct (``masem``, effect-sizes template) and Indirect
-    (``masem-tas20``, factor-analytic template) presets instruct the
-    model to self-assess its extraction confidence and emit an
-    ``extraction_confidence`` object in every sample."""
-    # ── Direct / effect-sizes preset ──
+    """The Indirect (``masem-ncs18``, factor-analytic) preset instructs
+    the model to self-assess its extraction confidence and emit an
+    ``extraction_confidence`` object in every sample.  The Direct
+    (``masem``) preset's v2 template intentionally drops this block
+    (no confidence ratings on the simpler records-based schema)."""
+    # Direct preset must NOT contain the confidence block.
     direct = client.post("/api/build-preset-prompt", json={
         "preset_id": "masem", "template_params": {},
     }).json()
-    p_direct = direct["prompt"]
-    assert "Self-assess extraction confidence" in p_direct
-    assert "`effect_sizes`" in p_direct
-    assert "`metadata`" in p_direct
-    assert '"extraction_confidence"' in p_direct
-    for level in ('"high"', '"medium"', '"low"'):
-        assert level in p_direct
+    assert "extraction_confidence" not in direct["prompt"]
     # ── Indirect / factor-analytic preset ──
     indirect = client.post("/api/build-preset-prompt", json={
-        "preset_id": "masem-tas20", "template_params": {},
+        "preset_id": "masem-ncs18", "template_params": {},
     }).json()
     p_indirect = indirect["prompt"]
-    assert "## STEP 9: Self-assess extraction confidence" in p_indirect
+    # New template uses uppercased ``# STEP 9: ...`` heading.
+    assert "STEP 9: SELF-ASSESS EXTRACTION CONFIDENCE" in p_indirect
     assert "``factor_loadings``" in p_indirect
     assert "``factor_correlations``" in p_indirect
     assert "``metadata``" in p_indirect
@@ -309,11 +301,11 @@ def test_build_preset_prompt_overrides_data_sources(client):
     """User-supplied ``data_sources`` regenerates ``sub_views`` to match
     those sources (auto-generation path), overriding any explicit
     ``sub_views`` declared on the preset.  Direct vs Indirect mode is
-    now selected by picking the preset (``masem`` vs ``masem-tas20``),
+    now selected by picking the preset (``masem`` vs ``masem-ncs18``),
     not by overriding ``data_sources``, but the override path remains
     valid for users who want to tune sources inside a preset."""
     r = client.post("/api/build-preset-prompt", json={
-        "preset_id": "masem-tas20",
+        "preset_id": "masem-ncs18",
         "template_params": {
             "data_sources": ["factor_loadings", "factor_correlations"],
             "scale_name":            "Toronto Alexithymia Scale (TAS-20)",
@@ -328,10 +320,10 @@ def test_build_preset_prompt_overrides_data_sources(client):
     body = r.json()
     prompt = body["prompt"]
     # The factor-analytic template structures loadings + correlations
-    # as Step 5 + 6.
-    assert "## STEP 5: Extract factor loadings" in prompt
-    assert "## STEP 6: Extract factor correlations" in prompt
-    # Scale-specification values flow through to the prompt body.
+    # as Step 5 + 6 (uppercased ``# STEP …`` headings in the v3 prompt).
+    assert "STEP 5: EXTRACT FACTOR LOADINGS" in prompt
+    assert "STEP 6: EXTRACT FACTOR CORRELATIONS" in prompt
+    # User-overridden scale config flows through to the prompt body.
     assert "[scale_name]: Toronto Alexithymia Scale (TAS-20)" in prompt
     sub_ids = [sv["id"] for sv in body["sub_views"]]
     assert sub_ids == ["loadings", "correlations", "descriptives"]

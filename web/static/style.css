@@ -1662,10 +1662,10 @@ header p {
   height: auto;
 }
 
-/* Explainer video — embedded under the logo on the MetaPaperLens
-   landing (step 1 ``modeGrid``) and the MASEMiner welcome hero.
-   Centered, capped at a comfortable read-along width, with a subtle
-   shadow so it reads as a media block. */
+/* Explainer video — sits above the step-1 accordion on MetaPaperLens
+   and inside the welcome hero on MASEMiner.  Centered, capped at a
+   comfortable read-along width, with a subtle shadow so it reads as
+   a media block. */
 .explainer-video {
   display: block;
   width: 100%;
@@ -1675,6 +1675,11 @@ header p {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   background: #000;
 }
+/* On the MetaPaperLens page the video sits in the ``onepager`` flow,
+   above the first accordion section.  In MASEMiner mode the welcome
+   hero carries its own explainer, so hide this one to avoid two
+   videos on screen at once. */
+body.is-maseminer .onepager-video { display: none; }
 .preset-hero-mark {
   flex-shrink: 0;
   width: 120px;

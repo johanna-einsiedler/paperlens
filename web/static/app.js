@@ -2665,7 +2665,7 @@ function displayPaper(paper) {
       const pid = state.activePreset?.id;
       const presetLabel =
         pid === 'masem'        ? 'MASEMiner — direct information' :
-        pid === 'masem-tas20'  ? 'MASEMiner — indirect information' :
+        pid === 'masem-ncs18'  ? 'MASEMiner — indirect information' :
         (state.activePreset?.title || 'paper');
       display.innerHTML = `
         <div class="extraction-failed-panel">
@@ -2725,7 +2725,7 @@ function _buildManualScaffold(activePreset) {
   if (!activePreset) return [{}];
   // Pick the scaffold shape from the preset's id.  The Direct
   // (``masem``) variant returns one empty effect-size table plus the
-  // sample metadata; the Indirect (``masem-tas20``) variant returns a
+  // sample metadata; the Indirect (``masem-ncs18``) variant returns a
   // factor-loading/correlation dotted-key matrix.  Hard-coded shapes
   // were left over from when ``masem`` was the only preset and meant
   // factor analysis — easy to misread now that ``masem`` means Direct.
@@ -2738,7 +2738,7 @@ function _buildManualScaffold(activePreset) {
       n: null, female: null, age: null, clinical: null, notes: '',
     }];
   }
-  if (activePreset.id === 'masem-tas20' || /^masem-/.test(activePreset.id || '')) {
+  if (activePreset.id === 'masem-ncs18' || /^masem-/.test(activePreset.id || '')) {
     const factor_loadings = {};
     for (let f = 1; f <= 5; f++) {
       for (let i = 1; i <= 20; i++) factor_loadings[`F${f}.${i}`] = null;
