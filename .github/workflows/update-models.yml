@@ -1,0 +1,76 @@
+name: Weekly model + pricing sync
+
+# Regenerates web/static/models.json from the LiteLLM pricing dataset +
+# each provider's /models API (newest 5 chat/vision models per provider).
+# Commits straight to main when something changed.  The frontend falls
+# back to its baked-in defaults if the file is ever missing/malformed, so
+# a bad sync degrades gracefully rather than breaking the app.
+#
+# Provider API keys are optional: a provider with no key (or a failed
+# call) keeps its existing models.json entry, so partial secrets still
+# produce a valid file.
+
+on:
+  schedule:
+    # 06:17 UTC every Monday (off-the-hour to dodge cron congestion).
+    - cron: "17 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-models:
+    runs-on: ubuntu-latest
+    # Job-level env so the deploy step's ``if`` can test the token's
+    # presence (the ``secrets`` context isn't available in step ``if``).
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Regenerate models.json
+        env:
+          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          MISTRAL_API_KEY:   ${{ secrets.MISTRAL_API_KEY }}
+        run: python .github/scripts/update_models.py
+
+      - name: Commit changes (if any)
+        id: commit
+        run: |
+          if git diff --quiet -- web/static/models.json; then
+            echo "No model/pricing changes."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/static/models.json
+          git commit -m "chore: weekly model + pricing sync"
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # Deploy so the live app actually picks up the new models.json.
+      # Fly only redeploys on `fly deploy`, not on git push — without this
+      # the repo would update but paper.metalens.tech would not.  Skipped
+      # automatically when FLY_API_TOKEN isn't configured.
+      - name: Deploy to Fly
+        if: steps.commit.outputs.changed == 'true' && env.FLY_API_TOKEN != ''
+        run: |
+          curl -L https://fly.io/install.sh | sh
+          export FLYCTL_INSTALL="$HOME/.fly"
+          export PATH="$FLYCTL_INSTALL/bin:$PATH"
+          flyctl deploy --remote-only --config web/fly.toml --dockerfile web/Dockerfile
