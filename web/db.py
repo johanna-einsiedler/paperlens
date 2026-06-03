@@ -111,6 +111,28 @@ def init() -> None:
               created_at    REAL
             )
         """)
+        # Donations: one row per attempted dataset donation, used for both
+        # rate-limiting (ip_hash + created_at) and audit (which batch went
+        # where, what dataset id was minted, did the PR succeed).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS donations (
+              id                  TEXT PRIMARY KEY,
+              batch_id            TEXT,
+              dataset_id          TEXT,
+              extends_dataset_id  TEXT,
+              title               TEXT,
+              visibility          TEXT,
+              attribution_mode    TEXT,
+              ip_hash             TEXT,
+              github_pr_url       TEXT,
+              github_pr_number    INTEGER,
+              zenodo_deposit_id   TEXT,
+              status              TEXT,
+              error               TEXT,
+              created_at          REAL,
+              updated_at          REAL
+            )
+        """)
         # Migrate any older "jobs" table missing newer columns
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
         for name, type_ in _ADDITIVE_JOB_COLUMNS:
@@ -123,6 +145,10 @@ def init() -> None:
         if "session_id" not in existing_batch_cols:
             conn.execute("ALTER TABLE batches ADD COLUMN session_id TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS batches_session_id_idx ON batches(session_id)")
+        # Donations indexes — rate-limit scan is keyed on (ip_hash, created_at)
+        # and audit lookups are keyed on batch_id.
+        conn.execute("CREATE INDEX IF NOT EXISTS donations_ip_hash_idx   ON donations(ip_hash, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS donations_batch_id_idx  ON donations(batch_id)")
 
 
 # ── Job CRUD ──────────────────────────────────────────────────────────────────
@@ -365,3 +391,75 @@ def claim_batch_notification(batch_id: str) -> bool:
             (time.time(), batch_id),
         )
         return cur.rowcount > 0
+
+
+# ── Donations CRUD ────────────────────────────────────────────────────────────
+
+def create_donation(
+    donation_id: str,
+    *,
+    batch_id: str | None,
+    dataset_id: str | None,
+    extends_dataset_id: str | None,
+    title: str,
+    visibility: str,
+    attribution_mode: str,
+    ip_hash: str,
+) -> None:
+    """Insert a pending donation row.  ``status`` starts as 'pending';
+    donor.py promotes it to 'pr-opened' / 'failed' as the PR creation
+    completes (or to 'dry-run' when the live flag is off)."""
+    now = time.time()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO donations
+                 (id, batch_id, dataset_id, extends_dataset_id, title, visibility,
+                  attribution_mode, ip_hash, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+            (donation_id, batch_id, dataset_id, extends_dataset_id, title,
+             visibility, attribution_mode, ip_hash, now, now),
+        )
+
+
+def update_donation_result(
+    donation_id: str,
+    *,
+    status: str,
+    github_pr_url: str | None = None,
+    github_pr_number: int | None = None,
+    zenodo_deposit_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE donations SET
+                 status            = ?,
+                 github_pr_url     = COALESCE(?, github_pr_url),
+                 github_pr_number  = COALESCE(?, github_pr_number),
+                 zenodo_deposit_id = COALESCE(?, zenodo_deposit_id),
+                 error             = COALESCE(?, error),
+                 updated_at        = ?
+               WHERE id = ?""",
+            (status, github_pr_url, github_pr_number, zenodo_deposit_id,
+             error, time.time(), donation_id),
+        )
+
+
+def count_donations_by_ip(ip_hash: str, within_seconds: int) -> int:
+    """How many donations from this peppered-IP hash in the last N seconds?
+    Used by the rate-limiter at /api/donate."""
+    cutoff = time.time() - within_seconds
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM donations WHERE ip_hash = ? AND created_at >= ?",
+            (ip_hash, cutoff),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def get_donation(donation_id: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM donations WHERE id = ?", (donation_id,),
+        ).fetchone()
+    return dict(row) if row else None

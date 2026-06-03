@@ -45,6 +45,11 @@ const _MASEM_STARTERS = [
 const _MASEM_BUILDER_STATE = {
   starter: null,            // active starter preset id
   params:  {},              // current template_params (live form state)
+  defaults: {},             // pristine deep-copy of the preset's template_params
+                            // — used to fall back on empty inputs so the
+                            // form can show light-grey placeholders without
+                            // forcing the user to retype the defaults to
+                            // keep them.
   presetCache: {},          // id → fetched preset detail (avoids re-GET on starter switch)
   previewTimer: null,       // debounce timer for re-render after typing
 };
@@ -124,8 +129,12 @@ async function _selectMasemStarter(presetId, isUserClick) {
       return;
     }
   }
-  _MASEM_BUILDER_STATE.starter = presetId;
-  _MASEM_BUILDER_STATE.params  = JSON.parse(JSON.stringify(preset.template_params || {}));
+  _MASEM_BUILDER_STATE.starter  = presetId;
+  _MASEM_BUILDER_STATE.params   = JSON.parse(JSON.stringify(preset.template_params || {}));
+  // Keep an untouched copy of the preset defaults so empty form inputs
+  // can fall back to them in _readFormIntoParams without forcing the user
+  // to retype.  Deep-cloned so mutations to .params never leak here.
+  _MASEM_BUILDER_STATE.defaults = JSON.parse(JSON.stringify(preset.template_params || {}));
   // Mirror the new preset onto state.activePreset so id / sub_views /
   // prompt are all consistent.  Mutate the existing object rather than
   // reassigning so any outside references stay valid.
@@ -149,20 +158,51 @@ async function _selectMasemStarter(presetId, isUserClick) {
    Direct (effect_sizes) and Indirect (factor_*) shapes are honoured
    without the form overwriting them.) */
 
-/* Mirror the working params into the form widgets. */
+/* Mirror the working params into the form widgets.  The scale name and
+   item-labels inputs intentionally start EMPTY so the placeholder shows
+   in the muted text color browsers reserve for placeholders — that
+   visually signals "these are example values, not required input".
+   The actual preset defaults still live in
+   ``_MASEM_BUILDER_STATE.defaults`` and are reapplied by
+   _readFormIntoParams when the user leaves the field blank, so leaving
+   it untouched keeps NCS-18 (for the Indirect example) as the working
+   default. */
 function _populateBuilderForm(params) {
   // Compact scalar row — scale name + item count.
   const scaleName = params.scale_name
                  || params.instrument_name
                  || params.instrument_name_long
                  || '';
+  const isGenericName = !scaleName || scaleName === 'the target scale' || scaleName === 'the target instrument';
   const scaleEl = document.getElementById('masemScaleName');
-  if (scaleEl) scaleEl.value = scaleName === 'the target scale' ? '' : scaleName;
+  if (scaleEl) {
+    scaleEl.value = '';
+    scaleEl.placeholder = isGenericName
+      ? 'e.g. Need for Cognition Scale (NCS-18)'
+      : `e.g. ${scaleName}`;
+  }
   const nItemsEl = document.getElementById('masemNItems');
   if (nItemsEl) nItemsEl.value = (params.n_items != null) ? params.n_items : '';
 
-  // Item labels textarea — serialise item_texts back as "1: text".
-  document.getElementById('masemCInput').value = _serialiseItemTexts(params.item_texts || []);
+  // Item labels textarea — show only the first 3 items + "..." as the
+  // placeholder so the user sees the format and a sense of the default
+  // scale without staring at 18 lines of pre-filled text that read as
+  // "required input".  Leaving the field empty keeps the preset's full
+  // 18-item default for prompt building (see _readFormIntoParams).
+  const items = Array.isArray(params.item_texts) ? params.item_texts : [];
+  const cEl = document.getElementById('masemCInput');
+  if (cEl) {
+    cEl.value = '';
+    if (items.length > 0) {
+      const head = items.slice(0, 3).map((t, i) => `${i + 1}: ${t}`).join('\n');
+      const moreSuffix = items.length > 3
+        ? `\n…  (${items.length - 3} more example items used by default — replace this block to extract from a different scale)`
+        : '';
+      cEl.placeholder = head + moreSuffix;
+    } else {
+      cEl.placeholder = '1: <first item text>\n2: <second item text>\n3: <third item text>\n…';
+    }
+  }
 }
 
 /* Serialise a list of item texts back into the textarea body as
@@ -183,9 +223,15 @@ function _parseItemTexts(text) {
 /* Read the current form values back into ``_MASEM_BUILDER_STATE.params``,
    preserving fields the form doesn't expose (cfa_item_assignment, etc.)
    — those come from the starter's defaults and can be tuned later via
-   JSON edits if needed. */
+   JSON edits if needed.
+
+   Empty inputs fall back to ``_MASEM_BUILDER_STATE.defaults`` (the
+   pristine preset deep-copy).  That makes the form's placeholders truly
+   feel like placeholders: leave the field blank → the preset's NCS-18
+   default kicks in; type a replacement → the user's value wins. */
 function _readFormIntoParams() {
   const p = _MASEM_BUILDER_STATE.params;
+  const d = _MASEM_BUILDER_STATE.defaults || {};
   // Compact scalar row.
   const scaleEl = document.getElementById('masemScaleName');
   if (scaleEl) {
@@ -195,9 +241,12 @@ function _readFormIntoParams() {
       p.instrument_name = v;
       p.instrument_name_long = v;
     } else {
-      p.scale_name = 'the target scale';
-      p.instrument_name = 'the target scale';
-      p.instrument_name_long = 'the target scale';
+      // Empty → restore preset default so the prompt builds with the
+      // canonical scale name instead of a stale "My Scale" the user
+      // typed and then cleared.
+      p.scale_name          = d.scale_name          || 'the target scale';
+      p.instrument_name     = d.instrument_name     || p.scale_name;
+      p.instrument_name_long = d.instrument_name_long || p.scale_name;
     }
   }
   const nItemsEl = document.getElementById('masemNItems');
@@ -214,10 +263,17 @@ function _readFormIntoParams() {
   // rebuild the sub_views to match — which is what produced Factor-
   // loadings tabs in Direct mode.
   p.content_scope = 'concrete_items';
-  // Item labels textarea → item_texts list.
+  // Item labels textarea → item_texts list.  Empty → restore preset
+  // default (e.g. the 18 NCS-18 items for masem-ncs18).
   const items = _parseItemTexts(document.getElementById('masemCInput').value);
-  p.item_texts         = items;
-  p.include_item_texts = items.length > 0;
+  if (items.length > 0) {
+    p.item_texts         = items;
+    p.include_item_texts = true;
+  } else {
+    const defaultItems   = Array.isArray(d.item_texts) ? d.item_texts : [];
+    p.item_texts         = defaultItems.slice();
+    p.include_item_texts = defaultItems.length > 0;
+  }
   // Drop legacy fields the simplified builder no longer surfaces.
   p.variables                  = [];
   p.study_characteristics_text = '';

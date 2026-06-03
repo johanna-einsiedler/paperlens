@@ -23,6 +23,7 @@ many users can extract concurrently on a single uvicorn worker.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,12 +37,21 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+
+# Load web/.env (gitignored) before any module-level env reads.  The
+# loader is its own module so standalone diagnostics can ``import
+# dotenv_local; dotenv_local.load()`` without booting the FastAPI stack.
+import dotenv_local
+dotenv_local.load()
+
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import db
+import donor
 import jobs as jobs_mod
+import zenodo
 import presets_loader
 from _helpers import (
     _ascii_only,
@@ -59,6 +69,7 @@ from schemas import (
     BatchEmailIn,
     BuildPresetPromptIn,
     CheckSchemaIn,
+    DonateIn,
     GeneratePromptIn,
     TestConnectionIn,
 )
@@ -150,7 +161,7 @@ async def generate_prompt(payload: GeneratePromptIn) -> Any:
         raise HTTPException(status_code=400, detail="API key is required.")
     if not question:
         raise HTTPException(status_code=400, detail="Question is required.")
-    if payload.mode not in ("extraction", "labeling"):
+    if payload.mode not in ("extraction", "labeling", "summarize"):
         raise HTTPException(status_code=400, detail="Invalid mode.")
     _ascii_only(api_key,  "API key")
     _ascii_only(base_url, "Server URL")
@@ -191,7 +202,118 @@ def get_config() -> dict:
             if masem_only else
             "AI-powered data extraction and labeling for academic papers"
         ),
+        # Donation flow is feature-flagged; the frontend hides the modal
+        # when donate.enabled is false.  ``live`` distinguishes dry-run from
+        # the real-PR mode so the modal's success copy is honest.
+        # ``zenodo`` is best-effort — when the token isn't set the donor
+        # silently skips the Zenodo step, the PR still works.
+        "donate": {
+            "enabled": donor.is_enabled(),
+            "live":    donor.is_live(),
+            "zenodo":  zenodo.is_configured(),
+        },
     }
+
+
+# ── /api/donate ──────────────────────────────────────────────────────────────
+
+# Rate limit: max donations per IP within the window below.  Tuned high
+# enough that legitimate "I extracted twice and want to share both" works,
+# low enough that a spammer would hit the wall fast.  Loopback IPs
+# (127.0.0.1 / ::1) bypass the limit entirely — when you're testing on
+# localhost you should not be blocked by a "spam" check designed for the
+# public internet.
+_DONATE_RATE_LIMIT      = 3
+_DONATE_RATE_WINDOW_SEC = 24 * 3600
+
+
+def _client_ip_from_request(request: Request) -> str:
+    """Best-effort client IP.  Fly sets X-Forwarded-For; locally we fall
+    back to the socket peer.  Pepper-hashed before storage so the raw IP
+    never lives in the DB."""
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        # Left-most entry is the original client per the standard.
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+def _is_loopback_ip(ip: str) -> bool:
+    """Treat 127.x.x.x / ::1 as ``dev`` and skip the rate limit there.
+    Avoids the standard library's ``ipaddress`` for a trivial check
+    because the strings are well-known."""
+    return ip in {"127.0.0.1", "::1", "localhost"} or ip.startswith("127.")
+
+
+@app.post("/api/donate")
+def donate_dataset(payload: DonateIn, request: Request) -> dict:
+    """Build a citable dataset bundle from a finished batch and (in live mode)
+    open a PR against the curated public repo.
+
+    Feature-flagged behind ``PAPERLENS_DONATE_ENABLED``.  When disabled the
+    endpoint 404s so it isn't an attack surface in deployments that haven't
+    opted into the feature.  ``PAPERLENS_DONATE_LIVE`` controls dry-run vs.
+    real PR creation (default: dry-run, writes the bundle to /tmp).
+    """
+    if not donor.is_enabled():
+        raise HTTPException(status_code=404, detail="Donation flow is not enabled on this server.")
+
+    # Consent gate — both checkboxes are required by the modal; reject any
+    # request that arrives without them (defensive against tampered clients).
+    if not (payload.consents.sharing_rights and payload.consents.license_cc_by_4):
+        raise HTTPException(status_code=400, detail="Both consent checkboxes are required.")
+
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Dataset title is required.")
+    if len(title) > 200:
+        raise HTTPException(status_code=400, detail="Dataset title must be 200 characters or fewer.")
+
+    if payload.visibility.mode not in {"public", "gated"}:
+        raise HTTPException(status_code=400, detail="Invalid visibility mode.")
+    if payload.visibility.mode == "gated":
+        pw = payload.visibility.password or ""
+        if len(pw) < 8:
+            raise HTTPException(status_code=400, detail="Gated datasets need a password of at least 8 characters.")
+
+    if payload.attribution.mode not in {"anonymous", "attributed"}:
+        raise HTTPException(status_code=400, detail="Invalid attribution mode.")
+    if payload.attribution.mode == "attributed" and not payload.attribution.name.strip():
+        raise HTTPException(status_code=400, detail="Attributed donations need a donor name.")
+
+    # Per-IP rate-limit: peppered SHA-256, never stores the raw IP.
+    # Loopback bypass — local dev iteration must not be rate-limited.
+    client_ip = _client_ip_from_request(request)
+    try:
+        ip_hash = donor.hash_ip(client_ip)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    if not _is_loopback_ip(client_ip):
+        recent = db.count_donations_by_ip(ip_hash, _DONATE_RATE_WINDOW_SEC)
+        if recent >= _DONATE_RATE_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Donation rate limit reached ({_DONATE_RATE_LIMIT} per 24h).  Try again tomorrow.",
+            )
+
+    req = donor.DonationRequest(
+        batch_id                = payload.batch_id,
+        title                   = title,
+        description             = (payload.description or "").strip(),
+        attribution_mode        = payload.attribution.mode,
+        attribution_name        = payload.attribution.name.strip(),
+        attribution_affiliation = payload.attribution.affiliation.strip(),
+        visibility              = payload.visibility.mode,
+        password                = payload.visibility.password,
+    )
+    try:
+        return donor.donate(req, ip_hash=ip_hash)
+    except ValueError as exc:
+        # Validation surfaced from build_bundle (e.g. no done jobs).
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        # Misconfiguration (missing env vars in live mode).
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ── /api/presets — domain workflow presets (e.g. MASEMiner) ─────────────────

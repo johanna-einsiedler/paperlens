@@ -278,6 +278,7 @@ function updateSectionStatuses(step) {
   const summaries = {
     1: state.mode === 'extraction' ? 'Extract data'
       : state.mode === 'labeling'   ? 'Label paper'
+      : state.mode === 'summarize'  ? 'Summarise paper'
       : state.loadedFromFile        ? 'Review existing results'
       : '',
     2: state.model
@@ -663,6 +664,13 @@ function submitStep2() {
       'E.g., Extract the sample size, mean age, percentage of female participants, and number of factors from each study…';
     document.getElementById('contextInput').placeholder =
       'E.g., Papers use different notations for factors. Age is always reported as mean ± SD…';
+  } else if (state.mode === 'summarize') {
+    document.getElementById('step3Heading').textContent = 'Describe what each summary should cover';
+    document.getElementById('step3Sub').textContent     = 'Name the sections and the level of detail you want, plus any focus areas';
+    document.getElementById('questionInput').placeholder =
+      'E.g., Summarise each paper in four sections — background, methods, findings, limitations — written for a researcher familiar with the field…';
+    document.getElementById('contextInput').placeholder =
+      'E.g., Findings section must include effect sizes verbatim where reported. Skip implementation details unless they bear on validity…';
   } else {
     document.getElementById('step3Heading').textContent = 'Describe how to label the papers';
     document.getElementById('step3Sub').textContent     = 'Define the categories and criteria for labeling';
@@ -1428,10 +1436,24 @@ async function submitUpload() {
     for (const f of state.selectedFiles) {
       const key = f.name + f.size;
       const existing = existingByKey.get(key);
-      if (existing && (existing.status === 'done' || existing.status === 'processing')) {
-        // Keep its result/edits as-is.
-        newPapers.push(existing);
-        continue;
+      if (existing) {
+        // In-flight runs are left alone — interrupting them mid-job
+        // creates orphan jobs on the server.  Done runs are reused only
+        // when the model AND prompt match what produced them; if the
+        // user went back to step 2 (changed model) or step 5 (edited
+        // prompt) the cached result is stale and must be re-processed.
+        if (existing.status === 'processing') {
+          newPapers.push(existing);
+          continue;
+        }
+        if (existing.status === 'done'
+            && existing.lastModelUsed  === state.model
+            && existing.lastPromptUsed === state.generatedPrompt) {
+          newPapers.push(existing);
+          continue;
+        }
+        // Stale (model/prompt changed) — fall through to the
+        // fresh-paper branch so the new settings actually run.
       }
       // First-time file (or previous run errored / was pending) — make a
       // fresh paper object and queue it for processing.
@@ -1645,6 +1667,10 @@ async function processPaper(paper) {
   // state.model when not set.
   const effectiveModel = paper.forceModel || state.model;
   paper.lastModelUsed  = effectiveModel;
+  // Record the prompt used too so the staleness check in
+  // submitUpload can detect a back-to-step-5 prompt edit and refuse
+  // to reuse the old result.
+  paper.lastPromptUsed = state.generatedPrompt;
 
   const form = new FormData();
   form.append('api_key',             state.apiKey);
@@ -2228,6 +2254,10 @@ async function loadServerConfig() {
     const res = await fetchScoped('/api/config');
     if (!res.ok) return;
     const data = await res.json();
+    // Stash the whole config payload so other scripts (e.g. donor.js) can
+    // read feature flags without re-fetching.  Kept on window so the dev
+    // console can poke at it too.
+    window.__PAPERLENS_CONFIG__ = data;
     if (typeof data.max_batch_papers === 'number') config.maxBatchPapers = data.max_batch_papers;
     if (typeof data.max_pdf_bytes    === 'number') config.maxPdfBytes    = data.max_pdf_bytes;
     // MASEMiner-only deployments (local distribution) swap the page
@@ -4886,6 +4916,14 @@ function downloadAllPapersCsv() {
   const ordered = ['_filename', ...columns.filter(c => c !== '_filename')];
   const csv     = _toCsv(allRows, ordered);
   _downloadBlob(csv, 'extraction_results_all.csv', 'text/csv;charset=utf-8');
+
+  // After a successful download, offer the donation flow.  The dataset
+  // stored to GitHub is always the structured JSON (donor.py reads from
+  // the DB, not the downloaded file) regardless of which format the user
+  // grabbed for their own use here.
+  if (typeof window.donorMaybeOffer === 'function') {
+    window.donorMaybeOffer(state.batchId);
+  }
 }
 
 /* Download all processed papers as a single consolidated JSON.
@@ -4923,6 +4961,13 @@ function downloadAllPapers() {
   a.download = 'extraction_results_all.json';
   a.click();
   URL.revokeObjectURL(url);
+
+  // After a successful download, offer the donation flow (no-op when the
+  // feature flag is off or this batch was already donated).  donor.js
+  // handles the offer/toast/modal lifecycle from here.
+  if (typeof window.donorMaybeOffer === 'function') {
+    window.donorMaybeOffer(state.batchId);
+  }
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -5227,6 +5272,13 @@ function goBackFromResults() {
 }
 
 function startOver() {
+  // Capture MASEMiner-ness BEFORE wiping state — the body class, the
+  // active preset, and the URL path all matter; reloading is the
+  // cleanest way to get back to the welcome hero in any of them.
+  const inMasemMode = document.body.classList.contains('is-maseminer')
+    || (state.activePreset && state.activePreset.id && state.activePreset.id.startsWith('masem'))
+    || window.location.pathname === '/maseminer';
+
   Object.assign(state, {
     mode: null, provider: 'openai', model: 'gpt-4o', apiKey: '', baseUrl: '',
     providerCredentials: {},
@@ -5235,6 +5287,7 @@ function startOver() {
     notifyEmail: '', batchId: null,
     selectedFiles: [], papers: [],
     activePaperId: null, loadedFromFile: false, setupReturnStep: null,
+    activePreset: null,
   });
   document.getElementById('questionInput').value     = '';
   document.getElementById('contextInput').value      = '';
@@ -5243,6 +5296,22 @@ function startOver() {
   renderFileList();
   cancelLoadOption();
   clearAutoSave();
+
+  // MASEMiner mode: the "fresh start" surface is the welcome hero, which
+  // only renders at page-load.  goTo(1) wouldn't bring it back — and on
+  // PaperLens-mode URLs with an active masem preset, goTo(1) would even
+  // show the regular Extract/Label/Summarise cards because
+  // body.is-maseminer isn't set there.  Reload the current path (or
+  // /maseminer when on the dedicated route) for a clean welcome hero.
+  // Autosave is already cleared above so nothing is lost.
+  if (inMasemMode) {
+    // Any masem-flavoured reset lands on /maseminer — whether we got
+    // here via the dedicated route, the local maseminer-only deploy, or
+    // a masem preset applied on the regular MetaPaperLens path.
+    window.location.href = '/maseminer';
+    return;
+  }
+
   goTo(1);
 }
 
