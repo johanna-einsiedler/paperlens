@@ -85,6 +85,18 @@ def test_build_meta_prompt_labeling_mentions_required_fields():
     assert "json" in lower
 
 
+def test_build_meta_prompt_summarize_mentions_sections_and_evidence():
+    prompt = prompt_builder.build_meta_prompt("summarize", "summarise the paper", "")
+    lower = prompt.lower()
+    assert "summaries" in lower
+    assert "evidence" in lower
+    assert "json" in lower
+    # Sections and the field-path convention so the renderer can link clicks
+    # back to evidence pages.
+    assert "section" in lower
+    assert "summaries[0]" in lower
+
+
 def test_build_meta_prompt_includes_user_question():
     prompt = prompt_builder.build_meta_prompt(
         "extraction",

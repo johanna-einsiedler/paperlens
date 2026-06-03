@@ -1,0 +1,16 @@
+{
+  "id":                "summarize",
+  "title":             "Summarise a paper",
+  "tagline":           "Structured per-section summaries — background, methods, findings, limitations — anchored to verifiable page-cited quotes",
+  "description":       "Reads each PDF and emits a four-section academic summary (background / methods / findings / limitations) with verbatim evidence snippets pinned to PDF pages, so every claim is click-to-verifiable in the result viewer.",
+  "mode":              "summarize",
+  "default_provider":  "openai",
+  "default_model":     "gpt-4o",
+  "task_description":  "Produce a structured per-section summary of each paper, with verbatim page-anchored evidence supporting every section.",
+  "context":           "Empirical or review papers.  Multi-study papers should yield one summary per study; single-study papers yield exactly one summary.",
+  "prompt_template_file": "summarize.template.md",
+  "template_params":   {},
+  "schema_version":    "summarize-v1",
+  "skip_to":           "setup",
+  "accent_color":      "#34548a"
+}

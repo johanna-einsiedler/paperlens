@@ -144,6 +144,23 @@ def build_meta_prompt(mode: str, question: str, context: str) -> str:
             "the evidence 'field' property be a JSON path mirroring the output structure "
             "(e.g. \"samples[0].factor_loadings\", \"samples[0].factor_loadings._table[0]\")."
         )
+    elif mode == "summarize":
+        task_description = (
+            "structured per-section summarisation of academic papers — "
+            "producing a concise prose summary broken into named sections "
+            "(e.g. background, methods, findings, limitations) with verbatim "
+            "page-anchored evidence supporting each section"
+        )
+        output_guidance = (
+            "Output a JSON object with a 'summaries' array — one element per distinct "
+            "empirical study reported in the paper (typically just one). Each element "
+            "carries named section keys whose values are markdown text written in concise "
+            "academic English, plus an 'evidence' array of verbatim page-cited snippets. "
+            "Each evidence entry MUST have a JSON-path 'field' value pointing to the "
+            "summary section it supports — e.g. \"summaries[0].findings\". Require AT "
+            "LEAST one evidence entry per non-null section so every claim is verifiable "
+            "against the source. The output must be parseable by json.loads with no extra text."
+        )
     else:
         task_description = (
             "classification and labeling of academic papers — "
