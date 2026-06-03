@@ -37,15 +37,20 @@ rm -rf "$DEST"
 mkdir -p "$DEST/static" "$DEST/presets" "$DEST/tests"
 
 # ── Python modules + project metadata ─────────────────────────────────────
+# _helpers.py + schemas.py are pure server-side splits (Pydantic models,
+# small utility helpers) that server.py imports — without them the mirror
+# can't import and won't boot.  donor.py is the donation pipeline (off by
+# default via PAPERLENS_DONATE_ENABLED; ships so local-run users can opt in).
 for f in \
     server.py db.py jobs.py notifier.py pdf_utils.py \
     prompt_builder.py providers.py presets_loader.py \
+    _helpers.py schemas.py donor.py zenodo.py dotenv_local.py \
     requirements.txt pyproject.toml Dockerfile; do
   cp "$SRC_WEB/$f" "$DEST/$f"
 done
 
 # ── Static frontend ───────────────────────────────────────────────────────
-for f in index.html app.js masem-builder.js style.css \
+for f in index.html app.js masem-builder.js donor.js style.css \
          logo.svg maseminer-logo.svg maseminer-mark.svg \
          models.json info_video_maseminer.mp4; do
   cp "$SRC_WEB/static/$f" "$DEST/static/$f"
