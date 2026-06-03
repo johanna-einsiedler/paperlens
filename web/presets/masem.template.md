@@ -511,12 +511,32 @@ Calibration:
 - Be conservative: prefer ``"medium"`` over ``"high"`` when in doubt; prefer ``"low"`` over ``"medium"`` when in doubt.
 
 # =============================================================================
+# PAPER METADATA
+# =============================================================================
+
+In addition to the per-sample blocks, extract paper-level identifying metadata
+from the PDF front matter / header / footer.  These fields identify the source
+paper itself and are used to generate citations for downstream datasets.
+
+- title:    the full paper title verbatim.  Required — fall back to the best-effort title if the front matter is mangled, but never emit an empty string.
+- doi:      the DOI string (e.g. "10.1037/abc.0000123") if present anywhere in the front matter, header/footer, references, or copyright block.  Use null if no DOI is reported.
+- year:     publication year as a JSON integer (e.g. 2021).  Use null if you cannot determine the year.
+- authors:  the author list as an array of strings, one per author, in the order printed (e.g. ["Smith J", "Jones K"]).  Use null only if no authors are listed.
+
+# =============================================================================
 # OUTPUT FORMAT
 # =============================================================================
 
 Return a JSON object with this structure; expand factor-loading and correlation keys according to nfac.
 
 {
+  "paper_metadata": {
+    "title":   "string",
+    "doi":     null,
+    "year":    null,
+    "authors": null
+  },
+
   "samples": [
     {
       "sample_id": "string",
