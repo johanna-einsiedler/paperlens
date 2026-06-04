@@ -427,6 +427,59 @@ header p {
   gap: 16px;
 }
 
+/* Primary task picker — Extract / Label / Summarise / Workflows.
+   2×2 tile layout: gives each card enough breathing room for icon +
+   title + description to read clearly, instead of cramming four
+   cards into a single row.  Reading order is left→right, top→bottom
+   so the disclosure card lands in the bottom-right (natural
+   "downstream choice" position).  Collapses to 1-up at narrow
+   widths.  Bottom margin so the workflows-disclosure panel below
+   isn't crammed against the row above. */
+.option-grid-primary {
+  grid-template-columns: repeat(2, 1fr);
+  margin-bottom: 18px;
+}
+@media (max-width: 520px) {
+  .option-grid-primary { grid-template-columns: 1fr; }
+}
+
+/* Secondary "work with existing data" row — Extend + Review.  Two
+   columns regardless of viewport width (down to mobile where it
+   collapses).  Sits below the workflows-disclosure panel so its
+   bottom-row position reads as "different category of action". */
+.option-grid-secondary {
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 520px) {
+  .option-grid-secondary { grid-template-columns: 1fr; }
+}
+
+/* Divider between primary (start a new task) and secondary (work
+   with existing data) groups.  Horizontal hairline through the middle
+   with a small inline label that anchors the meaning — purely visual,
+   no click target.  Margin gives it breathing room on both sides. */
+.option-grid-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.option-grid-divider::before,
+.option-grid-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.option-grid-divider-label {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
 .option-card {
   display: flex;
   flex-direction: column;
@@ -482,9 +535,15 @@ header p {
   line-height: 1.55;
 }
 
-/* Third "load" card spans both columns and uses a row layout */
+/* "Load existing data" cards use a horizontal row layout (icon left,
+   text right) instead of the centered-stack layout the primary task
+   cards use.  Dashed border signals "different category of action".
+
+   They no longer span the full grid row by default — the secondary
+   row has two of them side-by-side.  The full-row span is restored
+   only when they appear alone in the primary grid (rare; mostly the
+   legacy "single load card on a 2-col task grid" case). */
 .option-card-load {
-  grid-column: 1 / -1;
   flex-direction: row;
   align-items: center;
   text-align: left;
@@ -492,11 +551,68 @@ header p {
   gap: 16px;
   border-style: dashed;
 }
+.option-grid-primary .option-card-load {
+  grid-column: 1 / -1;
+}
 
 .option-card-load .option-icon { width: 26px; height: 26px; flex-shrink: 0; }
 .option-card-load-text { flex: 1; min-width: 0; }
 .option-card-load h3 { font-size: 14px; }
 .option-card-load p  { font-size: 12.5px; margin-top: 3px; }
+
+/* "Use a pre-built workflow" disclosure card — sits in the primary
+   row alongside Extract / Label / Summarise but its click toggles
+   the workflows list below instead of navigating.  Visual cues that
+   signal the difference: dashed border (it's a chooser, not a
+   destination), muted background, chevron in the title that rotates
+   on expand.  The all-three-lens UX review explicitly called out
+   mixing affordances as the biggest risk in this layout — these
+   styles are the mitigation. */
+.option-card-disclosure {
+  border-style: dashed;
+  background: var(--bg);
+  position: relative;
+}
+.option-card-disclosure:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.option-card-disclosure h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.option-card-disclosure .disclosure-chevron {
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.18s ease;
+  display: inline-block;
+  transform: translateY(1px);
+}
+.option-card-disclosure[aria-expanded="true"] .disclosure-chevron {
+  transform: translateY(1px) rotate(180deg);
+}
+.option-card-disclosure[aria-expanded="true"] {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* One-line prereq hint above the task picker — the absolute-minimum
+   visibility for the API-key requirement, so first-time users don't
+   miss it when the full prereq list is folded into "How does this
+   work?".  Slim, monochrome, sits right above the option grid. */
+.prereq-hint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 4px 0 14px;
+  line-height: 1.5;
+}
+.prereq-hint a {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--primary);
+}
+.prereq-hint a:hover { border-bottom-style: solid; }
 
 /* API key + Test connection button row */
 .api-key-row {
@@ -4018,4 +4134,109 @@ kbd {
   overflow-x: auto;
   margin-top: 8px;
   line-height: 1.5;
+}
+
+/* ── Extend-dataset picker (Phase 3b) ─────────────────────
+   Each row is a clickable button that surfaces the dataset's
+   title + donor + paper count + relative time.  Hover and
+   focus states mirror .option-card so they feel like the
+   rest of the picker UI. */
+.extend-dataset-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s, transform 0.06s;
+}
+.extend-dataset-row:hover {
+  border-color: var(--primary);
+  background: var(--primary-light, #f0f8ff);
+}
+.extend-dataset-row:active {
+  transform: scale(0.998);
+}
+.extend-dataset-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.extend-dataset-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.extend-dataset-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--text);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.extend-dataset-badge {
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  background: var(--bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.extend-dataset-meta {
+  font-size: 12.5px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.extend-dataset-dot {
+  color: var(--text-muted);
+}
+.extend-dataset-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Gated-dataset inline password prompt (Phase 3c) ──────
+   When the user clicks a 🔒 row in the picker modal, the row is
+   replaced in-place by this prompt shell.  Shares the bordered
+   container of .extend-dataset-row so the visual continuity stays;
+   reverts to a normal row on Cancel.  Cursor:default because the
+   shell isn't itself clickable (the inputs / buttons are). */
+.extend-dataset-row-prompt {
+  cursor: default;
+  border-color: var(--primary);
+  background: var(--primary-light, #f0f8ff);
+}
+.extend-dataset-row-prompt:hover {
+  background: var(--primary-light, #f0f8ff);
+  transform: none;
+}
+.extend-dataset-prompt-help {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 4px 0 8px;
+}
+.extend-dataset-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.extend-dataset-prompt-error {
+  margin-top: 6px;
 }

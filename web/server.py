@@ -48,6 +48,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+import datasets as datasets_mod
 import db
 import donor
 import jobs as jobs_mod
@@ -72,6 +73,7 @@ from schemas import (
     DonateIn,
     GeneratePromptIn,
     TestConnectionIn,
+    VerifyPasswordIn,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -328,6 +330,144 @@ def donate_dataset(payload: DonateIn, request: Request) -> dict:
     except RuntimeError as exc:
         # Misconfiguration (missing env vars in live mode).
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── /api/datasets — community-donated datasets in metalens-datasets ─────────
+
+@app.get("/api/datasets")
+def list_datasets() -> dict:
+    """Listing of public datasets in the curated GitHub repo.  Powers
+    the "Extend an existing dataset" picker on the landing screen.
+
+    Password hashes are stripped server-side — gated-ness is signalled
+    only via a derived ``gated`` boolean per record so the frontend can
+    render a 🔒 indicator without ever holding the hash itself.
+
+    Response shape:
+        {
+          "datasets": [
+            {
+              "id":              "ncs-18-2026-06",
+              "title":           "...",
+              "description":     "...",
+              "donor":           {...},
+              "visibility":      "public" | "gated",
+              "gated":           false,
+              "schema_version":  "masem-v3",
+              "github_url":      "https://github.com/owner/repo/tree/main/datasets/<id>",
+              "zenodo_doi":      "10.5281/zenodo.123" | null,
+              "created_at":      "2026-06-03T17:43:20Z",
+              "paper_count":     2,
+              "model_used":      ["gpt-4o"]
+            },
+            ...
+          ],
+          "fetched_at":    "2026-06-04T...",
+          "cache_age_sec": 0
+        }
+
+    Cached in-process for 1 hour; donor.donate() invalidates the cache
+    after a successful PR so freshly-merged datasets surface
+    immediately on the next request.
+    """
+    try:
+        return datasets_mod.list_datasets()
+    except RuntimeError as exc:
+        # PAPERLENS_GH_REPO unset — surface a 503 so the frontend can
+        # show a "feature not available here" message rather than a
+        # generic 500.
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        # Network / GitHub-side failure — degrade to an empty list
+        # rather than blocking the rest of the page.
+        return {"datasets": [], "fetched_at": None, "cache_age_sec": 0,
+                "error": str(exc)[:200]}
+
+
+@app.post("/api/datasets/{dataset_id}/verify-password")
+def verify_dataset_password(
+    dataset_id: str,
+    payload: VerifyPasswordIn,
+    request: Request,
+) -> dict:
+    """Verify a user-supplied extension password against the dataset's
+    stored bcrypt hash (which lives in metalens-datasets and is fetched
+    server-side; the hash never leaves the server).
+
+    Response shape: ``{"ok": bool}``.  Returns 200 in all valid cases
+    — the boolean discriminates success from failure.  404 only when
+    the dataset itself doesn't exist; 400 on a malformed slug or empty
+    password; 429 if the requester has burned through their attempts.
+
+    Rate-limit: ``_VERIFY_PER_IP_PER_DATASET`` attempts per dataset per
+    IP, sliding 1-hour window.  In-memory only — single-process
+    deployments are fine; multi-machine would need a shared store.
+    Loopback IPs bypass the limiter (dev convenience).
+    """
+    # Defence in depth — FastAPI accepts the path param raw, validate
+    # before the lookup hits GitHub.
+    if not dataset_id or len(dataset_id) > 120:
+        raise HTTPException(status_code=400, detail="Invalid dataset id.")
+
+    password = payload.password or ""
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required.")
+
+    # Per-IP, per-dataset rate limit — bcrypt is slow on purpose
+    # (~250ms) so we don't need to be aggressive here, but a cap
+    # prevents an attacker from grinding the hash from one IP.
+    client_ip = _client_ip_from_request(request)
+    if not _is_loopback_ip(client_ip):
+        try:
+            ip_hash = donor.hash_ip(client_ip)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+        if _verify_attempts_too_many(ip_hash, dataset_id):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many password attempts for this dataset.  Try again in an hour.",
+            )
+        _verify_attempts_bump(ip_hash, dataset_id)
+
+    metadata = datasets_mod.get_dataset_metadata(dataset_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    # Public datasets — no password gate, anyone can extend.  We
+    # return ok=True for any non-empty password so the frontend
+    # treats the verify step as cleared.  (The frontend shouldn't
+    # actually call this for public datasets, but be lenient.)
+    stored_hash = metadata.get("password_hash")
+    if not stored_hash:
+        return {"ok": True, "gated": False}
+
+    ok = donor.verify_password(password, stored_hash)
+    return {"ok": bool(ok), "gated": True}
+
+
+# In-memory sliding-window attempt counter.  Keyed on (ip_hash,
+# dataset_id) → list of attempt timestamps.  Cleaned lazily on each
+# read to avoid an unbounded grow if traffic is bursty.
+_VERIFY_ATTEMPTS: dict[tuple[str, str], list[float]] = {}
+_VERIFY_PER_IP_PER_DATASET = 10
+_VERIFY_WINDOW_SEC         = 3600
+
+
+def _verify_attempts_too_many(ip_hash: str, dataset_id: str) -> bool:
+    """True iff ``ip_hash`` has burned through its quota for
+    ``dataset_id`` in the last hour."""
+    import time as _time
+    cutoff = _time.time() - _VERIFY_WINDOW_SEC
+    key    = (ip_hash, dataset_id)
+    recent = [t for t in _VERIFY_ATTEMPTS.get(key, []) if t >= cutoff]
+    _VERIFY_ATTEMPTS[key] = recent
+    return len(recent) >= _VERIFY_PER_IP_PER_DATASET
+
+
+def _verify_attempts_bump(ip_hash: str, dataset_id: str) -> None:
+    import time as _time
+    key = (ip_hash, dataset_id)
+    _VERIFY_ATTEMPTS.setdefault(key, []).append(_time.time())
 
 
 # ── /api/presets — domain workflow presets (e.g. MASEMiner) ─────────────────

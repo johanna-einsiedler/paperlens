@@ -90,3 +90,11 @@ class DonateIn(BaseModel):
     attribution:  DonateAttribution = DonateAttribution()
     visibility:   DonateVisibility  = DonateVisibility()
     consents:     DonateConsents    = DonateConsents()
+
+
+class VerifyPasswordIn(BaseModel):
+    """Payload for ``POST /api/datasets/{id}/verify-password`` — the
+    user-supplied extension password the server bcrypt-compares
+    against the stored hash.  Plaintext only travels over HTTPS in
+    the request body; never logged, never persisted."""
+    password: str = ""

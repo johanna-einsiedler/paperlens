@@ -2203,19 +2203,37 @@ function clearPreset() {
   startOver();
 }
 
-/* Render the inline "Pre-built workflows" section on step 1.  Hidden
-   entirely when the server has no presets configured. */
+/* Populate the inline "Pre-built workflows" panel and decide whether
+   the disclosure card that toggles it should appear on step 1.  Panel
+   itself stays collapsed by default — only the disclosure card on the
+   primary task picker reveals it.  When the server has zero presets
+   the disclosure card is hidden entirely to avoid a dead-end click. */
 async function renderInlineWorkflows() {
-  const wrap = document.getElementById('prebuiltWorkflows');
-  const list = document.getElementById('prebuiltWorkflowsList');
+  const wrap     = document.getElementById('prebuiltWorkflows');
+  const list     = document.getElementById('prebuiltWorkflowsList');
+  const discCard = document.getElementById('workflowsDisclosureBtn');
   if (!wrap || !list) return;
   try {
     const res  = await fetchScoped('/api/presets');
-    if (!res.ok) { wrap.style.display = 'none'; return; }
+    if (!res.ok) {
+      wrap.style.display = 'none';
+      if (discCard) discCard.style.display = 'none';
+      return;
+    }
     const data = await res.json();
     const items = data.presets || [];
-    if (!items.length) { wrap.style.display = 'none'; return; }
-    wrap.style.display = '';
+    if (!items.length) {
+      // No presets → both the disclosure card AND the (would-be)
+      // expanded panel stay hidden.  This matches the pre-refactor
+      // behaviour: workflows simply don't exist on this server.
+      wrap.style.display = 'none';
+      if (discCard) discCard.style.display = 'none';
+      return;
+    }
+    // Presets exist — populate the panel and reveal the disclosure
+    // card.  Panel itself remains hidden until the user clicks the
+    // card (handled in toggleWorkflowsDisclosure).
+    if (discCard) discCard.style.display = '';
     list.innerHTML = items.map(p => `
       <button class="workflow-card option-card-load" onclick="applyPreset('${escHtml(p.id)}')">
         <div class="option-icon">🔬</div>
@@ -2227,6 +2245,30 @@ async function renderInlineWorkflows() {
     `).join('');
   } catch (_) {
     wrap.style.display = 'none';
+    if (discCard) discCard.style.display = 'none';
+  }
+}
+
+/* Toggle the pre-built workflows panel from the disclosure card on the
+   primary task picker.  Updates aria-expanded on the card so the
+   chevron-rotation CSS picks the right state, and scrolls the
+   newly-revealed panel into view smoothly on the open transition. */
+function toggleWorkflowsDisclosure() {
+  const card  = document.getElementById('workflowsDisclosureBtn');
+  const panel = document.getElementById('prebuiltWorkflows');
+  if (!card || !panel) return;
+  const isOpen = card.getAttribute('aria-expanded') === 'true';
+  if (isOpen) {
+    panel.style.display = 'none';
+    card.setAttribute('aria-expanded', 'false');
+  } else {
+    panel.style.display = '';
+    card.setAttribute('aria-expanded', 'true');
+    // Scroll the revealed panel into view so the user sees it without
+    // having to scroll manually after the click.
+    requestAnimationFrame(() => {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
   }
 }
 
@@ -5007,6 +5049,279 @@ function selectLoadOption() {
   document.getElementById('modeGrid').style.display        = 'none';
   document.getElementById('jsonUploadPanel').style.display = '';
   showJsonStage1();
+}
+
+/* ──────────────────────────────────────────────────────────
+   Step 1 — "Extend an existing dataset" picker (Phase 3b)
+────────────────────────────────────────────────────────── */
+
+/* All loaded datasets, kept on window so the dev console can poke at
+   them.  The search filter operates over this in-memory list rather
+   than re-fetching on every keystroke. */
+window.__EXTEND_DATASETS__ = [];
+
+function selectExtendOption() {
+  const overlay = document.getElementById('extendDatasetOverlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  document.getElementById('extendDatasetSearch').value = '';
+  _showExtendState('loading');
+  _loadExtendDatasets();
+  // Focus the search box after a tick so the modal-overlay animation
+  // doesn't steal focus back.
+  setTimeout(() => document.getElementById('extendDatasetSearch').focus(), 60);
+}
+
+function closeExtendDatasetModal() {
+  const overlay = document.getElementById('extendDatasetOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+/* Mutually-exclusive view-state switching for the modal body —
+   'loading' / 'empty' / 'error' / 'list'.  Keeps the markup simple
+   and prevents the empty-state message flashing while the fetch
+   is in flight. */
+function _showExtendState(state, errMsg) {
+  const list  = document.getElementById('extendDatasetList');
+  const load  = document.getElementById('extendDatasetLoading');
+  const empty = document.getElementById('extendDatasetEmpty');
+  const err   = document.getElementById('extendDatasetError');
+  list.style.display  = state === 'list'    ? '' : 'none';
+  load.style.display  = state === 'loading' ? '' : 'none';
+  empty.style.display = state === 'empty'   ? '' : 'none';
+  err.style.display   = state === 'error'   ? '' : 'none';
+  if (state === 'error') err.textContent = errMsg || 'Could not load datasets.';
+}
+
+async function _loadExtendDatasets() {
+  try {
+    const res = await fetch('/api/datasets');
+    if (!res.ok) {
+      // 503 (repo unconfigured) → useful hint; other 5xx → generic message.
+      const body = await res.json().catch(() => ({}));
+      _showExtendState('error',
+        res.status === 503
+          ? 'Dataset hosting is not configured on this server.'
+          : (body.detail || `Server returned ${res.status}.`));
+      return;
+    }
+    const data = await res.json();
+    window.__EXTEND_DATASETS__ = Array.isArray(data.datasets) ? data.datasets : [];
+    if (!window.__EXTEND_DATASETS__.length) {
+      _showExtendState('empty');
+      return;
+    }
+    _renderExtendDatasetList(window.__EXTEND_DATASETS__);
+    _showExtendState('list');
+  } catch (err) {
+    _showExtendState('error', err.message || 'Network error.');
+  }
+}
+
+/* Render one row per dataset.  Click → Phase 3c (password prompt for
+   gated datasets) → Phase 3d (preset pre-load).  Until 3c lands the
+   click handler is a stub that toasts an "implementation coming"
+   message — keeps the modal navigable while we're mid-build. */
+function _renderExtendDatasetList(datasets) {
+  const list = document.getElementById('extendDatasetList');
+  list.innerHTML = datasets.map((d, i) => {
+    const lock = d.gated ? '🔒' : '📊';
+    const donor = (d.donor && d.donor.mode === 'attributed' && d.donor.name)
+      ? escHtml(d.donor.name) + (d.donor.affiliation ? ` <span style="color:var(--text-muted)">(${escHtml(d.donor.affiliation)})</span>` : '')
+      : '<span style="color:var(--text-muted)">Anonymous</span>';
+    const created = d.created_at ? _relativeTime(d.created_at) : '';
+    const schema  = d.schema_version ? `<span class="extend-dataset-badge">${escHtml(d.schema_version)}</span>` : '';
+    const desc    = d.description ? `<div class="extend-dataset-desc">${escHtml(d.description)}</div>` : '';
+    return `
+      <button type="button" class="extend-dataset-row" data-idx="${i}"
+              onclick="_extendDatasetPicked(${i})">
+        <div class="extend-dataset-row-head">
+          <span class="extend-dataset-icon" aria-hidden="true">${lock}</span>
+          <span class="extend-dataset-title">${escHtml(d.title || d.dataset_id || '(untitled)')}</span>
+          ${schema}
+        </div>
+        <div class="extend-dataset-meta">
+          ${donor}
+          <span class="extend-dataset-dot">·</span>
+          ${d.paper_count != null ? `${d.paper_count} paper${d.paper_count === 1 ? '' : 's'}` : ''}
+          ${created ? `<span class="extend-dataset-dot">·</span>${escHtml(created)}` : ''}
+        </div>
+        ${desc}
+      </button>`;
+  }).join('');
+}
+
+function _filterExtendDatasets() {
+  const q = document.getElementById('extendDatasetSearch').value.trim().toLowerCase();
+  const all = window.__EXTEND_DATASETS__ || [];
+  if (!q) {
+    if (!all.length) { _showExtendState('empty'); return; }
+    _renderExtendDatasetList(all);
+    _showExtendState('list');
+    return;
+  }
+  const filtered = all.filter(d => {
+    const hay = [
+      d.title, d.description, d.schema_version, d.dataset_id,
+      d.donor && d.donor.name, d.donor && d.donor.affiliation,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  if (!filtered.length) {
+    _showExtendState('error', `No datasets match "${q}".`);
+    return;
+  }
+  _renderExtendDatasetList(filtered);
+  _showExtendState('list');
+}
+
+/* Handle a click on a dataset row.  For public datasets, jump
+   straight to the (still stubbed) "selected" flow.  For gated
+   datasets, swap the row inline for a password input + verify
+   button — on a correct password, proceed to the same selected flow.
+
+   The actual "what happens after a dataset is selected" (preset +
+   schema pre-load, then user runs an extraction that submits as an
+   extension) lands in Phase 3d/3e.  Until then, we toast the
+   dataset's title so testers can confirm the gate works. */
+function _extendDatasetPicked(idx) {
+  const d = (window.__EXTEND_DATASETS__ || [])[idx];
+  if (!d) return;
+  if (d.gated) {
+    _showPasswordPromptInRow(idx, d);
+    return;
+  }
+  _afterDatasetVerified(d);
+}
+
+/* Replace the body of a dataset row with an inline password prompt.
+   Keeps context (the user still sees which dataset they're unlocking)
+   without yanking them into a separate modal.  Cancel restores the
+   normal row content; Verify hits /api/datasets/{id}/verify-password
+   and either advances or shows the failure inline. */
+function _showPasswordPromptInRow(idx, dataset) {
+  const row = document.querySelector(`.extend-dataset-row[data-idx="${idx}"]`);
+  if (!row) return;
+  // Swap the button-element for a non-clickable shell so clicks on
+  // the password field don't toggle the row.  Replace with a div of
+  // the same class for layout continuity.
+  const shell = document.createElement('div');
+  shell.className = row.className + ' extend-dataset-row-prompt';
+  shell.setAttribute('data-idx', String(idx));
+  shell.innerHTML = `
+    <div class="extend-dataset-row-head">
+      <span class="extend-dataset-icon" aria-hidden="true">🔒</span>
+      <span class="extend-dataset-title">${escHtml(dataset.title || dataset.dataset_id)}</span>
+    </div>
+    <p class="extend-dataset-prompt-help">
+      This dataset is gated.  Enter the donor's extension password to add new papers.
+      <br><span style="font-size:11.5px;color:var(--text-muted)">Forgot the password? Contact the dataset's donor or repo maintainer to recover.</span>
+    </p>
+    <div class="extend-dataset-prompt-row">
+      <input type="password" id="extendDatasetPwd-${idx}" placeholder="Extension password"
+             autocomplete="off" autofocus
+             style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font:inherit" />
+      <button class="btn btn-primary btn-sm" type="button"
+              onclick="_verifyExtendPassword(${idx})">Verify</button>
+      <button class="btn btn-ghost btn-sm" type="button"
+              onclick="_cancelExtendPasswordPrompt(${idx})">Cancel</button>
+    </div>
+    <p class="extend-dataset-prompt-error" id="extendDatasetPwdErr-${idx}" style="display:none;color:#b91c1c;font-size:12.5px;margin:0"></p>
+  `;
+  row.replaceWith(shell);
+  // Submit on Enter for keyboard users
+  const input = document.getElementById(`extendDatasetPwd-${idx}`);
+  if (input) {
+    input.focus();
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        _verifyExtendPassword(idx);
+      }
+    });
+  }
+}
+
+function _cancelExtendPasswordPrompt(idx) {
+  // Re-render the list so the row reverts to its normal state.  Uses
+  // the current filtered set if a search is active; otherwise the
+  // full list.
+  const q = document.getElementById('extendDatasetSearch').value.trim().toLowerCase();
+  if (q) {
+    _filterExtendDatasets();
+  } else {
+    _renderExtendDatasetList(window.__EXTEND_DATASETS__ || []);
+    _showExtendState('list');
+  }
+}
+
+async function _verifyExtendPassword(idx) {
+  const d   = (window.__EXTEND_DATASETS__ || [])[idx];
+  const pwd = (document.getElementById(`extendDatasetPwd-${idx}`) || {}).value || '';
+  const err = document.getElementById(`extendDatasetPwdErr-${idx}`);
+  if (!d || !pwd) {
+    if (err) { err.textContent = 'Enter a password to continue.'; err.style.display = ''; }
+    return;
+  }
+  err.style.display = 'none';
+  try {
+    const res  = await fetch(
+      `/api/datasets/${encodeURIComponent(d.dataset_id || d.id)}/verify-password`,
+      {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({password: pwd}),
+      },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 429) {
+      err.textContent = body.detail || 'Too many attempts — try again later.';
+      err.style.display = '';
+      return;
+    }
+    if (!res.ok) {
+      err.textContent = body.detail || `Server returned ${res.status}.`;
+      err.style.display = '';
+      return;
+    }
+    if (body.ok) {
+      _afterDatasetVerified(d);
+    } else {
+      err.textContent = 'Incorrect password.';
+      err.style.display = '';
+    }
+  } catch (e) {
+    err.textContent = e.message || 'Network error.';
+    err.style.display = '';
+  }
+}
+
+/* Common entry point after a dataset is "unlocked" — either because
+   it's public OR a gated dataset's password just verified.  This is
+   the seam Phase 3d/3e will hook into; for now we just toast the
+   selection so the gate flow is observable. */
+function _afterDatasetVerified(dataset) {
+  closeExtendDatasetModal();
+  showToast(
+    `Unlocked "${dataset.title || dataset.dataset_id}" — the extension flow lands in the next phase.`,
+    'success',
+  );
+}
+
+/* Tiny relative-time formatter — "yesterday" / "3 days ago" / "Jan 15".
+   No external dep needed for one display location. */
+function _relativeTime(iso) {
+  const then = new Date(iso).getTime();
+  if (!isFinite(then)) return '';
+  const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (diffSec < 60)                return 'just now';
+  if (diffSec < 3600)              return `${Math.floor(diffSec / 60)} min ago`;
+  if (diffSec < 86400)             return `${Math.floor(diffSec / 3600)}h ago`;
+  if (diffSec < 86400 * 2)         return 'yesterday';
+  if (diffSec < 86400 * 30)        return `${Math.floor(diffSec / 86400)} days ago`;
+  // Older — fall back to a month/day label for compactness.
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function cancelLoadOption() {

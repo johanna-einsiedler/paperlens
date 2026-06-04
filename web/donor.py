@@ -54,6 +54,7 @@ import bcrypt
 import httpx
 import jwt
 
+import datasets as datasets_mod
 import db
 import zenodo
 from pdf_utils import _parse_result_json
@@ -609,6 +610,15 @@ def donate(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
             github_pr_url=pr["pr_url"],
             github_pr_number=pr["pr_number"],
         )
+        # Drop the /api/datasets cache so the next listing reflects the
+        # freshly-opened PR.  Strictly speaking the dataset only lands
+        # on main after the PR is merged, but invalidating optimistically
+        # keeps the cache stale-safe — the next refresh re-fetches from
+        # GitHub anyway.
+        try:
+            datasets_mod.invalidate_cache()
+        except Exception:  # noqa: BLE001
+            pass
 
         # Zenodo step is best-effort.  A failure here doesn't undo the
         # PR — the GitHub side is the durable record.  We log the

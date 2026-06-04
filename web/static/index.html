@@ -219,24 +219,26 @@
             <p><strong>Extract</strong> pulls specific values (statistics, factor loadings, effect sizes) into a JSON schema you define. <strong>Label</strong> classifies papers by content. <strong>Summarise</strong> writes a structured per-section summary (background, methods, findings, limitations) with verbatim page-anchored quotes.</p>
             <p>After extraction, results are shown alongside the source PDF with <strong>yellow highlights</strong> marking the exact passages the model cited as evidence. You can flip through all referenced pages and zoom in to verify each value against the original.</p>
             <p>Every field in the results is <strong>editable</strong>: click any value to correct it. Edits are tracked as human overrides. When you download the results, the exported JSON includes the original model values, your corrections, the full prompt, the model used, and a timestamp &mdash; everything you need for a reproducible audit trail.</p>
-            <p>You need an API key for an AI provider. Your key is sent only to the provider and is never stored.</p>
+            <p><strong>You'll need</strong> an API key for an AI provider (OpenAI / Gemini / DeepSeek / Mistral / Anthropic, or your own vLLM server) and one or more PDFs (max 20 per batch, 50&nbsp;MB each). Your key is sent only to the provider and is never stored.</p>
           </div>
         </details>
 
-        <!-- Quick-start checklist: tells first-time users exactly what to have ready -->
-        <div class="prereq-box">
-          <span class="prereq-title">You'll need:</span>
-          <ul class="prereq-list">
-            <li>an API key (OpenAI / Gemini / DeepSeek / Mistral / your own server)</li>
-            <li>one or more PDFs (max 20 total and max 50&nbsp;MB each)</li>
-          </ul>
-        </div>
+        <!-- One-line prereq hint — surfaces the API-key requirement up
+             top so first-timers don't click into the flow and hit a dead
+             end. The full prereq list is folded into the "How does this
+             work?" panel above. -->
+        <p class="prereq-hint">
+          Needs: an API key &middot; PDF(s) up to 50&nbsp;MB each &middot;
+          <a href="#" onclick="event.preventDefault(); document.getElementById('howItWorksBox').open = true; document.getElementById('howItWorksBox').scrollIntoView({behavior:'smooth', block:'nearest'});">see How it works ↑</a>
+        </p>
 
-        <div class="option-grid">
+        <!-- Primary task picker — Extract / Label / Summarise are the
+             three core verbs; the 4th card is a disclosure that toggles
+             the pre-built workflows list below (hidden via JS when the
+             server has zero presets so it never becomes a dead-end click). -->
+        <div class="option-grid option-grid-primary">
           <button class="option-card" onclick="selectMode('extraction')">
             <div class="option-icon" aria-hidden="true">
-              <!-- Document with three "data rows" — middle row teal,
-                   evoking the value being pulled out. -->
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M5 3h10l4 4v13a1.5 1.5 0 0 1-1.5 1.5h-12.5a1.5 1.5 0 0 1-1.5-1.5v-15.5a1.5 1.5 0 0 1 1.5-1.5Z"
                       stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -246,12 +248,11 @@
                 <line x1="7" y1="18" x2="11.5" y2="18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
               </svg>
             </div>
-            <h3>Extract data from a paper</h3>
+            <h3>Extract data</h3>
             <p>Pull structured information, statistics, or specific values from academic papers into a defined format</p>
           </button>
           <button class="option-card" onclick="selectMode('labeling')">
             <div class="option-icon" aria-hidden="true">
-              <!-- Tag silhouette with a teal hole-punch dot. -->
               <svg viewBox="0 0 24 24" fill="none">
                 <path d="M11.5 3H5a2 2 0 0 0-2 2v6.5a2 2 0 0 0 .6 1.4l8.5 8.5a1.4 1.4 0 0 0 2 0l7-7a1.4 1.4 0 0 0 0-2L12.9 3.6A2 2 0 0 0 11.5 3Z"
                       stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -263,8 +264,6 @@
           </button>
           <button class="option-card" onclick="selectMode('summarize')">
             <div class="option-icon" aria-hidden="true">
-              <!-- Stack of lines, with the middle line teal — the
-                   "structured summary" silhouette. -->
               <svg viewBox="0 0 24 24" fill="none">
                 <rect x="3" y="4" width="18" height="16" rx="2"
                       stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -274,7 +273,74 @@
               </svg>
             </div>
             <h3>Summarise a paper</h3>
-            <p>Produce a structured per-section summary (background, methods, findings, limitations) with verifiable page-anchored quotes</p>
+            <p>Produce a structured per-section summary (background, methods, findings, limitations) with page-anchored quotes</p>
+          </button>
+          <button class="option-card option-card-disclosure" id="workflowsDisclosureBtn"
+                  aria-expanded="false" aria-controls="prebuiltWorkflows"
+                  onclick="toggleWorkflowsDisclosure()" style="display:none">
+            <div class="option-icon" aria-hidden="true">
+              <!-- Stacked cards / library silhouette — "pick from a
+                   collection of pre-built recipes". -->
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect x="4" y="6" width="14" height="14" rx="2"
+                      stroke="currentColor" stroke-width="1.5"/>
+                <path d="M7 4h11a2 2 0 0 1 2 2v11" stroke="currentColor"
+                      stroke-width="1.5" stroke-linecap="round" fill="none"/>
+                <circle cx="11" cy="13" r="2.2" fill="#367380"/>
+              </svg>
+            </div>
+            <h3>
+              <span>Use a pre-built workflow</span>
+              <span class="disclosure-chevron" aria-hidden="true">&#x25BE;</span>
+            </h3>
+            <p>Tailored prompts for specific research methods (MASEMiner, ForestPlot, …) &mdash; skip the prompt-design step</p>
+          </button>
+        </div>
+
+        <!-- Pre-built workflows — populated by JS from /api/presets, shown
+             only after the disclosure card above is clicked.  Stays
+             hidden when the server has no presets configured (the
+             disclosure card itself is also hidden in that case). -->
+        <div class="prebuilt-workflows" id="prebuiltWorkflows" style="display:none">
+          <div class="prebuilt-workflows-header">
+            <h3>Pre-built workflows</h3>
+            <p class="subtitle">Tailored prompts for specific research methods. Skip the prompt-design step.</p>
+          </div>
+          <div class="prebuilt-workflows-list" id="prebuiltWorkflowsList"></div>
+        </div>
+
+        <!-- Visual separator between "start a new task" (primary grid +
+             optional workflows panel) and "work with existing data"
+             (Extend + Review).  All three lenses in the UX critique
+             flagged this grouping; the divider makes the boundary
+             explicit without adding any new clickable surface. -->
+        <div class="option-grid-divider" role="separator">
+          <span class="option-grid-divider-label">or work with existing data</span>
+        </div>
+
+        <!-- Secondary "work with existing data" row — sits below the
+             primary task picker.  Two cards side-by-side: extend a
+             donated dataset, or review a previously-exported result
+             JSON.  Both are option-card-load style (dashed, horizontal,
+             muted) so they read as a different category of action than
+             the four task-pickers above. -->
+        <div class="option-grid option-grid-secondary">
+          <button class="option-card option-card-load" onclick="selectExtendOption()">
+            <div class="option-icon" aria-hidden="true">
+              <!-- Two stacked documents with a teal plus — "add to an
+                   existing collection". -->
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M6 4h7l4 4v11a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 4.5 19V5.5A1.5 1.5 0 0 1 6 4Z"
+                      stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M13 4v3a1 1 0 0 0 1 1h3" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <circle cx="17.5" cy="17.5" r="3.6" fill="#367380"/>
+                <path d="M17.5 15.6v3.8 M15.6 17.5h3.8" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="option-card-load-text">
+              <h3>Extend an existing dataset</h3>
+              <p>Browse community-donated datasets and add your own papers &mdash; the dataset's prompt and schema are pre-loaded</p>
+            </div>
           </button>
           <button class="option-card option-card-load" onclick="selectLoadOption()">
             <div class="option-icon" aria-hidden="true">
@@ -287,19 +353,9 @@
             </div>
             <div class="option-card-load-text">
               <h3>Review existing results</h3>
-              <p>Load a previously exported JSON for human review and correction &mdash; no AI processing, no API key needed</p>
+              <p>Load a previously exported JSON for human review and correction &mdash; no AI, no API key needed</p>
             </div>
           </button>
-        </div>
-
-        <!-- Pre-built workflows — populated by JS from /api/presets.  Hidden
-             when the server has no presets configured. -->
-        <div class="prebuilt-workflows" id="prebuiltWorkflows" style="display:none">
-          <div class="prebuilt-workflows-header">
-            <h3>Or pick a pre-built workflow</h3>
-            <p class="subtitle">Tailored prompts for specific research methods. Skip the prompt-design step.</p>
-          </div>
-          <div class="prebuilt-workflows-list" id="prebuiltWorkflowsList"></div>
         </div>
 
         <!-- Past extractions — only visible when SQLite has at least one batch -->
@@ -1167,6 +1223,52 @@ The viewer renders any object containing a <code>_table</code> array as a real H
     <div class="btn-row" style="justify-content:flex-end;margin-top:14px">
       <button class="btn btn-ghost" type="button" onclick="_closeVlmPicker()">Cancel</button>
       <button class="btn btn-primary" id="vlmPickerConfirm" type="button">Re-run</button>
+    </div>
+  </div>
+</div>
+
+<!-- Extend-dataset picker modal — shown when the user clicks "Extend an
+     existing dataset" on step 1.  Lists datasets from the curated
+     public repo (loaded via /api/datasets) and lets the user search +
+     pick one to extend.  The actual extension flow (password prompt
+     for gated datasets, preset pre-load, append-submission) is wired
+     in Phase 3c-3e. -->
+<div class="modal-overlay" id="extendDatasetOverlay" role="dialog" aria-modal="true"
+     aria-labelledby="extendDatasetTitle">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header">
+      <h3 id="extendDatasetTitle" style="font-size:18px">Extend an existing dataset</h3>
+      <button class="modal-close" type="button" onclick="closeExtendDatasetModal()"
+              aria-label="Close">&times;</button>
+    </div>
+    <p class="vlm-picker-intro" style="margin:6px 0 12px">
+      Browse community-donated datasets and add your own papers.  The
+      dataset's prompt + schema are pre-loaded so your extractions
+      conform.  Gated datasets ask for the donor's extension password
+      before you can submit.
+    </p>
+
+    <input type="text" id="extendDatasetSearch"
+           placeholder="🔎  Search by title, donor, or schema…"
+           oninput="_filterExtendDatasets()"
+           style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font:inherit;margin-bottom:10px" />
+
+    <div id="extendDatasetList" class="extend-dataset-list"
+         style="max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px">
+      <!-- Populated by JS.  Loading / empty / error states below. -->
+    </div>
+
+    <div id="extendDatasetLoading" style="text-align:center;padding:30px 0;color:var(--text-muted);font-size:14px;display:none">
+      Loading datasets…
+    </div>
+    <div id="extendDatasetEmpty" style="text-align:center;padding:30px 12px;color:var(--text-muted);font-size:14px;line-height:1.55;display:none">
+      No datasets to extend yet.  Be the first &mdash; after your next extraction,
+      click <strong>Share dataset</strong> when prompted.
+    </div>
+    <div id="extendDatasetError" style="text-align:center;padding:24px 12px;color:#b91c1c;font-size:13.5px;line-height:1.5;display:none"></div>
+
+    <div class="btn-row" style="justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-ghost" type="button" onclick="closeExtendDatasetModal()">Cancel</button>
     </div>
   </div>
 </div>
