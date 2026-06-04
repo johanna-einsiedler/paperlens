@@ -217,14 +217,26 @@ def get_config() -> dict:
 
 # ── /api/donate ──────────────────────────────────────────────────────────────
 
-# Rate limit: max donations per IP within the window below.  Tuned high
-# enough that legitimate "I extracted twice and want to share both" works,
-# low enough that a spammer would hit the wall fast.  Loopback IPs
-# (127.0.0.1 / ::1) bypass the limit entirely — when you're testing on
-# localhost you should not be blocked by a "spam" check designed for the
-# public internet.
-_DONATE_RATE_LIMIT      = 3
+# Rate limit: max donations per IP within the window below.  Configurable
+# via the ``PAPERLENS_DONATE_RATE_LIMIT`` env var; a value of 0 disables
+# the limit entirely (useful while bootstrapping and during testing).
+# Loopback IPs (127.0.0.1 / ::1) always bypass the check — when you're
+# testing on localhost you should not be blocked by a check designed for
+# the public internet.
 _DONATE_RATE_WINDOW_SEC = 24 * 3600
+
+
+def _donate_rate_limit() -> int:
+    """``PAPERLENS_DONATE_RATE_LIMIT`` parsed as a non-negative int.
+    Returns ``3`` (the default) on missing / malformed values, ``0``
+    when the operator explicitly disabled the limit."""
+    raw = os.environ.get("PAPERLENS_DONATE_RATE_LIMIT", "")
+    if not raw:
+        return 3
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 3
 
 
 def _client_ip_from_request(request: Request) -> str:
@@ -283,17 +295,19 @@ def donate_dataset(payload: DonateIn, request: Request) -> dict:
 
     # Per-IP rate-limit: peppered SHA-256, never stores the raw IP.
     # Loopback bypass — local dev iteration must not be rate-limited.
+    # ``PAPERLENS_DONATE_RATE_LIMIT=0`` disables the check entirely.
     client_ip = _client_ip_from_request(request)
     try:
         ip_hash = donor.hash_ip(client_ip)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    if not _is_loopback_ip(client_ip):
+    limit = _donate_rate_limit()
+    if limit > 0 and not _is_loopback_ip(client_ip):
         recent = db.count_donations_by_ip(ip_hash, _DONATE_RATE_WINDOW_SEC)
-        if recent >= _DONATE_RATE_LIMIT:
+        if recent >= limit:
             raise HTTPException(
                 status_code=429,
-                detail=f"Donation rate limit reached ({_DONATE_RATE_LIMIT} per 24h).  Try again tomorrow.",
+                detail=f"Donation rate limit reached ({limit} per 24h).  Try again tomorrow.",
             )
 
     req = donor.DonationRequest(

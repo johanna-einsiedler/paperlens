@@ -1402,6 +1402,27 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+/* Compute the extraction mode (text / vision) processPaper would use for
+   this paper *right now*, given the current state and the paper's
+   probe.  Used by submitUpload's reuse check so toggling the text/vision
+   switch in step 6 correctly triggers a fresh extraction instead of
+   surfacing the previous mode's cached result.
+
+   Mirrors the dispatch in processPaper:
+   1. ``paper.forceMode``                 — explicit per-paper override
+   2. ``state.useTextExtraction``         — global default
+   3. probe-driven auto-fallback to vision when text layer is missing */
+function _expectedModeForPaper(paper) {
+  if (paper.forceMode === 'text')   return 'text';
+  if (paper.forceMode === 'vision') return 'vision';
+  let useText = state.useTextExtraction;
+  if (useText && paper.probe && !paper.probe.error
+      && paper.probe.text_layer_present === false) {
+    useText = false;
+  }
+  return useText ? 'text' : 'vision';
+}
+
 async function submitUpload() {
   if (state.selectedFiles.length === 0) { showToast('Please select at least one PDF.'); return; }
   if (state.selectedFiles.length > config.maxBatchPapers) {
@@ -1439,20 +1460,24 @@ async function submitUpload() {
       if (existing) {
         // In-flight runs are left alone — interrupting them mid-job
         // creates orphan jobs on the server.  Done runs are reused only
-        // when the model AND prompt match what produced them; if the
-        // user went back to step 2 (changed model) or step 5 (edited
-        // prompt) the cached result is stale and must be re-processed.
+        // when the model AND prompt AND extraction mode (text vs vision)
+        // match what produced them; if the user went back to step 2
+        // (changed model) or step 5 (edited prompt) or toggled the
+        // text/vision switch in step 6, the cached result is stale and
+        // must be re-processed.
         if (existing.status === 'processing') {
           newPapers.push(existing);
           continue;
         }
+        const expectedMode = _expectedModeForPaper(existing);
         if (existing.status === 'done'
             && existing.lastModelUsed  === state.model
-            && existing.lastPromptUsed === state.generatedPrompt) {
+            && existing.lastPromptUsed === state.generatedPrompt
+            && existing.lastModeUsed   === expectedMode) {
           newPapers.push(existing);
           continue;
         }
-        // Stale (model/prompt changed) — fall through to the
+        // Stale (model/prompt/mode changed) — fall through to the
         // fresh-paper branch so the new settings actually run.
       }
       // First-time file (or previous run errored / was pending) — make a
