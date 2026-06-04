@@ -51,6 +51,9 @@ data/
 # web/static/ and are derived from these)
 /MASEMiner_*.svg
 
+# pet secrets
+metapaperlens-datasets-bot.2026-06-02.private-key.pem
+
 # Stray files created by shell quoting mishaps when setting fly secrets
 # — these are NEVER meant to be in the repo (they typically have a
 # secret embedded in the filename).
