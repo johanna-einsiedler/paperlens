@@ -120,13 +120,33 @@ def _sign_app_jwt() -> str:
     private_key = os.environ.get("PAPERLENS_GH_APP_PRIVATE_KEY")
     if not app_id or not private_key:
         raise RuntimeError("PAPERLENS_GH_APP_ID / PAPERLENS_GH_APP_PRIVATE_KEY missing")
+    # Defensive: when a multi-line PEM is round-tripped through a
+    # one-line shell command or a CI env-var field, real newlines often
+    # arrive as the two-character escape "\n".  PyJWT then fails with
+    # "Could not parse the provided public key".  Restore real newlines
+    # so the PEM parses regardless of how the secret was set.
+    if "\\n" in private_key and "\n" not in private_key:
+        private_key = private_key.replace("\\n", "\n")
     now = int(time.time())
     payload = {
         "iat": now - 60,        # 60s back-tolerance for clock skew
         "exp": now + 9 * 60,    # GitHub caps JWTs at 10 min — stay below
         "iss": app_id,
     }
-    return jwt.encode(payload, private_key, algorithm="RS256")
+    try:
+        return jwt.encode(payload, private_key, algorithm="RS256")
+    except Exception as exc:
+        # Wrap with an actionable message — the underlying PyJWT error
+        # ("Could not parse the provided public key") is misleading
+        # because the failure is actually about the *private* key, and
+        # the real cause is almost always a mangled PEM stored as a
+        # one-line secret.
+        raise RuntimeError(
+            f"GitHub App private key failed to parse: {exc}.  "
+            f"This almost always means the multi-line PEM was stored as "
+            f"a one-line secret.  Re-set it with: "
+            f"fly secrets set PAPERLENS_GH_APP_PRIVATE_KEY=\"$(cat /path/to/key.pem)\""
+        ) from exc
 
 
 def _get_installation_token(client: httpx.Client) -> str:

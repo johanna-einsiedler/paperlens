@@ -171,10 +171,13 @@
         // user can read tracebacks even when the modal just shows the
         // summary line.
         console.error('[donate] /api/donate failed', res.status, ct, raw);
-        _showDonateError(
-          detail +
-          (res.status >= 500 ? '  (Check the terminal where you ran python server.py for the traceback.)' : '')
-        );
+        const isLocal = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+        const hint = res.status >= 500
+          ? (isLocal
+              ? '  (Check the terminal where you ran python server.py for the traceback.)'
+              : '  (Server logs hold the full traceback.)')
+          : '';
+        _showDonateError(detail + hint);
         return;
       }
       const data = await res.json();
