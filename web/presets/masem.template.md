@@ -302,7 +302,7 @@ If neither item number nor wording can be identified confidently, set affected c
 ## 5.7 Factor alignment
 
 Map factor labels to F keys using [factor_key_mapping].
-If factor names are given, follow the paper’s printed factor order, column order, row-group order, or block order unless the paper explicitly defines another numbering.
+If factor names are given, follow the paper's printed factor order, column order, row-group order, or block order unless the paper explicitly defines another numbering.
 
 Do not assign external variables, outcomes, covariates, predictors, or non-scale factors to F keys.
 
@@ -626,6 +626,7 @@ Before finalizing JSON, verify that:
 - evidence entries contain only snippet, page, source, and field;
 - evidence points to the PDF page where supporting values are visible;
 - evidence fields match the emitted JSON paths;
+- paper_metadata.title is populated;
 - the top-level output is valid JSON parseable by json.loads.
 
 Return:

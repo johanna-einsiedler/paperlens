@@ -9,8 +9,7 @@ Return EXACTLY ONE valid JSON object following the required schema.
 ## EFFECT SIZES
 
 Canonical effect size labels:
-- "r" = Correlation
-- "or" = Odds ratios
+${effect_sizes_block}
 
 Extract ONLY these canonical effect sizes.
 
@@ -181,6 +180,28 @@ Evidence snippets must:
 - correspond to the same sample/group,
 - avoid paraphrasing or reconstruction.
 
+# SELF-ASSESS EXTRACTION CONFIDENCE
+
+For EACH extracted sample/group, return an ``extraction_confidence`` object with one rating per high-level extraction target.
+
+Required keys (all MUST be present):
+
+- ``effect_sizes``: confidence in the per-pair effect-size values (the ``records`` array) for this sample — including correct var1/var2 mapping and correct numeric values.
+- ``reliabilities``: confidence in the reliability fields within records (rel1, rel2, rel1_type, rel2_type) for this sample.
+- ``metadata``: confidence in the sample metadata block (pubyear, country, continent, lang, pubtype, female, age, clinical) for this sample.
+
+Each rating MUST be one of EXACTLY these three strings (lower-case):
+
+- ``"high"``: the relevant numeric values / metadata are clearly stated in the paper, the table layout was unambiguous, no major OCR or interpretation issues, and the values were extracted directly without inference.
+- ``"medium"``: values were extractable but the source had at least one of: ambiguous variable labels requiring careful mapping to canonical short names, partial OCR artifacts, suppressed correlation values, sparse metadata, or a non-trivial reconciliation between matrix labels and prose names.
+- ``"low"``: substantial ambiguity remained — e.g. heavily damaged OCR, conflicting matrices, missing or unclear variable identities, large fractions of unreported cells, or significant guesswork required.
+
+Calibration:
+
+- If a category was not extractable at all (no reliability reported, no metadata reported) — still emit a rating (``"low"``) AND explain in ``notes``.
+- The confidence rating reflects how reliably the values match the paper, NOT how complete or theoretically pleasing the dataset is.
+- Be conservative: prefer ``"medium"`` over ``"high"`` when in doubt; prefer ``"low"`` over ``"medium"`` when in doubt.
+
 # PAPER METADATA
 
 In addition to the per-sample blocks, extract paper-level identifying metadata from the PDF front matter / header / footer. These fields identify the source paper itself and are used to generate citations for downstream datasets.
@@ -231,6 +252,12 @@ In addition to the per-sample blocks, extract paper-level identifying metadata f
       "age": null,
       "clinical": null,
 
+      "extraction_confidence": {
+        "effect_sizes":  "medium",
+        "reliabilities": "medium",
+        "metadata":      "medium"
+      },
+
       "notes": ""
     }
   ],
@@ -252,6 +279,8 @@ Before returning output, validate:
 - all evidence fields reference existing JSON paths,
 - every sample contains at least one effect size,
 - all required fields are present,
+- every sample has an extraction_confidence object with all three required keys,
+- paper_metadata.title is populated,
 - output is valid JSON parseable by json.loads.
 
 Return:

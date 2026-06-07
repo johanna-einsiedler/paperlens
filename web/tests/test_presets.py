@@ -132,27 +132,35 @@ def test_get_preset_404_for_unknown(client):
 
 def test_masem_preset_declares_sub_views(client):
     """The umbrella ``masem`` preset (Direct-information variant) ships
-    two sub-tabs: Correlations (the per-sample ``records[]`` array) and
+    two sub-tabs: Effect sizes (the per-sample ``records[]`` array) and
     Descriptives (everything else).  Reliability and instrument fields
     live inline on each record (``rel1``, ``rel2``, ``instr1``,
     ``instr2``) rather than in a separate top-level array, so there is
-    no longer a separate Reliabilities tab.  Declared explicitly in
-    masem.json."""
+    no longer a separate Reliabilities tab.  Each sub-view declares
+    its ``confidence_keys`` so the confidence-badge row above the data
+    panel only shows the ratings that apply to the active tab
+    (Effect sizes → effect_sizes + reliabilities; Descriptives →
+    metadata).  Declared explicitly in masem.json."""
     r = client.get("/api/presets/masem")
     body = r.json()
     sub_views = body.get("sub_views")
     assert isinstance(sub_views, list)
     assert len(sub_views) == 2
     ids = [s["id"] for s in sub_views]
-    assert ids == ["correlations", "descriptives"]
+    assert ids == ["effectsizes", "descriptives"]
     for sv in sub_views:
         assert "label" in sv and sv["label"]
         assert ("include_keys" in sv) or ("exclude_keys" in sv)
     by_id = {s["id"]: s for s in sub_views}
-    assert "records" in by_id["correlations"]["include_keys"]
+    assert "records" in by_id["effectsizes"]["include_keys"]
     assert "records" in by_id["descriptives"]["exclude_keys"]
-    assert by_id["correlations"]["evidence_keys"] == ["records"]
+    assert by_id["effectsizes"]["evidence_keys"] == ["records"]
     assert "evidence_keys" not in by_id["descriptives"]
+    # Per-sub-view confidence scoping — Effect sizes tab owns the
+    # effect_sizes + reliabilities ratings; Descriptives owns metadata.
+    assert by_id["effectsizes"]["confidence_keys"] == ["effect_sizes", "reliabilities"]
+    assert by_id["descriptives"]["confidence_keys"] == ["metadata"]
+    assert by_id["effectsizes"]["label"] == "Effect sizes"
 
 
 # ── Variants (NCS-18 example, hidden from landing) ────────────────────────
@@ -202,9 +210,11 @@ def test_umbrella_masem_is_blank_records_starter(client):
     assert '"rel1_type"' in prompt
     # No factor-analytic content in this template.
     assert "EXTRACT FACTOR LOADINGS" not in prompt
-    # Sub-views: Correlations + Descriptives.
+    # Sub-views: Effect sizes + Descriptives, each scoped to its own
+    # confidence categories so the badge row above the panel matches
+    # the active tab's data.
     sub_ids = [sv["id"] for sv in body["sub_views"]]
-    assert sub_ids == ["correlations", "descriptives"]
+    assert sub_ids == ["effectsizes", "descriptives"]
 
 
 def test_ncs18_variant_renders_with_pre_baked_scaffold(client):
@@ -259,17 +269,72 @@ def test_ncs18_variant_includes_user_supplied_item_texts(client):
     assert "2: User-pasted item 20" in prompt
 
 
-def test_extraction_confidence_block_in_default_prompt(client):
-    """The Indirect (``masem-ncs18``, factor-analytic) preset instructs
-    the model to self-assess its extraction confidence and emit an
-    ``extraction_confidence`` object in every sample.  The Direct
-    (``masem``) preset's v2 template intentionally drops this block
-    (no confidence ratings on the simpler records-based schema)."""
-    # Direct preset must NOT contain the confidence block.
+def test_direct_default_renders_canonical_effect_sizes(client):
+    """The Direct (records-based) preset's masem.json now ships
+    ``effect_sizes`` defaults (r / Correlation, or / Odds ratios) which
+    must reach the rendered prompt via the ${effect_sizes_block}
+    placeholder.  Empty user input keeps these defaults."""
     direct = client.post("/api/build-preset-prompt", json={
         "preset_id": "masem", "template_params": {},
     }).json()
-    assert "extraction_confidence" not in direct["prompt"]
+    p = direct["prompt"]
+    assert '"r" = Correlation' in p
+    assert '"or" = Odds ratios' in p
+
+
+def test_direct_user_override_replaces_effect_sizes(client):
+    """User-supplied ``effect_sizes`` overrides the default list — the
+    prompt only carries the user's entries, not the canonical defaults
+    leaking through."""
+    direct = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem",
+        "template_params": {
+            "effect_sizes": [
+                {"code": "smd", "label": "Standardised mean difference"},
+                {"code": "g",   "label": "Hedges' g"},
+            ],
+        },
+    }).json()
+    p = direct["prompt"]
+    assert '"smd" = Standardised mean difference' in p
+    assert "Hedges' g" in p
+    # Defaults should have been displaced.
+    assert '"r" = Correlation' not in p
+    assert '"or" = Odds ratios' not in p
+
+
+def test_direct_effect_sizes_accepts_string_short_codes(client):
+    """Compact form — a list of bare strings — also renders, falling
+    back to a default label for known short codes."""
+    direct = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem",
+        "template_params": {"effect_sizes": ["r", "d"]},
+    }).json()
+    p = direct["prompt"]
+    assert '"r" = Correlation'         in p
+    assert '"d" = Cohen\'s d'          in p
+
+
+def test_extraction_confidence_block_in_default_prompt(client):
+    """Both MASEMiner presets now ask the model to self-assess its
+    extraction confidence and emit an ``extraction_confidence`` object
+    per sample.  The Indirect (factor-analytic) preset rates loadings /
+    correlations / metadata.  The Direct (records-based) preset rates
+    effect sizes / reliabilities / metadata — different conceptual
+    extraction targets but the same high/medium/low scale.  Adding the
+    block to Direct was an explicit decision to give every donation a
+    self-rated reliability signal."""
+    # ── Direct / records-based preset ──
+    direct = client.post("/api/build-preset-prompt", json={
+        "preset_id": "masem", "template_params": {},
+    }).json()
+    p_direct = direct["prompt"]
+    assert "SELF-ASSESS EXTRACTION CONFIDENCE" in p_direct
+    assert "``effect_sizes``"  in p_direct
+    assert "``reliabilities``" in p_direct
+    assert "``metadata``"      in p_direct
+    assert '"extraction_confidence"' in p_direct
+
     # ── Indirect / factor-analytic preset ──
     indirect = client.post("/api/build-preset-prompt", json={
         "preset_id": "masem-ncs18", "template_params": {},
@@ -295,6 +360,37 @@ def test_build_preset_prompt_default_matches_get(client):
     }).json()
     assert built["prompt"]    == direct["prompt"]
     assert built["sub_views"] == direct["sub_views"]
+
+
+def test_build_preset_prompt_echoes_default_data_sources_preserves_explicit_sub_views(client):
+    """Regression: the masem-builder posts the FULL template_params on
+    every form change, including the unchanged ``data_sources`` value
+    inherited from the preset's own defaults.  The previous
+    ``overrode_sources`` check fired purely on key presence, mis-
+    classified that echo as a real override, fell into auto-generation,
+    and — because ``records`` isn't in _SUB_VIEW_SPECS — returned an
+    empty list.  The empty list then propagated into
+    ``state.activePreset.sub_views`` via the builder's auto-commit and
+    wiped the Effect-sizes + Descriptives sub-tabs from the result panel.
+
+    Override semantics: only treat data_sources as overridden when it
+    DIFFERS from the preset default.  Echoing the default keeps the
+    preset's explicit sub_views intact."""
+    direct = client.get("/api/presets/masem").json()
+    preset_default_sources = direct["template_params"]["data_sources"]
+    assert preset_default_sources == ["records"]
+
+    # Builder-style payload: full template_params including the
+    # unchanged data_sources value.
+    built = client.post("/api/build-preset-prompt", json={
+        "preset_id":       "masem",
+        "template_params": {**direct["template_params"]},
+    }).json()
+    sub_ids = [sv["id"] for sv in built["sub_views"]]
+    assert sub_ids == ["effectsizes", "descriptives"], (
+        "Echoing the preset's own data_sources must NOT trigger sub_views "
+        "auto-regeneration; the explicit JSON sub_views should pass through."
+    )
 
 
 def test_build_preset_prompt_overrides_data_sources(client):

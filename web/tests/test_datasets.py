@@ -227,6 +227,45 @@ def test_cache_returns_same_payload_second_call(monkeypatch):
     assert second["cache_age_sec"] >= 0
 
 
+def test_api_datasets_refresh_param_bypasses_cache(monkeypatch, tmp_path):
+    """?refresh=1 should re-fetch from GitHub even when the cache is
+    warm.  Without it the second call returns cached data; with it
+    we expect another round of HTTP calls."""
+    monkeypatch.setenv("PAPERLENS_DB_PATH", str(tmp_path / "test.sqlite"))
+    monkeypatch.setenv("PAPERLENS_GH_REPO", "test-owner/test-repo")
+    import db; db.init()
+    from fastapi.testclient import TestClient
+    import server
+
+    routes = {
+        "https://api.github.com/repos/test-owner/test-repo/contents/datasets": _FakeResponse(
+            200, [{"name": "ncs-18-2026-06", "type": "dir"}],
+        ),
+        "https://api.github.com/repos/test-owner/test-repo/contents/datasets/ncs-18-2026-06/metadata.json": _FakeResponse(
+            200, {"content": _b64(_stub_metadata())},
+        ),
+    }
+    fake = _FakeClient(routes)
+    monkeypatch.setattr(datasets_mod.httpx, "Client", lambda *a, **kw: fake)
+
+    client = TestClient(server.app)
+
+    # Warm cache.
+    client.get("/api/datasets")
+    n_warm = len(fake.calls)
+    assert n_warm > 0
+
+    # Cached fetch — no new HTTP calls.
+    client.get("/api/datasets")
+    assert len(fake.calls) == n_warm
+
+    # Force refresh — new HTTP calls.
+    r = client.get("/api/datasets?refresh=1")
+    assert r.status_code == 200
+    assert r.json()["cache_age_sec"] == 0
+    assert len(fake.calls) > n_warm
+
+
 def test_cache_invalidate_forces_refetch(monkeypatch):
     routes = {
         "https://api.github.com/repos/test-owner/test-repo/contents/datasets": _FakeResponse(
@@ -450,6 +489,85 @@ def test_verify_password_rate_limit_after_10_attempts(monkeypatch, tmp_path):
                     json={"password": "right"}, headers=headers)
     assert r.status_code == 429
     assert "Too many" in r.json()["detail"]
+
+
+def test_get_dataset_full_returns_metadata_and_prompt(monkeypatch, tmp_path):
+    """Happy path: /api/datasets/{id}/full returns the sanitized
+    metadata + the prompt.md body, no password_hash leakage."""
+    monkeypatch.setenv("PAPERLENS_DB_PATH", str(tmp_path / "test.sqlite"))
+    monkeypatch.setenv("PAPERLENS_GH_REPO", "test-owner/test-repo")
+    import db; db.init()
+    from fastapi.testclient import TestClient
+    import server
+
+    metadata = _stub_metadata(
+        dataset_id="ncs-18-2026-06",
+        password_hash="$2b$12$SECRET-NEVER-LEAKS",
+    )
+    routes = {
+        "https://api.github.com/repos/test-owner/test-repo"
+        "/contents/datasets/ncs-18-2026-06/metadata.json": _FakeResponse(
+            200, {"content": _b64(metadata)},
+        ),
+        "https://api.github.com/repos/test-owner/test-repo"
+        "/contents/datasets/ncs-18-2026-06/prompt.md": _FakeResponse(
+            200, {"content": base64.b64encode(b"You are an expert...").decode("ascii")},
+        ),
+    }
+    monkeypatch.setattr(datasets_mod.httpx, "Client", lambda *a, **kw: _FakeClient(routes))
+
+    client = TestClient(server.app)
+    r = client.get("/api/datasets/ncs-18-2026-06/full")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["prompt"] == "You are an expert..."
+    assert body["title"] == "NCS-18 factor loadings"
+    assert body["schema_version"] == "masem-v3"
+    assert body["model_used"] == ["gpt-4o"]
+    assert "password_hash" not in body
+    assert "$2b$12$SECRET-NEVER-LEAKS" not in r.text
+
+
+def test_get_dataset_full_missing_returns_404(monkeypatch, tmp_path):
+    monkeypatch.setenv("PAPERLENS_DB_PATH", str(tmp_path / "test.sqlite"))
+    monkeypatch.setenv("PAPERLENS_GH_REPO", "test-owner/test-repo")
+    import db; db.init()
+    from fastapi.testclient import TestClient
+    import server
+
+    routes = {}  # default → 404 on every URL
+    monkeypatch.setattr(datasets_mod.httpx, "Client", lambda *a, **kw: _FakeClient(routes))
+
+    client = TestClient(server.app)
+    r = client.get("/api/datasets/missing-2026-06/full")
+    assert r.status_code == 404
+
+
+def test_get_dataset_full_handles_missing_prompt_file(monkeypatch, tmp_path):
+    """If metadata exists but prompt.md doesn't, return the metadata
+    with prompt='' rather than 404 — the user can still extend
+    by re-entering the prompt manually."""
+    monkeypatch.setenv("PAPERLENS_DB_PATH", str(tmp_path / "test.sqlite"))
+    monkeypatch.setenv("PAPERLENS_GH_REPO", "test-owner/test-repo")
+    import db; db.init()
+    from fastapi.testclient import TestClient
+    import server
+
+    routes = {
+        "https://api.github.com/repos/test-owner/test-repo"
+        "/contents/datasets/ncs-18-2026-06/metadata.json": _FakeResponse(
+            200, {"content": _b64(_stub_metadata())},
+        ),
+        # No prompt.md → 404 by default.
+    }
+    monkeypatch.setattr(datasets_mod.httpx, "Client", lambda *a, **kw: _FakeClient(routes))
+
+    client = TestClient(server.app)
+    r = client.get("/api/datasets/ncs-18-2026-06/full")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["prompt"] == ""
+    assert body["title"] == "NCS-18 factor loadings"
 
 
 def test_verify_password_loopback_bypasses_rate_limit(monkeypatch, tmp_path):

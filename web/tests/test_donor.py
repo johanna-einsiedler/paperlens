@@ -143,6 +143,59 @@ def test_build_bundle_strips_pageimages_in_results(seeded_batch):
     assert bundle["schema_version"] == "masem-v3"
 
 
+def test_build_bundle_schema_version_unspecified_when_model_omits(db_path):
+    """A paper whose result JSON doesn't include schema_version should
+    produce a dataset labelled 'unspecified', NOT 'mixed' — the
+    earlier behaviour was misleading (it suggested a conflict that
+    didn't exist).  Reproduces the test2-2026-06 regression seen in
+    production."""
+    import uuid as _uuid
+    batch_id = _uuid.uuid4().hex
+    db.create_batch(batch_id, notify_email=None, session_id="test")
+    job_id = _uuid.uuid4().hex
+    db.create_job(job_id, "p.pdf", batch_id=batch_id, prompt="P", model="gpt-4o")
+    db.mark_done(job_id,
+        result=json.dumps({
+            "paper_metadata": {"title": "T", "doi": None, "year": None, "authors": None},
+            "samples": [{"sample_id": "S1"}],
+            "evidence": [],
+            # NB: no schema_version key — mirrors what gemini-2.5-pro
+            # emitted for the user's test2 donation.
+        }),
+        pages_processed=1, evidence_count=0, finish_reason="stop",
+        token_usage={})
+    req = _make_req(batch_id=batch_id)
+    bundle = donor.build_bundle(req)
+    assert bundle["schema_version"] == "unspecified"
+    assert bundle["paper_count"] == 1
+
+
+def test_build_bundle_refuses_mixed_schema_donation(db_path):
+    """Two papers with DIFFERENT schema_versions in one batch should
+    be REFUSED at donation time — a published 'mixed' dataset is
+    confusing for downstream consumers and a hard case for the
+    Phase 3g extension-consistency check.  Fail loudly so the donor
+    re-extracts under a single preset rather than shipping the
+    ambiguity."""
+    import uuid as _uuid
+    batch_id = _uuid.uuid4().hex
+    db.create_batch(batch_id, notify_email=None, session_id="test")
+    for sv in ["masem-v3", "summarize-v1"]:
+        job_id = _uuid.uuid4().hex
+        db.create_job(job_id, f"p-{sv}.pdf", batch_id=batch_id, prompt="P", model="gpt-4o")
+        db.mark_done(job_id,
+            result=json.dumps({
+                "samples": [{"sample_id": "S1"}],
+                "evidence": [],
+                "schema_version": sv,
+            }),
+            pages_processed=1, evidence_count=0, finish_reason="stop",
+            token_usage={})
+    req = _make_req(batch_id=batch_id)
+    with pytest.raises(ValueError, match="different schema_version"):
+        donor.build_bundle(req)
+
+
 def test_build_bundle_records_prompt(seeded_batch):
     req = _make_req(batch_id=seeded_batch)
     bundle = donor.build_bundle(req)
@@ -324,6 +377,135 @@ def test_zenodo_creators_anonymous_and_attributed():
     # never sees an invalid empty creators array.
     fallback = zenodo_mod._creators_block("attributed", "", "")
     assert fallback == [{"name": "Anonymous"}]
+
+
+def test_build_bundle_records_verification_block_default_unverified(seeded_batch):
+    """Default donation has no human-verification claim — metadata.json
+    must carry ``verification: {human_verified: False, notes: ''}`` so
+    downstream consumers can filter / weight verified vs raw outputs
+    without having to interpret absent-as-true."""
+    req = _make_req(batch_id=seeded_batch)
+    bundle = donor.build_bundle(req)
+    md = json.loads(bundle["files"]["metadata.json"])
+    assert md["verification"] == {"human_verified": False, "notes": ""}
+
+
+def test_build_bundle_records_human_verification_when_claimed(seeded_batch):
+    """When the donor checks the human-verified radio + supplies notes,
+    both fields land in the bundle's metadata.json verbatim."""
+    req = _make_req(
+        batch_id=seeded_batch,
+        human_verified=True,
+        verification_notes="all 53 effect-size records cross-checked against tables",
+    )
+    bundle = donor.build_bundle(req)
+    md = json.loads(bundle["files"]["metadata.json"])
+    assert md["verification"]["human_verified"] is True
+    assert "53 effect-size records" in md["verification"]["notes"]
+
+
+def test_build_extension_payload_records_verification(seeded_batch):
+    """Extension submissions carry their own per-batch verification
+    block in papers/<batch>.json — a dataset can have multiple
+    extension batches with differing verification status."""
+    req = _make_req(
+        batch_id=seeded_batch,
+        extends_dataset_id="ncs-18-2026-06",
+        human_verified=True,
+        verification_notes="spot-checked 5 of 8 papers",
+    )
+    payload = donor.build_extension_payload(req)
+    parsed = json.loads(payload["file_content"])
+    assert parsed["verification"]["human_verified"] is True
+    assert "spot-checked 5 of 8" in parsed["verification"]["notes"]
+
+
+def test_build_extension_payload_strips_pageimages(seeded_batch):
+    """Phase 3e: extension payload still runs through the schema-strip
+    whitelist — same posture as a fresh donation."""
+    req = _make_req(batch_id=seeded_batch, extends_dataset_id="ncs-18-2026-06")
+    payload = donor.build_extension_payload(req)
+    assert payload["dataset_id"] == "ncs-18-2026-06"
+    assert payload["paper_count"] == 2
+    assert payload["file_path"] == f"papers/{seeded_batch}.json"
+    assert "pageImages" not in payload["file_content"]
+
+
+def test_build_extension_payload_records_prompt_sha(seeded_batch):
+    req = _make_req(batch_id=seeded_batch, extends_dataset_id="ncs-18-2026-06")
+    payload = donor.build_extension_payload(req)
+    parsed = json.loads(payload["file_content"])
+    assert parsed["extension_of"] == "ncs-18-2026-06"
+    assert parsed["batch_id"] == seeded_batch
+    assert parsed["schema_version"] == "masem-v3"
+    assert parsed["extraction"]["prompt_sha256"] == payload["prompt_sha256"]
+
+
+def test_build_extension_payload_attributed_donor(seeded_batch):
+    req = _make_req(
+        batch_id=seeded_batch,
+        extends_dataset_id="ncs-18-2026-06",
+        attribution_mode="attributed",
+        attribution_name="Jane Smith",
+        attribution_affiliation="Basel",
+    )
+    payload = donor.build_extension_payload(req)
+    parsed = json.loads(payload["file_content"])
+    assert parsed["donor"] == {
+        "mode": "attributed",
+        "name": "Jane Smith",
+        "affiliation": "Basel",
+    }
+
+
+def test_build_extension_payload_requires_extends_id(seeded_batch):
+    req = _make_req(batch_id=seeded_batch)  # extends_dataset_id is None
+    with pytest.raises(ValueError, match="extends_dataset_id"):
+        donor.build_extension_payload(req)
+
+
+def test_donate_extension_dry_run_writes_to_papers_subfolder(
+    seeded_batch, pepper, monkeypatch, tmp_path
+):
+    """Dry-run extension stages the new file under the EXISTING dataset's
+    papers/ subfolder so reviewers can inspect what would be added."""
+    monkeypatch.delenv("PAPERLENS_DONATE_LIVE", raising=False)
+    monkeypatch.setattr(donor, "DRY_RUN_BUNDLE_DIR", tmp_path)
+    # The extension flow checks that the target dataset actually
+    # exists.  Stub get_dataset_metadata so the check passes without
+    # hitting GitHub.
+    monkeypatch.setattr(
+        donor.datasets_mod, "get_dataset_metadata",
+        lambda did: {"title": "Existing", "visibility": "public"},
+    )
+    ip_hash = donor.hash_ip("1.2.3.4")
+    req = _make_req(batch_id=seeded_batch, extends_dataset_id="ncs-18-2026-06")
+    result = donor.donate(req, ip_hash=ip_hash)
+    assert result["mode"] == "dry-run"
+    assert result["kind"] == "extension"
+    assert result["extends"] == "ncs-18-2026-06"
+    expected = tmp_path / "ncs-18-2026-06" / "papers" / f"{seeded_batch}.json"
+    assert expected.is_file()
+    contents = expected.read_text()
+    assert "extension_of" in contents
+    assert "ncs-18-2026-06" in contents
+
+
+def test_donate_extension_refuses_missing_target_dataset(
+    seeded_batch, pepper, monkeypatch, tmp_path
+):
+    """If the target dataset doesn't exist in the curated repo, the
+    extension flow refuses rather than creating an orphan folder."""
+    monkeypatch.delenv("PAPERLENS_DONATE_LIVE", raising=False)
+    monkeypatch.setattr(donor, "DRY_RUN_BUNDLE_DIR", tmp_path)
+    monkeypatch.setattr(
+        donor.datasets_mod, "get_dataset_metadata",
+        lambda did: None,
+    )
+    ip_hash = donor.hash_ip("9.9.9.9")
+    req = _make_req(batch_id=seeded_batch, extends_dataset_id="bogus-dataset")
+    with pytest.raises(ValueError, match="doesn't exist"):
+        donor.donate(req, ip_hash=ip_hash)
 
 
 def test_zenodo_metadata_includes_related_pr_when_provided():

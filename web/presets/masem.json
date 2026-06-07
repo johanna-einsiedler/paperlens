@@ -22,19 +22,25 @@
     "include_item_texts":   false,
     "item_texts":           [],
     "variables":            [],
+    "effect_sizes":         [
+      {"code": "r",  "label": "Correlation"},
+      {"code": "or", "label": "Odds ratios"}
+    ],
     "study_characteristics_text": ""
   },
   "sub_views": [
     {
-      "id":            "correlations",
-      "label":         "Correlations",
-      "include_keys":  ["sample_id", "records"],
-      "evidence_keys": ["records"]
+      "id":              "effectsizes",
+      "label":           "Effect sizes",
+      "include_keys":    ["sample_id", "records"],
+      "evidence_keys":   ["records"],
+      "confidence_keys": ["effect_sizes", "reliabilities"]
     },
     {
-      "id":           "descriptives",
-      "label":        "Descriptives",
-      "exclude_keys": ["records", "effect_sizes", "reliabilities", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"]
+      "id":              "descriptives",
+      "label":           "Descriptives",
+      "exclude_keys":    ["records", "effect_sizes", "reliabilities", "factor_loadings", "factor_correlations", "correlation_matrix", "single_correlations"],
+      "confidence_keys": ["metadata"]
     }
   ],
   "skip_to":           "setup",

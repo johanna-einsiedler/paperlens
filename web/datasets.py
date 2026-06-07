@@ -45,7 +45,12 @@ import httpx
 import donor
 
 
-_CACHE_TTL_SEC = 60 * 60   # 1 hour
+_CACHE_TTL_SEC = 5 * 60   # 5 minutes — short enough that newly-merged
+                          # datasets surface quickly without forcing
+                          # users to remember a refresh trick.  Even
+                          # at this TTL we make ~12 GitHub calls/hour
+                          # per dataset (well under the 5000/h App
+                          # token quota).
 _CACHE: dict[str, Any] = {"datasets": [], "fetched_at": 0.0}
 
 
@@ -236,3 +241,68 @@ def _is_safe_slug(slug: str) -> bool:
     slashes, we reject anything that doesn't match the bot's generated
     slug shape to prevent any future surprise from a wider validator."""
     return bool(slug) and bool(_SAFE_SLUG.match(slug))
+
+
+# ── Full dataset payload (metadata + prompt body) for the extend flow ────────
+
+def get_dataset_full(dataset_id: str) -> dict[str, Any] | None:
+    """Return everything the extend flow needs to mirror the original
+    extraction: sanitized metadata (no ``password_hash``) plus the
+    verbatim prompt body from ``prompt.md``.
+
+    Used by ``GET /api/datasets/{id}/full`` once the password gate has
+    been cleared.  The repo is public so the prompt is already public
+    information — we don't gate this on password verification, but the
+    UI flow only fetches it after the user has either picked a public
+    dataset or cleared the gated-password prompt.
+
+    Returns None when the dataset folder or prompt.md doesn't exist."""
+    if not _is_safe_slug(dataset_id):
+        return None
+    owner, name = _gh_repo()
+    with httpx.Client(timeout=20.0) as client:
+        headers = _auth_headers(client)
+
+        # Metadata first — without this the prompt fetch is pointless.
+        r = client.get(
+            f"https://api.github.com/repos/{owner}/{name}"
+            f"/contents/datasets/{dataset_id}/metadata.json",
+            headers=headers,
+        )
+        if r.status_code != 200:
+            return None
+        metadata = _parse_one(r.json().get("content", ""))
+        if metadata is None:
+            return None
+        sanitized = _strip_password_hash(metadata)
+
+        # Prompt body — fetched separately because it's a different
+        # file in the same folder.
+        r = client.get(
+            f"https://api.github.com/repos/{owner}/{name}"
+            f"/contents/datasets/{dataset_id}/prompt.md",
+            headers=headers,
+        )
+        prompt_body = ""
+        if r.status_code == 200:
+            import base64 as _b64
+            try:
+                prompt_body = _b64.b64decode(
+                    r.json().get("content", "")
+                ).decode("utf-8")
+            except Exception:  # noqa: BLE001
+                prompt_body = ""
+
+        sanitized["github_url"] = (
+            f"https://github.com/{owner}/{name}/tree/main/datasets/{dataset_id}"
+        )
+        # Mirror the listing endpoint: surface extraction.schema_version
+        # as the top-level schema_version (the metadata file's own
+        # format version is demoted).
+        extraction = metadata.get("extraction") or {}
+        sanitized["metadata_schema_version"] = sanitized.get("schema_version")
+        sanitized["schema_version"] = extraction.get("schema_version")
+        sanitized["paper_count"]    = extraction.get("paper_count")
+        sanitized["model_used"]     = extraction.get("model_used") or []
+        sanitized["prompt"]         = prompt_body
+        return sanitized

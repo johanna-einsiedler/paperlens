@@ -277,18 +277,29 @@ def donate_dataset(payload: DonateIn, request: Request) -> dict:
     if not (payload.consents.sharing_rights and payload.consents.license_cc_by_4):
         raise HTTPException(status_code=400, detail="Both consent checkboxes are required.")
 
-    title = (payload.title or "").strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Dataset title is required.")
-    if len(title) > 200:
-        raise HTTPException(status_code=400, detail="Dataset title must be 200 characters or fewer.")
+    # Extension flow: title / description / visibility come from the existing
+    # dataset, so they're not required on the incoming payload.  Only the
+    # extends slug + attribution + consent matter.  Validate the slug shape
+    # defensively (the path-traversal guard duplicates datasets._is_safe_slug
+    # but the donate endpoint can't import that private helper).
+    is_extension = bool(payload.extends)
+    if is_extension:
+        if not payload.extends or len(payload.extends) > 120 or "/" in payload.extends:
+            raise HTTPException(status_code=400, detail="Invalid 'extends' dataset id.")
+        title = ""   # ignored by donor when extends is set
+    else:
+        title = (payload.title or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="Dataset title is required.")
+        if len(title) > 200:
+            raise HTTPException(status_code=400, detail="Dataset title must be 200 characters or fewer.")
 
-    if payload.visibility.mode not in {"public", "gated"}:
-        raise HTTPException(status_code=400, detail="Invalid visibility mode.")
-    if payload.visibility.mode == "gated":
-        pw = payload.visibility.password or ""
-        if len(pw) < 8:
-            raise HTTPException(status_code=400, detail="Gated datasets need a password of at least 8 characters.")
+        if payload.visibility.mode not in {"public", "gated"}:
+            raise HTTPException(status_code=400, detail="Invalid visibility mode.")
+        if payload.visibility.mode == "gated":
+            pw = payload.visibility.password or ""
+            if len(pw) < 8:
+                raise HTTPException(status_code=400, detail="Gated datasets need a password of at least 8 characters.")
 
     if payload.attribution.mode not in {"anonymous", "attributed"}:
         raise HTTPException(status_code=400, detail="Invalid attribution mode.")
@@ -321,6 +332,9 @@ def donate_dataset(payload: DonateIn, request: Request) -> dict:
         attribution_affiliation = payload.attribution.affiliation.strip(),
         visibility              = payload.visibility.mode,
         password                = payload.visibility.password,
+        extends_dataset_id      = payload.extends,
+        human_verified          = bool(payload.verification.human_verified),
+        verification_notes      = (payload.verification.notes or "").strip()[:500],
     )
     try:
         return donor.donate(req, ip_hash=ip_hash)
@@ -335,9 +349,14 @@ def donate_dataset(payload: DonateIn, request: Request) -> dict:
 # ── /api/datasets — community-donated datasets in metalens-datasets ─────────
 
 @app.get("/api/datasets")
-def list_datasets() -> dict:
+def list_datasets(refresh: int = 0) -> dict:
     """Listing of public datasets in the curated GitHub repo.  Powers
     the "Extend an existing dataset" picker on the landing screen.
+
+    ``?refresh=1`` bypasses the in-process cache and forces a fresh
+    fetch from GitHub — the picker UI exposes this as a Refresh
+    button so users who just merged a PR can see it without waiting
+    for the TTL to expire.
 
     Password hashes are stripped server-side — gated-ness is signalled
     only via a derived ``gated`` boolean per record so the frontend can
@@ -371,7 +390,7 @@ def list_datasets() -> dict:
     immediately on the next request.
     """
     try:
-        return datasets_mod.list_datasets()
+        return datasets_mod.list_datasets(force_refresh=bool(refresh))
     except RuntimeError as exc:
         # PAPERLENS_GH_REPO unset — surface a 503 so the frontend can
         # show a "feature not available here" message rather than a
@@ -382,6 +401,25 @@ def list_datasets() -> dict:
         # rather than blocking the rest of the page.
         return {"datasets": [], "fetched_at": None, "cache_age_sec": 0,
                 "error": str(exc)[:200]}
+
+
+@app.get("/api/datasets/{dataset_id}/full")
+def get_dataset_full(dataset_id: str) -> dict:
+    """Full dataset payload for the extend flow: metadata (without
+    password_hash) + the verbatim prompt body.  The UI calls this
+    after the user has picked a dataset (and cleared the password
+    gate if gated) so it can pre-load state.generatedPrompt and the
+    suggested model before sending the user to step 2.
+
+    The underlying repo is public on GitHub so the prompt is already
+    public information — this endpoint doesn't add a password gate
+    of its own; the gate is on the EXTENSION submission side."""
+    if not dataset_id or len(dataset_id) > 120:
+        raise HTTPException(status_code=400, detail="Invalid dataset id.")
+    payload = datasets_mod.get_dataset_full(dataset_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return payload
 
 
 @app.post("/api/datasets/{dataset_id}/verify-password")
@@ -512,12 +550,25 @@ def build_preset_prompt(payload: BuildPresetPromptIn) -> dict:
         )
     prompt = presets_loader.render_template(template, base_params)
     # Use the preset's explicit sub_views (declared in its JSON) when
-    # available AND the caller didn't override data_sources — preset
-    # authors stay in control of the result-panel layout in the default
-    # case.  If the caller overrides data_sources (e.g. the builder
-    # flipping sources on/off), regenerate sub_views to match those
-    # sources so the tabs reflect what the form actually requested.
-    overrode_sources = "data_sources" in (payload.template_params or {})
+    # available AND the caller didn't ACTUALLY change data_sources —
+    # preset authors stay in control of the result-panel layout in the
+    # default case.  ``overrode_sources`` only fires when the payload's
+    # data_sources DIFFERS from the preset's own defaults, not merely
+    # when the key is present.  Without this guard the masem-builder
+    # silently breaks the Direct preset's explicit sub_views: the
+    # builder echoes the FULL template_params on every form change
+    # (including the unchanged ``data_sources: ["records"]``), which
+    # the previous "key in payload" check mis-classified as a user
+    # override → fell into auto-generation → "records" isn't in
+    # _SUB_VIEW_SPECS → returned an empty list → wiped the Effect-sizes
+    # + Descriptives sub-tabs.  Comparing against the preset default
+    # restores the intended behaviour: "override only when different".
+    preset_sources = (preset.get("template_params") or {}).get("data_sources") or []
+    payload_params = payload.template_params or {}
+    overrode_sources = (
+        "data_sources" in payload_params
+        and (payload_params.get("data_sources") or []) != preset_sources
+    )
     if not overrode_sources and preset.get("sub_views"):
         sub_views = preset["sub_views"]
     else:

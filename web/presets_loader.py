@@ -114,6 +114,7 @@ _OPTIONAL_PLACEHOLDERS = (
     "single_correlations_section",
     "effect_sizes_section",
     "variables_block",
+    "effect_sizes_block",
     "multiple_models_section",
     "res_field_block",
     "schema_invariants_line",
@@ -368,6 +369,12 @@ def _build_derived_template_vars(p: dict) -> dict[str, Any]:
         # definitions, used by both the data-source-section helpers and
         # by the standalone effect-sizes template.
         "variables_block":             _render_variables_block(p.get("variables") or []) or "(no variables defined — extract every reported pairwise effect size)",
+        # Effect-sizes block — list of canonical effect-size short codes
+        # the user wants extracted (e.g. "r" / Correlation, "or" / Odds
+        # ratios).  Used by the Direct-information template's
+        # ``${effect_sizes_block}`` placeholder.  Empty / missing values
+        # fall back to a permissive line so the prompt still parses.
+        "effect_sizes_block":          _render_effect_sizes_block(p.get("effect_sizes") or []) or "(no canonical effect sizes defined — extract any reported pairwise effect size)",
         "res_field_block":             res_field_block,
         "schema_invariants_line":      schema_invariants_line,
         "goal_items":                  goal_items,
@@ -947,6 +954,62 @@ def _render_variables_block(variables: list) -> str:
     return "\n".join(lines)
 
 
+def _render_effect_sizes_block(effect_sizes: list) -> str:
+    """Format the user's ``effect_sizes`` parameter as a bullet list of
+    canonical effect-size short codes + their full names.  Each entry
+    may be either a plain string (treated as the short code) or a dict
+    with ``code`` + optional ``label`` fields:
+
+        [
+          "r",
+          {"code": "or", "label": "Odds ratios"},
+          {"code": "smd", "label": "Standardised mean difference"}
+        ]
+
+    Renders as::
+
+        - "r"  = Correlation
+        - "or" = Odds ratios
+        - "smd" = Standardised mean difference
+
+    Used by the Direct-information template's ``${effect_sizes_block}``
+    placeholder."""
+    if not effect_sizes:
+        return ""
+    # Canonical short-code → friendly label fallback.  Covers the common
+    # cases so the user can supply just the short code and still get a
+    # legible bullet line.
+    _DEFAULT_LABELS = {
+        "r":     "Correlation",
+        "or":    "Odds ratios",
+        "rr":    "Risk ratios",
+        "hr":    "Hazard ratios",
+        "smd":   "Standardised mean difference",
+        "d":     "Cohen's d",
+        "g":     "Hedges' g",
+        "f":     "Cohen's f",
+        "f2":    "Cohen's f²",
+        "eta2":  "Eta-squared",
+        "r2":    "R-squared",
+        "beta":  "Standardised regression coefficient",
+    }
+    lines: list[str] = []
+    for e in effect_sizes:
+        code = ""
+        label = ""
+        if isinstance(e, str):
+            code = e.strip()
+        elif isinstance(e, dict):
+            code = (e.get("code") or e.get("short") or "").strip()
+            label = (e.get("label") or e.get("name") or "").strip()
+        if not code:
+            continue
+        if not label:
+            label = _DEFAULT_LABELS.get(code.lower(), code.upper())
+        lines.append(f'- "{code}" = {label}')
+    return "\n".join(lines)
+
+
 def _section_multiple_models() -> str:
     """The "## Multiple models" section is factor-loadings-specific
     (rotations / EFA-vs-CFA terminology).  Skipped when the preset
@@ -1180,40 +1243,46 @@ def _load_one(path: Path) -> dict[str, Any] | None:
 # helper above (and the schema fragment in _render_full_json_schema).
 _SUB_VIEW_SPECS = {
     "factor_loadings": {
-        "id":            "loadings",
-        "label":         "Factor loadings",
-        "include_keys":  ["sample_id", "n", "factor_loadings"],
-        "evidence_keys": ["factor_loadings"],
+        "id":              "loadings",
+        "label":           "Factor loadings",
+        "include_keys":    ["sample_id", "n", "factor_loadings"],
+        "evidence_keys":   ["factor_loadings"],
+        "confidence_keys": ["factor_loadings"],
     },
     "factor_correlations": {
-        "id":            "correlations",
-        "label":         "Factor correlations",
-        "include_keys":  ["sample_id", "n", "factor_correlations"],
-        "evidence_keys": ["factor_correlations"],
+        "id":              "correlations",
+        "label":           "Factor correlations",
+        "include_keys":    ["sample_id", "n", "factor_correlations"],
+        "evidence_keys":   ["factor_correlations"],
+        "confidence_keys": ["factor_correlations"],
     },
     "correlation_matrix": {
-        "id":            "corrmatrix",
-        "label":         "Correlation matrix",
-        "include_keys":  ["sample_id", "n", "correlation_matrix"],
-        "evidence_keys": ["correlation_matrix"],
+        "id":              "corrmatrix",
+        "label":           "Correlation matrix",
+        "include_keys":    ["sample_id", "n", "correlation_matrix"],
+        "evidence_keys":   ["correlation_matrix"],
+        "confidence_keys": ["correlation_matrix", "effect_sizes"],
     },
     "single_correlations": {
-        "id":            "singlecorrs",
-        "label":         "Single correlations",
-        "include_keys":  ["sample_id", "n", "single_correlations"],
-        "evidence_keys": ["single_correlations"],
+        "id":              "singlecorrs",
+        "label":           "Single correlations",
+        "include_keys":    ["sample_id", "n", "single_correlations"],
+        "evidence_keys":   ["single_correlations"],
+        "confidence_keys": ["single_correlations", "effect_sizes"],
     },
     "effect_sizes": {
-        "id":            "effectsizes",
-        "label":         "Effect sizes",
-        "include_keys":  ["sample_id", "n", "effect_sizes"],
-        "evidence_keys": ["effect_sizes"],
+        "id":              "effectsizes",
+        "label":           "Effect sizes",
+        "include_keys":    ["sample_id", "n", "effect_sizes"],
+        "evidence_keys":   ["effect_sizes"],
+        "confidence_keys": ["effect_sizes", "reliabilities"],
     },
     "reliabilities": {
-        "id":            "reliabilities",
-        "label":         "Reliabilities",
-        "include_keys":  ["sample_id", "n", "reliabilities"],
-        "evidence_keys": ["reliabilities"],
+        "id":              "reliabilities",
+        "label":           "Reliabilities",
+        "include_keys":    ["sample_id", "n", "reliabilities"],
+        "evidence_keys":   ["reliabilities"],
+        "confidence_keys": ["reliabilities"],
     },
 }
 
@@ -1239,9 +1308,14 @@ def _build_sub_views_from_sources(sources: list[str]) -> list[dict]:
                          if k not in ("sample_id", "n")})
     if sub_views:
         sub_views.append({
-            "id":           "descriptives",
-            "label":        "Descriptives",
-            "exclude_keys": excludes,
+            "id":              "descriptives",
+            "label":           "Descriptives",
+            "exclude_keys":    excludes,
+            # Descriptives shows only the per-sample metadata (country,
+            # n, age, female, …) so the only confidence rating that
+            # applies here is ``metadata`` — pin it explicitly so the
+            # badge row matches what the user sees in the data panel.
+            "confidence_keys": ["metadata"],
         })
     return sub_views
 

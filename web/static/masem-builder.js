@@ -158,6 +158,73 @@ async function _selectMasemStarter(presetId, isUserClick) {
    Direct (effect_sizes) and Indirect (factor_*) shapes are honoured
    without the form overwriting them.) */
 
+/* Direct starter ('masem') exposes the effect-sizes + variables inputs;
+   Indirect ('masem-ncs18') exposes scale name + n_items + item labels.
+   The two form groups live side-by-side in markup; we toggle visibility
+   by starter so each input is only present (and read) when it matters. */
+function _applyStarterFormVisibility(starterId) {
+  const direct   = document.getElementById('masemFormDirect');
+  const indirect = document.getElementById('masemFormIndirect');
+  if (!direct || !indirect) return;
+  const isDirect = starterId === 'masem';
+  direct.style.display   = isDirect ? '' : 'none';
+  indirect.style.display = isDirect ? 'none' : '';
+}
+
+/* Parse the effect-sizes textarea body — one entry per line, either
+   ``code`` alone or ``code: label`` — into the structured shape that
+   _render_effect_sizes_block on the server expects. */
+function _parseEffectSizesInput(text) {
+  const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  return lines.map(line => {
+    const m = line.match(/^([\w.+\-]+)\s*[:=—\-]\s*(.+)$/);
+    if (m) return { code: m[1].trim(), label: m[2].trim() };
+    return { code: line, label: '' };
+  });
+}
+
+/* Serialise the structured effect_sizes value back into ``code: label``
+   lines so the textarea round-trips cleanly. */
+function _serialiseEffectSizes(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return list.map(e => {
+    if (typeof e === 'string') return e;
+    if (!e || !e.code) return '';
+    return e.label ? `${e.code}: ${e.label}` : e.code;
+  }).filter(Boolean).join('\n');
+}
+
+/* Parse the variables textarea — one entry per line, ``code: definition``
+   or ``code: definition :: synonym1, synonym2`` — into the structured
+   list shape that _render_variables_block on the server expects. */
+function _parseVariablesInput(text) {
+  const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+  return lines.map(line => {
+    // Split off optional "::" trailing synonyms section.
+    const synSplit = line.split(/\s*::\s*/);
+    const head = synSplit[0];
+    const synonyms = synSplit[1]
+      ? synSplit[1].split(/\s*,\s*/).map(s => s.trim()).filter(Boolean)
+      : [];
+    const m = head.match(/^([\w.+\-]+)\s*[:=—\-]\s*(.+)$/);
+    if (m) return { name: m[1].trim(), definition: m[2].trim(), synonyms };
+    return { name: head, definition: '', synonyms };
+  });
+}
+
+/* Serialise the variables list back to textarea body. */
+function _serialiseVariables(list) {
+  if (!Array.isArray(list) || !list.length) return '';
+  return list.map(v => {
+    if (!v || !v.name) return '';
+    const head = v.definition ? `${v.name}: ${v.definition}` : v.name;
+    if (Array.isArray(v.synonyms) && v.synonyms.length) {
+      return `${head} :: ${v.synonyms.join(', ')}`;
+    }
+    return head;
+  }).filter(Boolean).join('\n');
+}
+
 /* Mirror the working params into the form widgets.  The scale name and
    item-labels inputs intentionally start EMPTY so the placeholder shows
    in the muted text color browsers reserve for placeholders — that
@@ -168,7 +235,11 @@ async function _selectMasemStarter(presetId, isUserClick) {
    it untouched keeps NCS-18 (for the Indirect example) as the working
    default. */
 function _populateBuilderForm(params) {
-  // Compact scalar row — scale name + item count.
+  // Show/hide the Direct vs Indirect form groups so the user only ever
+  // sees the inputs that apply to the active starter.
+  _applyStarterFormVisibility(_MASEM_BUILDER_STATE.starter);
+
+  // ── Indirect inputs (scale name / n_items / item labels) ──
   const scaleName = params.scale_name
                  || params.instrument_name
                  || params.instrument_name_long
@@ -201,6 +272,33 @@ function _populateBuilderForm(params) {
       cEl.placeholder = head + moreSuffix;
     } else {
       cEl.placeholder = '1: <first item text>\n2: <second item text>\n3: <third item text>\n…';
+    }
+  }
+
+  // ── Direct inputs (effect sizes + variables) ──
+  // Same placeholder-fallback pattern: blank value with the preset's
+  // defaults shown as the placeholder, so empty form = use default.
+  const esEl = document.getElementById('masemEffectSizesInput');
+  if (esEl) {
+    esEl.value = '';
+    const defaultEs = Array.isArray(params.effect_sizes) ? params.effect_sizes : [];
+    if (defaultEs.length) {
+      esEl.placeholder = _serialiseEffectSizes(defaultEs);
+    } else {
+      esEl.placeholder = 'r: Correlation\nor: Odds ratios';
+    }
+  }
+  const varsEl = document.getElementById('masemVariablesInput');
+  if (varsEl) {
+    varsEl.value = '';
+    const defaultVars = Array.isArray(params.variables) ? params.variables : [];
+    if (defaultVars.length) {
+      varsEl.placeholder = _serialiseVariables(defaultVars);
+    } else {
+      varsEl.placeholder =
+        'bm: A measure of body mass such as BMI or waist circumference\n' +
+        'vg: A measure of video-game use — hours/day or session frequency\n' +
+        'pa: A measure of physical activity — exercise length or frequency';
     }
   }
 }
@@ -265,17 +363,43 @@ function _readFormIntoParams() {
   p.content_scope = 'concrete_items';
   // Item labels textarea → item_texts list.  Empty → restore preset
   // default (e.g. the 18 NCS-18 items for masem-ncs18).
-  const items = _parseItemTexts(document.getElementById('masemCInput').value);
-  if (items.length > 0) {
-    p.item_texts         = items;
-    p.include_item_texts = true;
-  } else {
-    const defaultItems   = Array.isArray(d.item_texts) ? d.item_texts : [];
-    p.item_texts         = defaultItems.slice();
-    p.include_item_texts = defaultItems.length > 0;
+  const itemsEl = document.getElementById('masemCInput');
+  if (itemsEl) {
+    const items = _parseItemTexts(itemsEl.value);
+    if (items.length > 0) {
+      p.item_texts         = items;
+      p.include_item_texts = true;
+    } else {
+      const defaultItems   = Array.isArray(d.item_texts) ? d.item_texts : [];
+      p.item_texts         = defaultItems.slice();
+      p.include_item_texts = defaultItems.length > 0;
+    }
   }
-  // Drop legacy fields the simplified builder no longer surfaces.
-  p.variables                  = [];
+
+  // Direct-information inputs — effect sizes + variables.  Empty
+  // textarea → restore the preset's default list so the prompt still
+  // renders with the canonical r/or examples instead of an empty
+  // ``${effect_sizes_block}`` fallback line.
+  const esEl = document.getElementById('masemEffectSizesInput');
+  if (esEl) {
+    const parsed = _parseEffectSizesInput(esEl.value);
+    if (parsed.length > 0) {
+      p.effect_sizes = parsed;
+    } else {
+      const def = Array.isArray(d.effect_sizes) ? d.effect_sizes : [];
+      p.effect_sizes = def.slice();
+    }
+  }
+  const varsEl = document.getElementById('masemVariablesInput');
+  if (varsEl) {
+    const parsed = _parseVariablesInput(varsEl.value);
+    if (parsed.length > 0) {
+      p.variables = parsed;
+    } else {
+      const def = Array.isArray(d.variables) ? d.variables : [];
+      p.variables = def.slice();
+    }
+  }
   p.study_characteristics_text = '';
   // factor_naming is no longer collected from the form (the field was
   // removed because it tended to confuse the model on papers with

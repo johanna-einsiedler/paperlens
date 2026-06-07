@@ -82,14 +82,35 @@ class DonateConsents(BaseModel):
     license_cc_by_4: bool = False
 
 
+class DonateVerification(BaseModel):
+    """Whether the donor has human-verified the extracted data against
+    the source PDFs.  Defaults to ``human_verified: False`` — the
+    honest default for raw model output.  Stored verbatim in the
+    dataset's ``metadata.json`` so consumers can filter / weight
+    verified vs unverified datasets in downstream analyses.  ``notes``
+    is a free-text line for the donor to describe what was checked
+    (e.g. "all effect-size values double-checked against tables 2–4")."""
+    human_verified: bool = False
+    notes:          str  = ""
+
+
 class DonateIn(BaseModel):
-    """Payload for ``POST /api/donate`` — the full donate-modal submission."""
-    batch_id:     str
-    title:        str
-    description:  str               = ""
-    attribution:  DonateAttribution = DonateAttribution()
-    visibility:   DonateVisibility  = DonateVisibility()
-    consents:     DonateConsents    = DonateConsents()
+    """Payload for ``POST /api/donate`` — the full donate-modal submission.
+
+    ``extends`` is set when the donor is adding their batch to an
+    EXISTING dataset (the Phase 3e extension flow) rather than creating
+    a new one.  In that case the server reads ``title`` / ``description``
+    / ``visibility`` from the existing dataset's metadata and ignores
+    those fields on the request — only ``attribution``, ``consents``,
+    and ``verification`` apply to the extension submission itself."""
+    batch_id:      str
+    title:         str               = ""
+    description:   str               = ""
+    attribution:   DonateAttribution = DonateAttribution()
+    visibility:    DonateVisibility  = DonateVisibility()
+    consents:      DonateConsents    = DonateConsents()
+    verification:  DonateVerification = DonateVerification()
+    extends:       str | None        = None
 
 
 class VerifyPasswordIn(BaseModel):

@@ -415,6 +415,14 @@ const _AUTO_SAVE_FIELDS = [
   'question', 'context', 'inputMode',
   'generatedPrompt', 'useTextExtraction',
   'providerCredentials',   // per-provider {apiKey, model, baseUrl} cache
+  // activePreset carries sub_views + the per-sub-view confidence_keys
+  // that drive the results-panel tabs and the confidence-badge filter.
+  // Without it the results page renders the entry unfiltered (records
+  // AND metadata in one view, no sub-tabs in the sidebar) after a
+  // page refresh — the symptom that surfaced as "I don't see a
+  // Descriptives tab".  Stored as-is so the sub_views array round-
+  // trips intact; rehydrated on autoRestoreSession.
+  'activePreset',
 ];
 
 function autoSaveSession() {
@@ -469,6 +477,29 @@ function autoRestoreSession() {
     _AUTO_SAVE_FIELDS.forEach(k => {
       if (snapshot[k] !== undefined && snapshot[k] !== null) state[k] = snapshot[k];
     });
+
+    // Re-fetch the active preset from the server in the background so
+    // any local edits since the snapshot was written (renamed sub-views,
+    // new confidence_keys, prompt changes) take effect.  We keep the
+    // stale snapshot value synchronous so the rest of restoreSession
+    // can proceed; the fresh fetch arrives moments later and overwrites
+    // ``state.activePreset`` in place, then re-renders the sidebar so
+    // the updated sub-tabs appear without a manual refresh.
+    if (state.activePreset?.id) {
+      fetchScoped(`/api/presets/${encodeURIComponent(state.activePreset.id)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(fresh => {
+          if (fresh && fresh.id) {
+            state.activePreset = fresh;
+            if (typeof renderPaperSidebar === 'function') renderPaperSidebar();
+            const active = (state.papers || []).find(p => p.id === state.activePaperId);
+            if (active && active.status === 'done' && typeof renderEntry === 'function') {
+              renderEntry(active);
+            }
+          }
+        })
+        .catch(() => { /* network failure → keep stale snapshot, harmless */ });
+    }
 
     // Backwards-compat: pre-2026 snapshots stored only the flat (apiKey, model,
     // baseUrl) tuple under the active provider.  Hydrate providerCredentials
@@ -3065,22 +3096,55 @@ function _closeVlmPicker() {
   delete overlay._mplPickerState;
 }
 
-/* Mapping from the human-readable label shown next to each badge to the
-   model-emitted key in ``extraction_confidence``.  Keeping these
-   parallel arrays (rather than a hash) preserves the display order:
-   loadings → correlations → metadata. */
+/* Known confidence-category keys → display labels.  Ordered list so the
+   display order is stable (loadings → correlations → effect sizes →
+   reliabilities → metadata → summary sections).  Any key emitted by
+   the model but absent from this list still renders — it just falls
+   through to an auto-formatted label (``snake_case`` → ``Title Case``).
+   Adding a known label here lets the picker show a nicer name and pins
+   the display order; not strictly required. */
 const _CONFIDENCE_CATEGORIES = [
   { key: 'factor_loadings',     label: 'Loadings' },
   { key: 'factor_correlations', label: 'Correlations' },
+  { key: 'effect_sizes',        label: 'Effect sizes' },
+  { key: 'reliabilities',       label: 'Reliabilities' },
+  { key: 'studies',             label: 'Studies' },
+  { key: 'metric',              label: 'Metric' },
+  { key: 'background',          label: 'Background' },
+  { key: 'methods',             label: 'Methods' },
+  { key: 'findings',            label: 'Findings' },
+  { key: 'limitations',         label: 'Limitations' },
   { key: 'metadata',            label: 'Metadata' },
 ];
 
+/* Titleise a snake_case key for use as a badge label when the key
+   isn't in the curated _CONFIDENCE_CATEGORIES list.  Keeps the
+   renderer working for future presets that introduce new keys
+   without a code change. */
+function _autoLabelFromKey(key) {
+  return String(key || '')
+    .split(/[_\-]+/)
+    .filter(Boolean)
+    .map(w => w[0].toUpperCase() + w.slice(1))
+    .join(' ') || 'Confidence';
+}
+
 /* Render the confidence-badge row above the parsed entry.  Reads
    ``entry.extraction_confidence`` (object with one rating per category)
-   and emits one coloured pill per known category.  Hides the row
-   entirely when the entry has no confidence block — old runs and
-   non-MASEM presets stay clean. */
-function _renderConfidenceBadges(entry) {
+   and emits one coloured pill per category.  Hides the row entirely
+   when the entry has no confidence block — old runs and presets that
+   don't ask for confidence stay clean.
+
+   When ``subView`` is passed and declares ``confidence_keys``, the
+   renderer ALSO filters the badges to that list — so the Effect sizes
+   tab shows only effect_sizes / reliabilities ratings, the
+   Descriptives tab shows only metadata, etc.  Without a sub-view (or
+   without confidence_keys on it), all categories render.
+
+   Order: known categories first (in their _CONFIDENCE_CATEGORIES
+   order), then any extra keys the model emitted that we don't yet
+   have a label for. */
+function _renderConfidenceBadges(entry, subView) {
   const row = document.getElementById('confidenceRow');
   if (!row) return;
   const conf = entry && entry.extraction_confidence;
@@ -3089,9 +3153,27 @@ function _renderConfidenceBadges(entry) {
     row.innerHTML     = '';
     return;
   }
+
+  const knownKeys = new Set(_CONFIDENCE_CATEGORIES.map(c => c.key));
+  const order = [
+    ..._CONFIDENCE_CATEGORIES.filter(c => c.key in conf),
+    ...Object.keys(conf)
+      .filter(k => !knownKeys.has(k))
+      .map(k => ({ key: k, label: _autoLabelFromKey(k) })),
+  ];
+
+  // Per-sub-view filter — when the preset declares which confidence
+  // categories belong to this tab, only those render.  Anything not in
+  // the list is hidden from the badge row but stays in the underlying
+  // entry data (raw view still shows everything).
+  const allowedKeys = subView && Array.isArray(subView.confidence_keys)
+    ? new Set(subView.confidence_keys)
+    : null;
+
   const parts = [`<span class="confidence-row-label">Confidence</span>`];
   let hadAny = false;
-  for (const cat of _CONFIDENCE_CATEGORIES) {
+  for (const cat of order) {
+    if (allowedKeys && !allowedKeys.has(cat.key)) continue;
     const raw   = conf[cat.key];
     const level = _normaliseConfidence(raw);
     if (raw == null && level === 'unknown') continue;  // skip categories the model omitted
@@ -3313,15 +3395,20 @@ function renderEntry(paper) {
   display.dataset.paperId  = paper.id;
   display.dataset.entryIdx = paper.entryIndex;
 
-  // Confidence badges above the rendered entry — driven by the
-  // `extraction_confidence` block the model emits per sample.  Hidden
-  // when absent so old/unconfigured runs are unaffected.
-  _renderConfidenceBadges(entry);
-  _renderMasemRowWarnings(entry);
-
-  // Sub-view filter (preset-driven, e.g. MASEM Loadings/Correlations/Descriptives)
+  // Sub-view filter (preset-driven, e.g. MASEM Loadings/Correlations/Descriptives).
+  // Computed FIRST so the confidence-badge renderer can scope its
+  // badges to the active sub-view's declared confidence_keys.
   const subView       = _activeSubViewFor(paper);
   let   filteredEntry = subView ? _filterEntryBySubView(entry, subView) : entry;
+
+  // Confidence badges above the rendered entry — driven by the
+  // `extraction_confidence` block the model emits per sample.  When
+  // the sub-view declares confidence_keys, the badge row filters to
+  // those categories (so Effect sizes / Descriptives each show only
+  // their relevant ratings).  Hidden entirely when the entry has no
+  // confidence block.
+  _renderConfidenceBadges(entry, subView);
+  _renderMasemRowWarnings(entry);
   // The confidence block is surfaced as coloured badges above — strip
   // it from the parsed-data render so it doesn't appear twice.
   if (filteredEntry && typeof filteredEntry === 'object' && !Array.isArray(filteredEntry)
@@ -5093,9 +5180,10 @@ function _showExtendState(state, errMsg) {
   if (state === 'error') err.textContent = errMsg || 'Could not load datasets.';
 }
 
-async function _loadExtendDatasets() {
+async function _loadExtendDatasets(forceRefresh) {
   try {
-    const res = await fetch('/api/datasets');
+    const url = forceRefresh ? '/api/datasets?refresh=1' : '/api/datasets';
+    const res = await fetch(url);
     if (!res.ok) {
       // 503 (repo unconfigured) → useful hint; other 5xx → generic message.
       const body = await res.json().catch(() => ({}));
@@ -5107,6 +5195,7 @@ async function _loadExtendDatasets() {
     }
     const data = await res.json();
     window.__EXTEND_DATASETS__ = Array.isArray(data.datasets) ? data.datasets : [];
+    _updateExtendCacheNote(data);
     if (!window.__EXTEND_DATASETS__.length) {
       _showExtendState('empty');
       return;
@@ -5116,6 +5205,42 @@ async function _loadExtendDatasets() {
   } catch (err) {
     _showExtendState('error', err.message || 'Network error.');
   }
+}
+
+/* Click handler for the Refresh button in the picker.  Shows the
+   loading state while the bypass-cache fetch runs so users get
+   feedback that something's happening (the network call is fast on
+   most networks but the App-token JWT signing + GitHub round-trip
+   can take ~1s on first hit). */
+async function _refreshExtendDatasets() {
+  const btn = document.getElementById('extendDatasetRefreshBtn');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; }
+  _showExtendState('loading');
+  try {
+    await _loadExtendDatasets(/* forceRefresh */ true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
+/* "Last refreshed N min ago" indicator beneath the search box.
+   Hidden when the payload is fresh (<10s) so the most common case
+   stays uncluttered.  Mostly there to make stale data discoverable
+   when a recently-merged donation hasn't shown up yet. */
+function _updateExtendCacheNote(payload) {
+  const note = document.getElementById('extendDatasetCacheNote');
+  if (!note) return;
+  const ageSec = payload && typeof payload.cache_age_sec === 'number' ? payload.cache_age_sec : 0;
+  if (ageSec < 10) {
+    note.style.display = 'none';
+    return;
+  }
+  let label;
+  if (ageSec < 60)         label = `${ageSec}s ago`;
+  else if (ageSec < 3600)  label = `${Math.floor(ageSec / 60)} min ago`;
+  else                     label = `${Math.floor(ageSec / 3600)}h ago`;
+  note.textContent = `Listing last refreshed ${label}.  Don't see a recently-merged dataset? Click Refresh.`;
+  note.style.display = '';
 }
 
 /* Render one row per dataset.  Click → Phase 3c (password prompt for
@@ -5130,7 +5255,16 @@ function _renderExtendDatasetList(datasets) {
       ? escHtml(d.donor.name) + (d.donor.affiliation ? ` <span style="color:var(--text-muted)">(${escHtml(d.donor.affiliation)})</span>` : '')
       : '<span style="color:var(--text-muted)">Anonymous</span>';
     const created = d.created_at ? _relativeTime(d.created_at) : '';
-    const schema  = d.schema_version ? `<span class="extend-dataset-badge">${escHtml(d.schema_version)}</span>` : '';
+    // Hide the schema badge when we don't have a confident value to
+    // show — "mixed" (conflict) and "unspecified" (model didn't emit
+    // the field) both signal "we don't know", which adds noise rather
+    // than information when surfaced as a badge.  The internal value
+    // still lives in the dataset object for Phase 3g's schema-match
+    // enforcement.
+    const showBadge = d.schema_version
+      && d.schema_version !== 'mixed'
+      && d.schema_version !== 'unspecified';
+    const schema = showBadge ? `<span class="extend-dataset-badge">${escHtml(d.schema_version)}</span>` : '';
     const desc    = d.description ? `<div class="extend-dataset-desc">${escHtml(d.description)}</div>` : '';
     return `
       <button type="button" class="extend-dataset-row" data-idx="${i}"
@@ -5296,16 +5430,119 @@ async function _verifyExtendPassword(idx) {
   }
 }
 
-/* Common entry point after a dataset is "unlocked" — either because
-   it's public OR a gated dataset's password just verified.  This is
-   the seam Phase 3d/3e will hook into; for now we just toast the
-   selection so the gate flow is observable. */
-function _afterDatasetVerified(dataset) {
+/* Common entry point after a dataset is "unlocked" — public datasets
+   skip straight here; gated ones land here once the verify-password
+   step returns ok=true.  Phase 3d responsibility:
+     1. Fetch /api/datasets/{id}/full to get the original prompt + the
+        model_used list.
+     2. Pre-load state.generatedPrompt so step-5 review surfaces the
+        original prompt verbatim.
+     3. Pick the closest available model for the user's current
+        provider (or switch provider if the model is uniquely on
+        another).
+     4. Stash state.extendingFrom = {dataset_id, schema_version} so
+        Phase 3e's POST /api/donate knows to submit as an extension.
+     5. Navigate to step 2 (model picker) with the suggested model
+        pre-selected — the user confirms API key + model, then jumps
+        straight to upload (Phase 3e wires the rest). */
+async function _afterDatasetVerified(dataset) {
   closeExtendDatasetModal();
+  // Fetch full payload — needs the prompt body, which the listing
+  // endpoint doesn't carry.
+  let full;
+  try {
+    const res = await fetch(`/api/datasets/${encodeURIComponent(dataset.dataset_id || dataset.id)}/full`);
+    if (!res.ok) {
+      showToast(`Couldn't load that dataset (${res.status}).`); return;
+    }
+    full = await res.json();
+  } catch (err) {
+    showToast(err.message || 'Network error loading dataset.'); return;
+  }
+
+  // Pre-load the prompt verbatim.  ``inputMode = 'manual'`` keeps the
+  // step-3 flow on the manual-prompt branch so the AI-generate step
+  // is skipped — we already have the canonical prompt, which IS the
+  // schema (transitively).  state.mode is set to 'extraction' for
+  // every extension regardless of the original mode: the variable is
+  // only used by the AI-generate flow + cosmetic labels, both
+  // irrelevant here because the prompt body fully determines what
+  // the model is asked to do.
+  if (full.prompt) {
+    state.generatedPrompt = full.prompt;
+    state.inputMode       = 'manual';
+  }
+  state.mode = 'extraction';
+
+  // Provider + model preselect.  Look up the first model in the
+  // dataset's model_used list against PROVIDER_MODELS to find which
+  // provider serves it.  If found, set both; otherwise leave the
+  // current provider intact so the user can pick anything that works.
+  const wantedModel = (full.model_used && full.model_used[0]) || '';
+  const pick = _findProviderForModel(wantedModel);
+  if (pick) {
+    state.provider = pick.provider;
+    state.model    = pick.model;
+  }
+
+  // Stash extension intent so the donation step (Phase 3e) can route
+  // as an extension instead of a fresh dataset submission.
+  // ``prompt_sha256`` is the canonical consistency key for Phase 3g:
+  // an extension whose prompt hashes to the same value is by
+  // construction schema-compatible, no string-label comparison
+  // needed.  schema_version is kept for human-readable display in
+  // the donate-success block but not used for enforcement.
+  const extraction = (full.extraction && typeof full.extraction === 'object') ? full.extraction : {};
+  state.extendingFrom = {
+    dataset_id:     full.dataset_id,
+    title:          full.title,
+    schema_version: full.schema_version,
+    prompt_sha256:  extraction.prompt_sha256 || null,
+    github_url:     full.github_url,
+  };
+
+  // Send the user to step 2 with the pre-loaded values reflected.
+  // Pre-fill the provider dropdown + model field so onProviderChange
+  // sees the new selection on render.
+  const providerSelect = document.getElementById('providerSelect');
+  if (providerSelect && state.provider) {
+    providerSelect.value = state.provider;
+    onProviderChange();
+    const modelSelect = document.getElementById('modelSelect');
+    if (modelSelect && state.model) modelSelect.value = state.model;
+  }
   showToast(
-    `Unlocked "${dataset.title || dataset.dataset_id}" — the extension flow lands in the next phase.`,
+    `Loaded "${full.title || full.dataset_id}" — the dataset's prompt + suggested model are pre-set. Confirm your API key to continue.`,
     'success',
   );
+  goTo(2);
+}
+
+/* Walk PROVIDER_MODELS to find which provider serves a model alias.
+   Exact-match first (the common case), then a prefix match for dated
+   snapshots (e.g. ``gpt-5-2025-09-15`` would map to ``gpt-5`` on
+   openai).  Returns {provider, model} or null when nothing matches. */
+function _findProviderForModel(modelAlias) {
+  if (!modelAlias) return null;
+  const alias = String(modelAlias).toLowerCase();
+  for (const [provider, models] of Object.entries(PROVIDER_MODELS || {})) {
+    for (const m of (models || [])) {
+      if ((m.value || '').toLowerCase() === alias) {
+        return { provider, model: m.value };
+      }
+    }
+  }
+  // Prefix match — handles dated snapshots that the user's listing
+  // doesn't carry verbatim.
+  for (const [provider, models] of Object.entries(PROVIDER_MODELS || {})) {
+    for (const m of (models || [])) {
+      const v = (m.value || '').toLowerCase();
+      if (v && alias.startsWith(v)) {
+        return { provider, model: m.value };
+      }
+    }
+  }
+  return null;
 }
 
 /* Tiny relative-time formatter — "yesterday" / "3 days ago" / "Jan 15".

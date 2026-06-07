@@ -68,7 +68,14 @@
   }
 
   /* Open the modal in its initial form state.  Idempotent — re-opening
-     clears previous error messages and resets the success-stage view. */
+     clears previous error messages and resets the success-stage view.
+
+     When ``state.extendingFrom`` is set (Phase 3e — the user picked an
+     existing dataset via the Extend flow), the modal swaps into a
+     simpler "Add to existing dataset" mode: title / description /
+     visibility inputs are hidden because they're inherited from the
+     existing dataset; only attribution + consent matter for the
+     extension submission. */
   function openDonateModal(batchId) {
     const overlay = document.getElementById('donateOverlay');
     if (!overlay) return;
@@ -76,8 +83,69 @@
     document.getElementById('donateError').style.display = 'none';
     document.getElementById('donateFormStage').style.display = '';
     document.getElementById('donateSuccessStage').style.display = 'none';
+    _applyExtensionModeToModal();
     overlay.style.display = 'flex';
-    document.getElementById('donateTitleInput').focus();
+    const isExtension = !!(window.state && state.extendingFrom);
+    // Focus the first relevant field: title for fresh, name for extension.
+    const focusEl = isExtension
+      ? document.getElementById('donateNameInput')
+      : document.getElementById('donateTitleInput');
+    if (focusEl) focusEl.focus();
+  }
+
+  /* Hide title / description / visibility when the user is extending an
+     existing dataset, and swap the intro paragraph + header for a
+     contextual one.  Reverts to the default fresh-donation layout
+     when state.extendingFrom is cleared (e.g., on Start over). */
+  function _applyExtensionModeToModal() {
+    const isExtension = !!(window.state && state.extendingFrom);
+    const ext = isExtension ? state.extendingFrom : null;
+
+    const titleHeading = document.getElementById('donateTitle');
+    const introBox = document.querySelector('#donateOverlay .modal > div[style*="background:#ecfdf5"]');
+
+    // Group containers for fields to hide in extension mode.  Each
+    // <label class="donate-field"> / <fieldset class="donate-field">
+    // is a logical row; matching by text/role keeps the toggling
+    // resilient to small markup tweaks.
+    const titleLabel = Array.from(document.querySelectorAll('#donateFormStage .donate-field'))
+      .find(el => el.textContent.trim().startsWith('Dataset title'));
+    const descLabel  = Array.from(document.querySelectorAll('#donateFormStage .donate-field'))
+      .find(el => el.textContent.trim().startsWith('Description'));
+    const visField   = Array.from(document.querySelectorAll('#donateFormStage fieldset.donate-field'))
+      .find(el => el.querySelector('legend')
+        && /Visibility/i.test(el.querySelector('legend').textContent));
+
+    if (isExtension && ext) {
+      if (titleHeading) titleHeading.textContent = `Add papers to "${ext.title || ext.dataset_id}"`;
+      if (introBox) {
+        introBox.innerHTML =
+          `Your new extractions will be appended as a new version of ` +
+          `<strong>${escHtmlSafe(ext.title || ext.dataset_id)}</strong>.  The ` +
+          `dataset's title, license, and visibility carry over from the ` +
+          `original donor — you only need to confirm attribution and consent.`;
+      }
+      if (titleLabel) titleLabel.style.display = 'none';
+      if (descLabel)  descLabel.style.display  = 'none';
+      if (visField)   visField.style.display   = 'none';
+      const submitBtn = document.getElementById('donateSubmitBtn');
+      if (submitBtn) submitBtn.textContent = 'Submit extension';
+    } else {
+      if (titleHeading) titleHeading.textContent = 'Share this dataset with the research community';
+      if (introBox) {
+        introBox.innerHTML =
+          `Your structured extractions and the exact prompt that produced ` +
+          `them get published to a public GitHub repo (CC-BY 4.0 license &mdash; ` +
+          `others may reuse with attribution) so the community can cite, ` +
+          `verify, or build on this dataset.  You stay in control of how ` +
+          `you're credited and whether others can extend the dataset.`;
+      }
+      if (titleLabel) titleLabel.style.display = '';
+      if (descLabel)  descLabel.style.display  = '';
+      if (visField)   visField.style.display   = '';
+      const submitBtn = document.getElementById('donateSubmitBtn');
+      if (submitBtn) submitBtn.textContent = 'Share dataset';
+    }
   }
 
   function closeDonateModal() {
@@ -102,6 +170,15 @@
       mode === 'gated' ? '' : 'none';
   }
 
+  /* Reveal the verification-notes input only when the donor picks
+     "Human-verified".  Raw-model-output donations skip the notes
+     field entirely to keep the modal compact. */
+  function _donateToggleVerification() {
+    const mode = (document.querySelector('input[name="donateVerification"]:checked') || {}).value;
+    document.getElementById('donateVerifiedFields').style.display =
+      mode === 'verified' ? '' : 'none';
+  }
+
   function _showDonateError(msg) {
     const el = document.getElementById('donateError');
     el.textContent = msg;
@@ -109,8 +186,15 @@
   }
 
   async function submitDonateModal() {
-    const title = document.getElementById('donateTitleInput').value.trim();
-    if (!title) { _showDonateError('Dataset title is required.'); return; }
+    const isExtension = !!(window.state && state.extendingFrom);
+    const extendsId   = isExtension ? state.extendingFrom.dataset_id : null;
+
+    // Title is only required when creating a fresh dataset.  Extensions
+    // inherit the title from the existing dataset's metadata.
+    const title       = document.getElementById('donateTitleInput').value.trim();
+    if (!isExtension && !title) {
+      _showDonateError('Dataset title is required.'); return;
+    }
 
     const description = document.getElementById('donateDescInput').value.trim();
     const attrMode    = (document.querySelector('input[name="donateAttribution"]:checked') || {}).value || 'anonymous';
@@ -120,9 +204,12 @@
       _showDonateError('Attributed donations need a name.'); return;
     }
 
-    const visMode  = (document.querySelector('input[name="donateVisibility"]:checked') || {}).value || 'public';
-    const password = document.getElementById('donatePasswordInput').value;
-    if (visMode === 'gated' && password.length < 8) {
+    // Visibility is inherited from the existing dataset in extension
+    // mode — defaults are sent through but ignored server-side.
+    const visMode  = isExtension ? 'public'
+                                 : ((document.querySelector('input[name="donateVisibility"]:checked') || {}).value || 'public');
+    const password = isExtension ? '' : document.getElementById('donatePasswordInput').value;
+    if (!isExtension && visMode === 'gated' && password.length < 8) {
       _showDonateError('Gated datasets need a password of at least 8 characters.'); return;
     }
 
@@ -131,6 +218,15 @@
     if (!shareOk || !licenseOk) {
       _showDonateError('Please confirm both consent checkboxes.'); return;
     }
+
+    // Verification posture — radio defaults to "unverified" so an
+    // unchanged modal still produces a valid payload.  Notes only
+    // ride along when the donor picked the human-verified branch.
+    const verifyMode = (document.querySelector('input[name="donateVerification"]:checked') || {}).value || 'unverified';
+    const humanVerified = verifyMode === 'verified';
+    const verificationNotes = humanVerified
+      ? (document.getElementById('donateVerificationNotesInput').value || '').trim()
+      : '';
 
     const batchId = window.__DONATE_BATCH_ID__;
     if (!batchId) { _showDonateError('No batch id — cannot donate.'); return; }
@@ -151,6 +247,8 @@
           attribution:  {mode: attrMode, name: name, affiliation: affiliation},
           visibility:   {mode: visMode, password: password},
           consents:     {sharing_rights: shareOk, license_cc_by_4: licenseOk},
+          verification: {human_verified: humanVerified, notes: verificationNotes},
+          extends:      extendsId,
         }),
       });
       if (!res.ok) {
@@ -202,9 +300,13 @@
       // optional (present when the server has PAPERLENS_ZENODO_TOKEN set
       // AND the deposit succeeded); a zenodo_error is shown when the
       // token was set but the deposit failed (the PR still went through).
+      const isExt = data.kind === 'extension';
       let html =
-        `<strong>Dataset submitted.</strong>  A pull request has been opened ` +
-        `for human review:<br>` +
+        (isExt
+          ? `<strong>Extension submitted.</strong>  A pull request has been opened ` +
+            `to add your papers to <code>${escHtmlSafe(data.dataset_id)}</code>:<br>`
+          : `<strong>Dataset submitted.</strong>  A pull request has been opened ` +
+            `for human review:<br>`) +
         `<a href="${data.pr_url}" target="_blank" rel="noopener" style="word-break:break-all">${data.pr_url}</a>`;
 
       if (data.zenodo_html_url) {
@@ -263,8 +365,9 @@
   window.closeDonateModal  = closeDonateModal;
   window.submitDonateModal = submitDonateModal;
   window.donorMaybeOffer   = donorMaybeOffer;
-  window._donateToggleAttribution = _donateToggleAttribution;
-  window._donateToggleVisibility  = _donateToggleVisibility;
+  window._donateToggleAttribution   = _donateToggleAttribution;
+  window._donateToggleVisibility    = _donateToggleVisibility;
+  window._donateToggleVerification  = _donateToggleVerification;
   // Debug helper: force-open the modal against the current batch from
   // the dev console.  Bypasses the offer-gate (enabled / donated /
   // dismissed checks) so you can verify the markup + form even when

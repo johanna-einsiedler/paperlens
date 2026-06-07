@@ -239,6 +239,19 @@ class DonationRequest:
     attribution_affiliation: str # '' when anonymous
     visibility: str              # 'public' | 'gated'
     password: str                # '' when public
+    # Phase 3e extension flow: when set, this submission is APPENDED to
+    # an existing dataset folder under ``datasets/<extends_dataset_id>/papers/<batch_id>.json``
+    # instead of creating a fresh dataset.  title / description /
+    # visibility are inherited from the existing dataset and may be
+    # blank on the request.
+    extends_dataset_id: str | None = None
+    # Whether the donor has human-verified the extracted data against
+    # the source PDFs.  Surfaced verbatim in the bundle's metadata.json
+    # so downstream consumers can filter / weight verified vs unverified
+    # datasets.  Defaults to False (the honest default for raw model
+    # output) so absent fields are interpreted conservatively.
+    human_verified: bool = False
+    verification_notes: str = ""
 
 
 def _load_batch_jobs(batch_id: str) -> list[dict[str, Any]]:
@@ -292,10 +305,28 @@ def build_bundle(req: DonationRequest, *, now: float | None = None) -> dict[str,
     if not papers:
         raise ValueError("No publishable results in this batch.")
 
-    schema_version = (
-        next(iter(schema_versions)) if len(schema_versions) == 1
-        else "mixed"
-    )
+    # schema_version classification:
+    #   - exactly one distinct value across papers → use it
+    #   - multiple distinct values             → REFUSE the donation.
+    #     A dataset that ships with mismatched declared schemas is
+    #     a confusing artifact for downstream consumers and a hard
+    #     case for the Phase 3g extension-consistency check.  Fail
+    #     loudly at donation time so the donor re-extracts under a
+    #     single preset rather than publishing the ambiguity.
+    #   - zero (model didn't emit the field)   → "unspecified" — we
+    #     don't know but no inconsistency, fine to publish.
+    if len(schema_versions) == 1:
+        schema_version = next(iter(schema_versions))
+    elif len(schema_versions) > 1:
+        raise ValueError(
+            f"Papers in this batch declared different schema_version "
+            f"values ({sorted(schema_versions)!r}).  Refusing to donate "
+            f"a dataset with inconsistent schemas — re-extract this "
+            f"batch under a single preset/prompt so all papers agree, "
+            f"then donate again."
+        )
+    else:
+        schema_version = "unspecified"
 
     dataset_id = build_dataset_id(req.title, now=now)
     iso_date = time.strftime("%Y-%m-%dT%H:%M:%SZ",
@@ -324,6 +355,15 @@ def build_bundle(req: DonationRequest, *, now: float | None = None) -> dict[str,
             "paper_count":    len(papers),
             "model_used":     sorted({p["model"] for p in papers if p.get("model")}),
             "prompt_sha256":  prompt_sha256,
+        },
+        # Verification posture — defaults to a conservative "not
+        # verified" block so absent metadata is interpreted as raw
+        # model output.  Surfaced in /api/datasets responses so the
+        # picker UI can show a "✓ Verified" badge alongside gated /
+        # author info.
+        "verification": {
+            "human_verified": bool(req.human_verified),
+            "notes":          req.verification_notes or "",
         },
         "created_at":      iso_date,
     }
@@ -540,6 +580,116 @@ def _open_pr(
         }
 
 
+# ── Extension flow (Phase 3e) ─────────────────────────────────────────────────
+
+def build_extension_payload(req: DonationRequest, *, now: float | None = None) -> dict[str, Any]:
+    """Build the single-file payload that the extension PR adds.  Same
+    schema-strip + paper-shape as ``build_bundle``, but wrapped as one
+    JSON document destined for ``datasets/<id>/papers/<batch_id>.json``
+    rather than splitting into the per-folder layout.
+
+    Returns:
+        {
+          "dataset_id":     <extends id>,
+          "schema_version": <detected sv>,
+          "papers":         [...],
+          "prompt_sha256":  <hex>,
+          "file_path":      "papers/<batch_id>.json",
+          "file_content":   "<json text>",
+          "paper_count":    <int>,
+        }
+    """
+    if not req.extends_dataset_id:
+        raise ValueError("build_extension_payload requires extends_dataset_id.")
+
+    jobs = _load_batch_jobs(req.batch_id)
+    if not jobs:
+        raise ValueError("No completed jobs in this batch — nothing to donate.")
+
+    prompts = {j.get("prompt") for j in jobs if j.get("prompt")}
+    if len(prompts) > 1:
+        raise ValueError("Jobs in this batch do not share a single prompt — refusing to extend.")
+    prompt_body = (prompts.pop() if prompts else "") or "(prompt not recorded)"
+    prompt_sha256 = hashlib.sha256(prompt_body.encode("utf-8")).hexdigest()
+
+    papers: list[dict[str, Any]] = []
+    schema_versions: set[str] = set()
+    for j in jobs:
+        stripped = _strip_to_publishable(j.get("result"))
+        if stripped is None:
+            continue
+        sv = stripped.get("schema_version")
+        if isinstance(sv, str):
+            schema_versions.add(sv)
+        papers.append({
+            "filename":        j.get("filename"),
+            "model":           j.get("model"),
+            "resolved_model":  j.get("resolved_model"),
+            "pages_processed": j.get("pages_processed"),
+            "evidence_count":  j.get("evidence_count"),
+            "result":          stripped,
+        })
+
+    if not papers:
+        raise ValueError("No publishable results in this batch.")
+
+    if len(schema_versions) == 1:
+        schema_version = next(iter(schema_versions))
+    elif len(schema_versions) > 1:
+        raise ValueError(
+            f"Papers in this batch declared different schema_version values "
+            f"({sorted(schema_versions)!r}).  Refusing to extend with "
+            f"inconsistent schemas — re-extract under a single prompt."
+        )
+    else:
+        schema_version = "unspecified"
+
+    iso_date = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                             time.gmtime(now if now is not None else time.time()))
+
+    donor_block: dict[str, Any]
+    if req.attribution_mode == "attributed":
+        donor_block = {
+            "mode":        "attributed",
+            "name":        req.attribution_name,
+            "affiliation": req.attribution_affiliation,
+        }
+    else:
+        donor_block = {"mode": "anonymous"}
+
+    file_content = {
+        "extension_of":   req.extends_dataset_id,
+        "batch_id":       req.batch_id,
+        "schema_version": schema_version,
+        "donor":          donor_block,
+        "added_at":       iso_date,
+        "extraction": {
+            "paper_count":   len(papers),
+            "model_used":    sorted({p["model"] for p in papers if p.get("model")}),
+            "prompt_sha256": prompt_sha256,
+        },
+        # Per-batch verification posture for this extension submission.
+        # A dataset can have multiple extension batches with differing
+        # verification status — each ``papers/<batch>.json`` file
+        # records its own verification block so reviewers can track
+        # which batches were human-checked.
+        "verification": {
+            "human_verified": bool(req.human_verified),
+            "notes":          req.verification_notes or "",
+        },
+        "papers":         papers,
+    }
+
+    return {
+        "dataset_id":     req.extends_dataset_id,
+        "schema_version": schema_version,
+        "paper_count":    len(papers),
+        "prompt_sha256":  prompt_sha256,
+        "file_path":      f"papers/{req.batch_id}.json",
+        "file_content":   json.dumps(file_content, indent=2, ensure_ascii=False) + "\n",
+    }
+
+
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def donate(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
@@ -548,7 +698,14 @@ def donate(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
     Always writes a row to the ``donations`` table for audit.  In dry-run
     mode the bundle is written to /tmp/paperlens-donations/<dataset_id>/ and
     no GitHub call is made; the row's status becomes ``"dry-run"``.
+
+    Branches on ``req.extends_dataset_id``: when set, builds an
+    extension payload (one file added under the existing dataset's
+    ``papers/`` folder); otherwise builds a full fresh-dataset bundle.
     """
+    if req.extends_dataset_id:
+        return _donate_extension(req, ip_hash=ip_hash)
+
     bundle = build_bundle(req)
     dataset_id = bundle["dataset_id"]
     donation_id = uuid.uuid4().hex
@@ -668,6 +825,119 @@ def donate(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
         if zenodo_error:
             result["zenodo_error"] = zenodo_error
         return result
+    except Exception as exc:  # noqa: BLE001
+        db.update_donation_result(donation_id, status="failed", error=str(exc))
+        raise
+
+
+# ── Extension orchestration ──────────────────────────────────────────────────
+
+def _donate_extension(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
+    """Add ``papers/<batch_id>.json`` to an existing dataset folder.
+    Reuses ``_open_pr`` — the existing helper's ``datasets/<id>/<file>``
+    path prefix naturally produces the right destination when we pass
+    the EXISTING dataset_id and ``files={"papers/<batch_id>.json": ...}``.
+
+    Mirrors the fresh-donation flow's status tracking + dry-run behaviour
+    so failure modes look identical from the donations-table perspective.
+    Zenodo new-version (Phase 3f) layers on top later; for now extensions
+    only update GitHub.
+    """
+    payload     = build_extension_payload(req)
+    dataset_id  = payload["dataset_id"]
+    donation_id = uuid.uuid4().hex
+
+    # Verify the target dataset actually exists before opening a PR,
+    # otherwise the bot will create an orphan ``datasets/<bogus>/`` folder.
+    existing = datasets_mod.get_dataset_metadata(dataset_id)
+    if existing is None:
+        raise ValueError(
+            f"Cannot extend dataset '{dataset_id}' — it doesn't exist in the curated repo."
+        )
+    existing_title = existing.get("title") or dataset_id
+
+    db.create_donation(
+        donation_id,
+        batch_id=req.batch_id,
+        dataset_id=dataset_id,
+        extends_dataset_id=dataset_id,
+        title=existing_title,
+        visibility=existing.get("visibility") or "public",
+        attribution_mode=req.attribution_mode,
+        ip_hash=ip_hash,
+    )
+
+    if not is_live():
+        # Dry-run: stage the single file in /tmp under a clearly-marked
+        # extension subfolder so reviewers can inspect what would be
+        # added to the dataset.
+        target = DRY_RUN_BUNDLE_DIR / dataset_id / "papers"
+        target.mkdir(parents=True, exist_ok=True)
+        out_file = target / f"{req.batch_id}.json"
+        out_file.write_text(payload["file_content"], encoding="utf-8")
+        db.update_donation_result(donation_id, status="dry-run")
+        return {
+            "donation_id":     donation_id,
+            "dataset_id":      dataset_id,
+            "mode":            "dry-run",
+            "kind":            "extension",
+            "bundle_path":     str(out_file),
+            "paper_count":     payload["paper_count"],
+            "schema_version":  payload["schema_version"],
+            "extends":         dataset_id,
+        }
+
+    # Live: open the PR.
+    try:
+        donor_line = (
+            req.attribution_name
+            if req.attribution_mode == "attributed" and req.attribution_name
+            else "Anonymous"
+        )
+        # _open_pr's path prefix is ``datasets/<dataset_id>/`` — passing
+        # the EXISTING id and ``papers/<batch_id>.json`` as the relative
+        # path produces exactly ``datasets/<existing-id>/papers/<batch>.json``.
+        # Branch name: extension/<dataset>/<batch> keeps PRs distinguishable
+        # in the bot's branch list.
+        pr = _open_pr(
+            {payload["file_path"]: payload["file_content"]},
+            dataset_id=dataset_id,
+            branch_name=f"extension/{dataset_id}/{req.batch_id}",
+            pr_title=f"Extend dataset: {existing_title}",
+            pr_body=(
+                f"**Extending:** `{dataset_id}` ({existing_title})\n"
+                f"**Donor:** {donor_line}\n"
+                f"**Paper count:** {payload['paper_count']}\n"
+                f"**Schema:** `{payload['schema_version']}`\n"
+                f"**Prompt SHA-256:** `{payload['prompt_sha256'][:12]}…`\n\n"
+                f"_Opened by the MetaPaperLens donation bot.  This PR "
+                f"appends a new file under the existing dataset's "
+                f"`papers/` folder — review then merge.  Zenodo "
+                f"new-version handoff lands when 3f ships._\n"
+            ),
+            extends_dataset_id=dataset_id,
+        )
+        db.update_donation_result(
+            donation_id,
+            status="pr-opened",
+            github_pr_url=pr["pr_url"],
+            github_pr_number=pr["pr_number"],
+        )
+        try:
+            datasets_mod.invalidate_cache()
+        except Exception:  # noqa: BLE001
+            pass
+        return {
+            "donation_id":    donation_id,
+            "dataset_id":     dataset_id,
+            "mode":           "live",
+            "kind":           "extension",
+            "pr_url":         pr["pr_url"],
+            "pr_number":      pr["pr_number"],
+            "paper_count":    payload["paper_count"],
+            "schema_version": payload["schema_version"],
+            "extends":        dataset_id,
+        }
     except Exception as exc:  # noqa: BLE001
         db.update_donation_result(donation_id, status="failed", error=str(exc))
         raise

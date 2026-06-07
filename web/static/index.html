@@ -618,41 +618,79 @@
           </div>
         </div>
 
-        <!-- Compact scale-name + item-count row (drives [scale_name] and
-             [n_items] in the prompt template).  ``n_factors`` comes from
-             the active preset's defaults — exposing it to the user
-             tended to confuse the form. -->
-        <div class="form-group">
-          <label class="parse-method-label">Scale &amp; dimensions</label>
-          <div class="masem-scalar-row">
-            <label class="masem-scalar">
-              <span class="masem-scalar-label">Scale name</span>
-              <input type="text" id="masemScaleName"
-                     placeholder="e.g. Need for Cognition Scale (NCS-18)" />
-              <span class="masem-scalar-hint">Full name + abbreviation</span>
-            </label>
-            <label class="masem-scalar masem-scalar-narrow">
-              <span class="masem-scalar-label">Number of items</span>
-              <input type="number" id="masemNItems" min="1" max="200" step="1"
-                     placeholder="e.g. 20" />
-              <span class="masem-scalar-hint">Items in the scale</span>
-            </label>
+        <!-- Indirect-information inputs: scale name + item count + item
+             labels.  These drive [scale_name], [n_items] and
+             [item_labels] in masem.template.md.  Hidden when the
+             Direct-information starter is active (see masem-builder.js
+             _applyStarterFormVisibility). -->
+        <div id="masemFormIndirect">
+          <!-- Compact scale-name + item-count row.  ``n_factors`` comes
+               from the active preset's defaults — exposing it to the
+               user tended to confuse the form. -->
+          <div class="form-group">
+            <label class="parse-method-label">Scale &amp; dimensions</label>
+            <div class="masem-scalar-row">
+              <label class="masem-scalar">
+                <span class="masem-scalar-label">Scale name</span>
+                <input type="text" id="masemScaleName"
+                       placeholder="e.g. Need for Cognition Scale (NCS-18)" />
+                <span class="masem-scalar-hint">Full name + abbreviation</span>
+              </label>
+              <label class="masem-scalar masem-scalar-narrow">
+                <span class="masem-scalar-label">Number of items</span>
+                <input type="number" id="masemNItems" min="1" max="200" step="1"
+                       placeholder="e.g. 20" />
+                <span class="masem-scalar-hint">Items in the scale</span>
+              </label>
+            </div>
           </div>
-        </div>
 
-        <!-- Item labels — drives [item_labels] in the rendered template. -->
-        <div class="form-group">
-          <label class="parse-method-label" for="masemCInput">
-            Item labels
-            <span class="optional">(one item per line, starting with item number)</span>
-          </label>
-          <p class="masem-hint">Paste the verbatim item texts in their original order so the model can match items that are reordered or paraphrased in the source paper. Format: <code>1: item text</code> per line. Leave empty if you don't have the item texts handy (e.g. copyrighted instruments).</p>
-          <textarea id="masemCInput" rows="9"
-                    placeholder="e.g.
+          <!-- Item labels — drives [item_labels] in the rendered template. -->
+          <div class="form-group">
+            <label class="parse-method-label" for="masemCInput">
+              Item labels
+              <span class="optional">(one item per line, starting with item number)</span>
+            </label>
+            <p class="masem-hint">Paste the verbatim item texts in their original order so the model can match items that are reordered or paraphrased in the source paper. Format: <code>1: item text</code> per line. Leave empty if you don't have the item texts handy (e.g. copyrighted instruments).</p>
+            <textarea id="masemCInput" rows="9"
+                      placeholder="e.g.
 1: I usually notice my feelings before anyone else does.
 2: I tend to set goals and follow through with them.
 3: I enjoy meeting new people at social gatherings.
 …"></textarea>
+          </div>
+        </div>
+
+        <!-- Direct-information inputs: effect sizes + variables.  These
+             drive ${effect_sizes_block} and ${variables_block} in
+             masem-effect-sizes.template.md.  Hidden when the
+             Indirect-information starter is active. -->
+        <div id="masemFormDirect" style="display:none">
+          <!-- Effect sizes — drives ${effect_sizes_block}. -->
+          <div class="form-group">
+            <label class="parse-method-label" for="masemEffectSizesInput">
+              Effect sizes
+              <span class="optional">(one per line: <code>short_code: full name</code>)</span>
+            </label>
+            <p class="masem-hint">Which effect-size statistics should the model extract?  Use short codes the meta-analytic literature recognises (<code>r</code> for Pearson correlations, <code>or</code> for odds ratios, <code>smd</code> for standardised mean differences, etc.).  The right side of the colon is the human-readable label that appears in the prompt.</p>
+            <textarea id="masemEffectSizesInput" rows="4"
+                      placeholder="r: Correlation
+or: Odds ratios"></textarea>
+          </div>
+
+          <!-- Variables — drives ${variables_block}.  More structured than
+               effect sizes: each line is <short_code>: <definition>. -->
+          <div class="form-group">
+            <label class="parse-method-label" for="masemVariablesInput">
+              Variables
+              <span class="optional">(one per line: <code>short_code: definition</code>)</span>
+            </label>
+            <p class="masem-hint">Which variables / constructs should the model consider as canonical?  Each entry is a short code (used in the output's <code>var1</code> / <code>var2</code> fields) plus a definition that helps the model recognise paper-specific operationalisations.  Add a third colon-separated chunk for synonyms if useful.</p>
+            <textarea id="masemVariablesInput" rows="6"
+                      placeholder="bm: A measure of body mass such as BMI, % fat mass, BIA, or waist circumference.
+vg: A measure of video-game use — hours/day, frequency, subjective intensity.
+pa: A measure of physical activity — exercise length, frequency, duration."></textarea>
+          </div>
         </div>
 
         <!-- Live prompt preview -->
@@ -1248,10 +1286,19 @@ The viewer renders any object containing a <code>_table</code> array as a real H
       before you can submit.
     </p>
 
-    <input type="text" id="extendDatasetSearch"
-           placeholder="🔎  Search by title, donor, or schema…"
-           oninput="_filterExtendDatasets()"
-           style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font:inherit;margin-bottom:10px" />
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input type="text" id="extendDatasetSearch"
+             placeholder="🔎  Search by title, donor, or schema…"
+             oninput="_filterExtendDatasets()"
+             style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font:inherit" />
+      <button class="btn btn-ghost btn-sm" type="button"
+              id="extendDatasetRefreshBtn"
+              onclick="_refreshExtendDatasets()"
+              title="Re-fetch the dataset listing from GitHub (skips the 5 min cache)">
+        <span aria-hidden="true">&#x21BB;</span>&ensp;Refresh
+      </button>
+    </div>
+    <p id="extendDatasetCacheNote" style="font-size:11.5px;color:var(--text-muted);margin:0 0 10px;display:none"></p>
 
     <div id="extendDatasetList" class="extend-dataset-list"
          style="max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px">
@@ -1345,6 +1392,23 @@ The viewer renders any object containing a <code>_table</code> array as a real H
             contents remain publicly viewable on GitHub and Zenodo &mdash; the
             password does not hide the data.
           </p>
+        </div>
+      </fieldset>
+
+      <fieldset class="donate-field" style="border:none;padding:0;margin:0">
+        <legend class="donate-field-label" style="padding:0;margin-bottom:6px">Verification</legend>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+          <input type="radio" name="donateVerification" value="unverified" checked onchange="_donateToggleVerification()" style="margin-top:3px" />
+          <span><strong>Raw model output</strong> &mdash; extractions as the AI produced them, no human review</span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin-top:6px">
+          <input type="radio" name="donateVerification" value="verified" onchange="_donateToggleVerification()" style="margin-top:3px" />
+          <span><strong>Human-verified</strong> &mdash; I (or my team) checked extracted values against the source PDFs</span>
+        </label>
+        <div id="donateVerifiedFields" style="display:none;margin-top:8px;padding-left:24px">
+          <input id="donateVerificationNotesInput" type="text" maxlength="500"
+                 placeholder="Optional: what was checked? (e.g. 'all effect-size values double-checked against tables 2&ndash;4')"
+                 style="width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font:inherit" />
         </div>
       </fieldset>
 
