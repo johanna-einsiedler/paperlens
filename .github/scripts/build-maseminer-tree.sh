@@ -45,6 +45,7 @@ for f in \
     server.py db.py jobs.py notifier.py pdf_utils.py \
     prompt_builder.py providers.py presets_loader.py \
     _helpers.py schemas.py donor.py zenodo.py dotenv_local.py \
+    datasets.py \
     requirements.txt pyproject.toml Dockerfile; do
   cp "$SRC_WEB/$f" "$DEST/$f"
 done
