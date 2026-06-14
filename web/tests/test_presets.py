@@ -348,6 +348,153 @@ def test_extraction_confidence_block_in_default_prompt(client):
     assert '"extraction_confidence"' in p_indirect
 
 
+def test_masem_presets_pass_prompt_readiness_check(client):
+    """The structural readiness check at /api/extract must NOT block any
+    preset-driven prompt — both MASEMiner templates inline the canonical
+    evidence + extraction_confidence blocks.  A regression here would
+    surface as an unexpected "Proceed anyway" modal on the production
+    workflows the user runs most often."""
+    from prompt_check import prompt_has_extraction_signals
+    for preset_id in ("masem", "masem-ncs18"):
+        built = client.post("/api/build-preset-prompt", json={
+            "preset_id": preset_id, "template_params": {},
+        }).json()
+        readiness = prompt_has_extraction_signals(built["prompt"])
+        assert readiness["ok"] is True, (
+            f"{preset_id} prompt failed structural readiness check: {readiness}"
+        )
+
+
+# ── econ-headline preset ────────────────────────────────────────────────
+
+def test_econ_headline_preset_loads(client):
+    """Smoke: GET /api/presets/econ-headline returns the preset descriptor
+    with the canonical fields (id, title, prompt body, sub_views).  Without
+    this the workflow-card on step 1 would silently omit the econ option."""
+    r = client.get("/api/presets/econ-headline")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"]    == "econ-headline"
+    assert data["mode"]  == "extraction"
+    assert isinstance(data.get("title"), str) and data["title"]
+    assert isinstance(data.get("prompt"), str) and "samples" in data["prompt"]
+    assert isinstance(data.get("sub_views"), list) and len(data["sub_views"]) == 5
+
+
+def test_econ_headline_sub_views_cover_five_blocks(client):
+    """The five sub-tabs (Metadata / Specification / Estimates /
+    Classification / Paper metadata) must each show up with the right
+    id + confidence_keys, in declaration order.  Drift here breaks the
+    per-sub-tab confidence-badge filtering downstream."""
+    data = client.get("/api/presets/econ-headline").json()
+    ids = [sv["id"] for sv in data["sub_views"]]
+    assert ids == ["regmeta", "regspec", "regestimates", "regclass", "papermeta"]
+    # Each sub-view's confidence_keys mirrors the categories the prompt
+    # rates in extraction_confidence — pin the mapping so the badge UI
+    # always shows the right label per tab.
+    by_id = {sv["id"]: sv for sv in data["sub_views"]}
+    assert by_id["regmeta"]["confidence_keys"]      == ["regressions_metadata"]
+    assert by_id["regspec"]["confidence_keys"]      == ["regressions_specification"]
+    assert by_id["regestimates"]["confidence_keys"] == ["regressions_estimates"]
+    assert by_id["regclass"]["confidence_keys"]     == ["regressions_classification"]
+    assert by_id["papermeta"]["confidence_keys"]    == ["paper_metadata"]
+
+
+def test_econ_headline_prompt_passes_readiness_check(client):
+    """The rendered prompt must declare both an evidence array and an
+    extraction_confidence object structurally (not just in prose) so the
+    /api/extract readiness gate lets it through without forcing the
+    Proceed-anyway modal."""
+    from prompt_check import prompt_has_extraction_signals
+    built = client.post("/api/build-preset-prompt", json={
+        "preset_id": "econ-headline", "template_params": {},
+    }).json()
+    readiness = prompt_has_extraction_signals(built["prompt"])
+    assert readiness["ok"] is True, (
+        f"econ-headline prompt failed structural readiness check: {readiness}"
+    )
+
+
+def test_ai_findings_preset_loads(client):
+    """The AI-findings preset is the first one shipped via the
+    structured prompt-designer flow (see web/static/prompt-designer.js).
+    Smoke: it auto-discovers, has the four expected sub-views, and the
+    rendered prompt mentions the canonical structures."""
+    r = client.get("/api/presets/ai-findings")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"] == "ai-findings"
+    assert data["mode"] == "extraction"
+    assert isinstance(data.get("prompt"), str) and "samples" in data["prompt"]
+    ids = [sv["id"] for sv in data["sub_views"]]
+    assert ids == ["effect_size", "comparison", "classification", "descriptives"]
+
+
+def test_ai_findings_prompt_passes_readiness_check(client):
+    """Like every preset prompt, ai-findings must pass the structural
+    readiness gate at /api/extract — both evidence and
+    extraction_confidence blocks present with worked JSON examples."""
+    from prompt_check import prompt_has_extraction_signals
+    built = client.post("/api/build-preset-prompt", json={
+        "preset_id": "ai-findings", "template_params": {},
+    }).json()
+    readiness = prompt_has_extraction_signals(built["prompt"])
+    assert readiness["ok"] is True, (
+        f"ai-findings prompt failed structural readiness check: {readiness}"
+    )
+
+
+def test_ai_findings_confidence_categories_match_sub_view_keys(client):
+    """The three extraction_confidence categories the prompt rates
+    (paper_metadata, findings, subtopics) must each be covered by at
+    least one sub-view's confidence_keys so the badges render in the
+    right tab.  This matches the FLAT-entry preset shape: the model
+    emits one ``findings`` confidence rating covering every per-finding
+    field, and the three top sub-views (Effect size / Comparison /
+    Classification) all show that single rating because their
+    confidence_keys include ``findings``.
+
+    Drift here would surface as hidden / mis-tabbed confidence ratings
+    on the live review panel."""
+    data = client.get("/api/presets/ai-findings").json()
+    rated = {"paper_metadata", "findings", "subtopics"}
+    covered = set()
+    for sv in data["sub_views"]:
+        covered.update(sv.get("confidence_keys") or [])
+    missing = rated - covered
+    assert not missing, (
+        f"sub_views don't cover these rated categories: {sorted(missing)}"
+    )
+
+
+def test_econ_headline_confidence_keys_align_with_prompt(client):
+    """Every confidence category the prompt rates (paper_metadata +
+    regressions_{metadata,specification,estimates,classification}) must
+    have a matching sub-view ``confidence_keys`` entry — otherwise some
+    extraction_confidence ratings emitted by the model would render with
+    no associated tab (silently hidden badges)."""
+    data = client.get("/api/presets/econ-headline").json()
+    prompt = data["prompt"]
+    rated_categories = {
+        "paper_metadata", "regressions_metadata", "regressions_specification",
+        "regressions_estimates", "regressions_classification",
+    }
+    # Each must appear as a JSON-quoted key inside the rendered prompt body
+    # (matches the worked extraction_confidence example).
+    for cat in rated_categories:
+        assert f'"{cat}"' in prompt, (
+            f"prompt does not declare confidence category {cat!r}"
+        )
+    # And each must be covered by at least one sub-view's confidence_keys.
+    declared_keys = set()
+    for sv in data["sub_views"]:
+        declared_keys.update(sv.get("confidence_keys") or [])
+    missing = rated_categories - declared_keys
+    assert not missing, (
+        f"sub_views don't cover these rated categories: {sorted(missing)}"
+    )
+
+
 # ── /api/build-preset-prompt — guided builder render route ─────────────────
 
 def test_build_preset_prompt_default_matches_get(client):

@@ -64,11 +64,13 @@ from _helpers import (
 )
 from pdf_utils import extract_evidence_snippets, pdf_to_highlighted_images
 from prompt_builder import EVIDENCE_APPENDIX, build_meta_prompt
+from prompt_check import prompt_has_extraction_signals
 from providers import generate_text
 from schemas import (
     AdaptPromptIn,
     BatchEmailIn,
     BuildPresetPromptIn,
+    CheckPromptReadinessIn,
     CheckSchemaIn,
     DonateIn,
     GeneratePromptIn,
@@ -173,7 +175,13 @@ async def generate_prompt(payload: GeneratePromptIn) -> Any:
         generated = await asyncio.to_thread(
             generate_text, payload.model, api_key, meta_prompt, 0.3, base_url
         )
-        return {"prompt": generated + EVIDENCE_APPENDIX, "model_used": payload.model}
+        full_prompt = generated + EVIDENCE_APPENDIX
+        readiness = prompt_has_extraction_signals(full_prompt)
+        return {
+            "prompt":     full_prompt,
+            "model_used": payload.model,
+            "readiness":  readiness,
+        }
     except Exception as exc:  # noqa: BLE001
         return _provider_error_response(exc)
 
@@ -183,6 +191,16 @@ async def generate_prompt(payload: GeneratePromptIn) -> Any:
 @app.post("/api/check-evidence-schema")
 def check_evidence_schema(payload: CheckSchemaIn) -> dict:
     return {"has_evidence_schema": _prompt_has_evidence_schema(payload.prompt)}
+
+
+# ── /api/check-prompt-readiness ──────────────────────────────────────────────
+# Cheaper, finer-grained sibling of /api/check-evidence-schema.  Returns
+# both the evidence-structure and the extraction-confidence-structure
+# verdicts plus the missing-blocks list, so the front-end can show a
+# precise warning banner above the prompt textarea on edits + paste.
+@app.post("/api/check-prompt-readiness")
+def check_prompt_readiness(payload: CheckPromptReadinessIn) -> dict:
+    return prompt_has_extraction_signals(payload.prompt)
 
 
 # ── /api/config ──────────────────────────────────────────────────────────────
@@ -677,6 +695,12 @@ async def extract(
     base_url: str = Form(""),
     batch_id: str = Form(""),       # generated client-side; same id for every paper in a batch
     notify_email: str = Form(""),   # optional — triggers email when the batch finishes
+    # Front-end sets "1" only after the user has dismissed the
+    # readiness-warning modal ("Proceed anyway").  Default "0" means the
+    # server enforces the readiness gate.  Preset-driven prompts pass
+    # the gate naturally; only AI-generated or hand-pasted prompts that
+    # omit evidence / extraction_confidence structure will be blocked.
+    acknowledge_no_evidence: str = Form("0"),
     pdf: UploadFile = File(...),
     x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
 ) -> dict:
@@ -692,6 +716,25 @@ async def extract(
         raise HTTPException(status_code=400, detail="Prompt is required.")
     _ascii_only(api_key,  "API key")
     _ascii_only(base_url, "Server URL")
+
+    # Structural readiness gate.  Block when the prompt doesn't request
+    # the evidence + extraction_confidence structures the renderer
+    # depends on — UNLESS the user has explicitly acknowledged in the
+    # front-end modal that they want to proceed regardless.
+    if acknowledge_no_evidence != "1":
+        readiness = prompt_has_extraction_signals(prompt)
+        if not readiness["ok"]:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code":      "prompt_missing_structure",
+                    "message":   "Prompt is missing evidence and/or extraction_confidence structure. "
+                                 "Extractions can still be run, but evidence highlighting and confidence "
+                                 "badges won't display.  Submit again with acknowledge_no_evidence=1 "
+                                 "to proceed anyway.",
+                    "readiness": readiness,
+                },
+            )
 
     filename = pdf.filename or ""
     if not filename.lower().endswith(".pdf"):

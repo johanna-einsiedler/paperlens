@@ -1284,6 +1284,94 @@ _SUB_VIEW_SPECS = {
         "evidence_keys":   ["reliabilities"],
         "confidence_keys": ["reliabilities"],
     },
+    # ── Empirical-economics regression-results sub-views ─────────────
+    # Each per-table entry produced by the econ-headline preset carries
+    # one ``regressions_*`` field per sub-tab plus a copy of the
+    # paper-level metadata.  ``evidence_keys`` mirror the JSON segment
+    # names the model emits in evidence field paths; ``confidence_keys``
+    # mirror the categories the prompt's ``extraction_confidence`` block
+    # rates.  Names match the keys the upstream pipeline2 prompt
+    # already produces, so existing extracted files map cleanly.
+    "regressions_metadata": {
+        "id":              "regmeta",
+        "label":           "Metadata",
+        "include_keys":    ["sample_id", "table", "table_caption", "page",
+                            "n_regressions", "regressions_metadata"],
+        "evidence_keys":   ["regressions_metadata", "table", "table_caption",
+                            "page", "panel", "column", "column_label"],
+        "confidence_keys": ["regressions_metadata"],
+    },
+    "regressions_specification": {
+        "id":              "regspec",
+        "label":           "Specification",
+        "include_keys":    ["sample_id", "regressions_specification"],
+        "evidence_keys":   ["regressions_specification", "model_type",
+                            "sample_size", "standard_errors", "fixed_effects",
+                            "continuous_controls", "sample_restrictions",
+                            "weights", "treatment_definition",
+                            "iv_instruments", "unit_of_observation",
+                            "time_period", "outcome_construction"],
+        "confidence_keys": ["regressions_specification"],
+    },
+    "regressions_estimates": {
+        "id":              "regestimates",
+        "label":           "Estimates",
+        "include_keys":    ["sample_id", "regressions_estimates"],
+        "evidence_keys":   ["regressions_estimates", "estimates",
+                            "dependent_var",
+                            "non_displayed_coefficients_present",
+                            "data_construction_steps"],
+        "confidence_keys": ["regressions_estimates"],
+    },
+    "regressions_classification": {
+        "id":              "regclass",
+        "label":           "Classification",
+        "include_keys":    ["sample_id", "regressions_classification"],
+        "evidence_keys":   ["regressions_classification",
+                            "is_treatment_effect", "non_treatment_category",
+                            "is_robustness_check", "is_headline",
+                            "headline_reasoning"],
+        "confidence_keys": ["regressions_classification"],
+    },
+    "paper_metadata": {
+        "id":              "papermeta",
+        "label":           "Paper metadata",
+        "include_keys":    ["sample_id", "paper_metadata"],
+        "evidence_keys":   ["paper_metadata", "title", "doi", "authors",
+                            "year", "study_design",
+                            "identification_strategy", "data_type",
+                            "data_origin", "proprietary_data",
+                            "geographic_scope"],
+        "confidence_keys": ["paper_metadata"],
+    },
+    # ── AI-and-labour findings preset sub-views ───────────────────────
+    # Each per-finding entry produced by the ai-findings preset carries
+    # an effect_size / comparison / classification sub-object plus a
+    # copy of paper_metadata.  evidence_keys mirror the JSON segments
+    # the model emits in evidence field paths.
+    "effect_size": {
+        "id":              "effect_size",
+        "label":           "Effect size",
+        "include_keys":    ["sample_id", "effect_size"],
+        "evidence_keys":   ["effect_size", "metric", "value", "ci_low",
+                            "ci_high", "unit", "direction", "p_value",
+                            "evidence_idx"],
+        "confidence_keys": ["effect_size", "findings"],
+    },
+    "comparison": {
+        "id":              "comparison",
+        "label":           "Comparison",
+        "include_keys":    ["sample_id", "comparison"],
+        "evidence_keys":   ["comparison", "metric_definition", "note"],
+        "confidence_keys": ["comparison", "findings"],
+    },
+    "classification": {
+        "id":              "classification",
+        "label":           "Classification",
+        "include_keys":    ["sample_id", "classification"],
+        "evidence_keys":   ["classification", "finding_type", "subtopic"],
+        "confidence_keys": ["classification", "findings"],
+    },
 }
 
 

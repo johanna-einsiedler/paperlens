@@ -54,9 +54,16 @@ def _maseminer_only() -> bool:
 # ── Request-side validators ───────────────────────────────────────────────────
 
 def _prompt_has_evidence_schema(prompt: str) -> bool:
-    """≥3 of (evidence, snippet, page, source) → likely already requests evidence."""
-    p = prompt.lower()
-    return sum(tok in p for tok in ("evidence", "snippet", "page", "source")) >= 3
+    """Back-compat wrapper around the structural readiness checker.
+
+    Older callers asked a single yes/no question: does this prompt
+    request evidence?  The new ``prompt_has_extraction_signals`` answers
+    both evidence and confidence, in a structured form.  We delegate so
+    there's one source of truth for the detection rules and the
+    behaviour stays consistent across endpoints.
+    """
+    from prompt_check import prompt_has_extraction_signals
+    return prompt_has_extraction_signals(prompt)["has_evidence_structure"]
 
 
 def _ascii_only(value: str, label: str) -> None:

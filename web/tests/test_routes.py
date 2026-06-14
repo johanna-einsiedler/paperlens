@@ -76,8 +76,16 @@ def test_test_connection_surfaces_provider_error(client):
 
 
 def test_check_evidence_schema_positive(client):
-    r = client.post("/api/check-evidence-schema",
-                    json={"prompt": "Quote the snippet from the page and cite source."})
+    """A prompt containing an actual JSON evidence example block passes.
+    The keyword-only ≥3-hit heuristic is intentionally gone — structural
+    examples are what matter."""
+    prompt = (
+        '"evidence": [\n'
+        '  {"snippet": "TABLE 1...", "page": 3, "source": "Table 1", '
+        '"field": "samples[0].x"}\n'
+        ']'
+    )
+    r = client.post("/api/check-evidence-schema", json={"prompt": prompt})
     assert r.status_code == 200
     assert r.json() == {"has_evidence_schema": True}
 
@@ -86,6 +94,52 @@ def test_check_evidence_schema_negative(client):
     r = client.post("/api/check-evidence-schema", json={"prompt": "Just extract the data."})
     assert r.status_code == 200
     assert r.json() == {"has_evidence_schema": False}
+
+
+def test_check_evidence_schema_rejects_keyword_only_prompt(client):
+    """Prose mentioning evidence/snippet/page/source without an actual
+    JSON block must NOT pass.  This is the failure mode that motivated
+    the structural-checker upgrade."""
+    r = client.post("/api/check-evidence-schema",
+                    json={"prompt": "Quote the snippet from the page and cite source."})
+    assert r.status_code == 200
+    assert r.json() == {"has_evidence_schema": False}
+
+
+def test_check_prompt_readiness_positive(client):
+    """The new endpoint returns the full structural verdict — both
+    evidence and extraction_confidence verified independently."""
+    prompt = (
+        '"evidence": [\n'
+        '  {"snippet": "...", "page": 1, "source": null, "field": "samples[0].x"}\n'
+        ']\n'
+        '"extraction_confidence": {\n'
+        '  "samples": {"level": "high"}\n'
+        '}'
+    )
+    r = client.post("/api/check-prompt-readiness", json={"prompt": prompt})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["has_evidence_structure"]   is True
+    assert body["has_confidence_structure"] is True
+    assert body["missing"] == []
+
+
+def test_check_prompt_readiness_missing_confidence(client):
+    """Evidence present, confidence absent → ok=False; ``missing`` lists
+    only the absent block so the UI can render a precise banner."""
+    prompt = (
+        '"evidence": [\n'
+        '  {"snippet": "...", "page": 1, "source": null, "field": "samples[0].x"}\n'
+        ']'
+    )
+    r = client.post("/api/check-prompt-readiness", json={"prompt": prompt})
+    body = r.json()
+    assert body["ok"] is False
+    assert body["has_evidence_structure"]   is True
+    assert body["has_confidence_structure"] is False
+    assert body["missing"] == ["extraction_confidence"]
 
 
 # ── /api/generate-prompt ─────────────────────────────────────────────────────
@@ -122,6 +176,24 @@ def test_generate_prompt_happy_path(client):
     # Server appends EVIDENCE_APPENDIX
     assert "GENERATED PROMPT BODY" in body["prompt"]
     assert "evidence" in body["prompt"].lower()
+
+
+def test_generate_prompt_response_includes_readiness(client):
+    """The structured ``readiness`` block returned alongside the prompt
+    drives the warning banner in the UI.  Even with the LLM returning
+    a one-line stub, the appended ``EVIDENCE_APPENDIX`` carries both
+    structural blocks, so readiness.ok must be True out of the box."""
+    with patch("server.generate_text", return_value="GENERATED PROMPT BODY"):
+        r = client.post("/api/generate-prompt",
+                        json={"api_key": "k", "model": "gpt-4o-mini",
+                              "mode": "extraction", "question": "Get sample sizes."})
+    assert r.status_code == 200
+    body = r.json()
+    assert "readiness" in body
+    assert body["readiness"]["ok"] is True
+    assert body["readiness"]["has_evidence_structure"]   is True
+    assert body["readiness"]["has_confidence_structure"] is True
+    assert body["readiness"]["missing"] == []
 
 
 def test_generate_prompt_threads_base_url(client):
@@ -193,10 +265,79 @@ def _make_pdf_bytes() -> bytes:
 
 
 def test_extract_rejects_non_pdf(client):
+    """File-type check fires BEFORE the readiness gate, so a bare prompt
+    still 400s — the rejection reason is the .txt extension."""
     r = client.post("/api/extract",
-                    data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "p"},
+                    data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "p",
+                          "acknowledge_no_evidence": "1"},
                     files={"pdf": ("notes.txt", b"hello", "text/plain")})
     assert r.status_code == 400
+
+
+def test_extract_readiness_gate_blocks_bare_prompt(client):
+    """A bare prompt with no evidence / extraction_confidence structure
+    must be blocked at /api/extract.  The response carries the
+    structured readiness verdict so the client can render a precise
+    error message."""
+    pdf = _make_pdf_bytes()
+    r = client.post(
+        "/api/extract",
+        data={"api_key": "k", "model": "gpt-4o-mini",
+              "prompt": "Extract the sample size from the paper.",
+              "use_text_extraction": "0"},
+        files={"pdf": ("paper.pdf", pdf, "application/pdf")},
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    assert detail["code"] == "prompt_missing_structure"
+    assert detail["readiness"]["ok"] is False
+    assert set(detail["readiness"]["missing"]) == {"evidence", "extraction_confidence"}
+
+
+def test_extract_readiness_gate_passes_with_canonical_prompt(client):
+    """A prompt containing both canonical blocks passes the gate without
+    the acknowledge flag and proceeds to the job pipeline."""
+    pdf = _make_pdf_bytes()
+    good_prompt = (
+        'Extract data from the paper and emit:\n'
+        '"evidence": [\n'
+        '  {"snippet": "...", "page": 1, "source": null, "field": "samples[0].x"}\n'
+        '],\n'
+        '"extraction_confidence": {\n'
+        '  "samples": {"level": "high"}\n'
+        '}'
+    )
+    def fake_extract_with_images(**kwargs):
+        return ('{"samples": [{"n": 1}]}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini")
+    with patch("jobs.extract_with_images", side_effect=fake_extract_with_images):
+        r = client.post(
+            "/api/extract",
+            data={"api_key": "k", "model": "gpt-4o-mini",
+                  "prompt": good_prompt, "use_text_extraction": "0"},
+            files={"pdf": ("paper.pdf", pdf, "application/pdf")},
+        )
+    assert r.status_code == 200
+    assert "job_id" in r.json()
+
+
+def test_extract_readiness_gate_bypassable_with_acknowledge(client):
+    """When the user clicks "Proceed anyway" in the readiness modal, the
+    client sends ``acknowledge_no_evidence=1`` and the gate allows the
+    bare prompt through."""
+    pdf = _make_pdf_bytes()
+    def fake_extract_with_images(**kwargs):
+        return ('{"samples": [{"n": 1}]}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini")
+    with patch("jobs.extract_with_images", side_effect=fake_extract_with_images):
+        r = client.post(
+            "/api/extract",
+            data={"api_key": "k", "model": "gpt-4o-mini",
+                  "prompt": "Extract the sample size.",
+                  "use_text_extraction": "0",
+                  "acknowledge_no_evidence": "1"},
+            files={"pdf": ("paper.pdf", pdf, "application/pdf")},
+        )
+    assert r.status_code == 200
+    assert "job_id" in r.json()
 
 
 def test_check_pdf_classifies_text_pdf(client):
@@ -252,7 +393,7 @@ def test_extract_returns_job_id_then_polls_to_done(client):
         r = client.post(
             "/api/extract",
             data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "Extract n.",
-                  "use_text_extraction": "0"},
+                  "use_text_extraction": "0", "acknowledge_no_evidence": "1"},
             files={"pdf": ("paper.pdf", pdf, "application/pdf")},
         )
         assert r.status_code == 200
@@ -288,7 +429,7 @@ def test_extract_routes_deepseek_to_text_path(client):
     with patch("jobs.extract_with_text", side_effect=fake_extract_with_text) as mk:
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "deepseek-chat", "prompt": "x",
+            data={"api_key": "k", "model": "deepseek-chat", "prompt": "x", "acknowledge_no_evidence": "1",
                   "use_text_extraction": "0"},  # toggle off, but server should still pick text path for deepseek
             files={"pdf": ("paper.pdf", pdf, "application/pdf")},
         )
@@ -327,7 +468,7 @@ def test_get_job_returns_evidence_total(client):
     with patch("jobs.extract_with_images", side_effect=fake_extract):
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1"},
             files={"pdf": ("paper.pdf", pdf, "application/pdf")},
         )
         job_id = r.json()["job_id"]
@@ -378,7 +519,7 @@ def test_extract_job_surfaces_clean_provider_error(client):
     with patch("jobs.extract_with_images", side_effect=raising_extract_with_images):
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x",
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1",
                   "use_text_extraction": "0"},
             files={"pdf": ("paper.pdf", pdf, "application/pdf")},
         )
@@ -457,7 +598,7 @@ def test_extract_creates_batch_and_links_job(client):
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x",
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1",
                   "use_text_extraction": "0", "batch_id": bid},
             files={"pdf": ("paper.pdf", pdf, "application/pdf")},
         )
@@ -487,7 +628,7 @@ def test_list_batches_aggregates_counts(client):
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract", headers=headers,
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b1"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": "b1"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
         deadline = time.time() + 5
@@ -511,7 +652,7 @@ def test_list_batches_isolates_sessions(client):
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract", headers={"X-Session-Id": "alice"},
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "alice-batch"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": "alice-batch"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
         # Wait for the worker thread to finish so the batch is fully populated
@@ -548,7 +689,7 @@ def test_cancel_endpoint_requests_cancel(client):
     with patch("jobs.extract_with_images", side_effect=slow_extract):
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1"},
             files={"pdf": ("paper.pdf", pdf, "application/pdf")},
         )
         job_id = r.json()["job_id"]
@@ -675,7 +816,7 @@ def test_extract_rejects_batch_over_limit(client, monkeypatch):
         for name in ("a.pdf", "b.pdf"):
             r = client.post(
                 "/api/extract",
-                data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+                data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": bid},
                 files={"pdf": (name, pdf, "application/pdf")},
             )
             assert r.status_code == 200
@@ -683,7 +824,7 @@ def test_extract_rejects_batch_over_limit(client, monkeypatch):
         # Third *new* filename is over the cap → 400
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": bid},
             files={"pdf": ("c.pdf", pdf, "application/pdf")},
         )
     assert r.status_code == 400
@@ -703,7 +844,7 @@ def test_extract_allows_rerun_over_limit(client, monkeypatch):
         for name in ("a.pdf", "b.pdf"):
             r = client.post(
                 "/api/extract",
-                data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+                data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": bid},
                 files={"pdf": (name, pdf, "application/pdf")},
             )
             assert r.status_code == 200
@@ -711,7 +852,7 @@ def test_extract_allows_rerun_over_limit(client, monkeypatch):
         # Re-run an existing filename: must pass even though we're at the cap
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": bid},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
         assert r.status_code == 200, f"rerun rejected: {r.json()}"
@@ -719,7 +860,7 @@ def test_extract_allows_rerun_over_limit(client, monkeypatch):
         # And a third *new* filename is still rejected
         r = client.post(
             "/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": bid},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": bid},
             files={"pdf": ("c.pdf", pdf, "application/pdf")},
         )
         assert r.status_code == 400
@@ -732,7 +873,7 @@ def test_set_batch_email_validates(client):
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b-em"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": "b-em"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
     # Bad email
@@ -750,7 +891,7 @@ def test_set_batch_email_attaches_address_to_batch(client):
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b-em2"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": "b-em2"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
     r = client.post("/api/batches/b-em2/email", json={"email": "alice@example.com"})
@@ -767,7 +908,7 @@ def test_set_batch_email_after_completion_sends_immediately(client, capsys):
     with patch("jobs.extract_with_images",
                return_value=('{"x":1}', "stop", {"prompt": 1, "completion": 1, "total": 2}, "gpt-4o-mini-2024-07-18")):
         client.post("/api/extract",
-            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "batch_id": "b-em3"},
+            data={"api_key": "k", "model": "gpt-4o-mini", "prompt": "x", "acknowledge_no_evidence": "1", "batch_id": "b-em3"},
             files={"pdf": ("a.pdf", pdf, "application/pdf")},
         )
         # Wait for the worker to finish

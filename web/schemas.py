@@ -28,6 +28,24 @@ class CheckSchemaIn(BaseModel):
     prompt: str = ""
 
 
+class CheckPromptReadinessIn(BaseModel):
+    """Payload for ``/api/check-prompt-readiness`` — runs the structural
+    readiness check (evidence array + extraction_confidence object) on
+    an arbitrary prompt.  Used by the client to re-check after the user
+    edits a generated prompt or pastes their own."""
+    prompt: str = ""
+
+
+class ReadinessResult(BaseModel):
+    """Response shape for the prompt-readiness check.  Mirrored from
+    ``prompt_check.ReadinessResult`` TypedDict so FastAPI can serialise
+    it cleanly into JSON."""
+    ok:                       bool
+    has_evidence_structure:   bool
+    has_confidence_structure: bool
+    missing:                  list[str] = []
+
+
 class TestConnectionIn(BaseModel):
     """Payload for ``/api/test-connection`` — credential sanity check
     against a provider before kicking off a long extraction."""

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Required prompt structure — MetaPaperLens</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    body { max-width: 780px; margin: 0 auto; padding: 32px 24px 96px; }
+    h1, h2 { line-height: 1.25; }
+    h2 { margin-top: 2em; }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.86em;
+      line-height: 1.5;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .checklist li { margin: 0.4em 0; }
+    .back { display: inline-block; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+  <a class="back" href="javascript:history.back()">&larr; Back to the prompt editor</a>
+
+  <h1>Required prompt structure</h1>
+
+  <p>
+    MetaPaperLens needs your prompt to instruct the AI model to emit two
+    specific JSON structures: an <code>evidence</code> array and an
+    <code>extraction_confidence</code> object. The viewer reads these to
+    render PDF highlights and per-block confidence badges. Without them
+    the extraction will still run, but those panels stay empty.
+  </p>
+
+  <p>
+    If your prompt doesn't yet ask for these structures, copy the
+    examples below into your prompt body. Substitute the placeholder
+    field names (<code>&lt;your_field&gt;</code>, <code>&lt;data_block_1&gt;</code>)
+    with the actual top-level keys your prompt asks the model to produce.
+  </p>
+
+  <h2>1. The <code>evidence</code> array</h2>
+
+  <p>
+    Every sample / result object must carry an <code>evidence</code> array.
+    Each entry has exactly four keys: <code>snippet</code>,
+    <code>page</code>, <code>source</code>, and <code>field</code>. The
+    <code>field</code> value is a JSON path identifying which extracted
+    value the evidence supports — formatted to mirror the JSON shape your
+    prompt asks for.
+  </p>
+
+  <pre>"evidence": [
+  {
+    "snippet": "TABLE 1. Descriptive statistics by group...",
+    "page": 3,
+    "source": "Table 1",
+    "field": "samples[0].&lt;your_field&gt;"
+  },
+  {
+    "snippet": "the sample comprised 147 non-clinical adolescents",
+    "page": 2,
+    "source": null,
+    "field": "samples[0].sample_id"
+  }
+]</pre>
+
+  <p>
+    Rules:
+  </p>
+  <ul>
+    <li><code>snippet</code> must be verbatim from the paper — character-for-character, no paraphrase, no ellipses.</li>
+    <li><code>page</code> is the sequential PDF page number (1 = first page), as an integer. Never omit.</li>
+    <li><code>source</code> is the table / figure identifier (e.g. <code>"Table 2"</code>) or <code>null</code>.</li>
+    <li><code>field</code> is the JSON path into your output, e.g. <code>"samples[0].demographics._table[0]"</code>.</li>
+  </ul>
+
+  <h2>2. The <code>extraction_confidence</code> object</h2>
+
+  <p>
+    A top-level <code>extraction_confidence</code> object (sibling of
+    <code>samples</code>, <code>summaries</code>, etc.) with one entry per
+    major extracted-data block in your output. Each entry has a
+    <code>level</code> rated <code>high</code> / <code>medium</code> /
+    <code>low</code>, plus a <code>notes</code> string when not high.
+  </p>
+
+  <pre>"extraction_confidence": {
+  "&lt;data_block_1&gt;": { "level": "high" },
+  "&lt;data_block_2&gt;": {
+    "level": "medium",
+    "notes": "country inferred from author affiliations; not stated explicitly"
+  },
+  "&lt;data_block_3&gt;": {
+    "level": "low",
+    "notes": "values reported only for the overall scale; subgroup entries estimated"
+  }
+}</pre>
+
+  <p>
+    Rules:
+  </p>
+  <ul>
+    <li><code>level</code> ∈ {<code>"high"</code>, <code>"medium"</code>, <code>"low"</code>}.</li>
+    <li><code>notes</code> (≤ 200 chars) is <em>required</em> on <code>medium</code> and <code>low</code>; optional on <code>high</code>.</li>
+    <li>Exactly once at the top level — not inside <code>samples</code>, not inside <code>evidence</code>, not per-record.</li>
+    <li>One entry per major data block — not for <code>evidence</code> itself or for <code>extraction_confidence</code> itself.</li>
+  </ul>
+
+  <h2>Fix-my-prompt checklist</h2>
+
+  <ol class="checklist">
+    <li>Find the JSON schema or output-shape section in your prompt.</li>
+    <li>Add an <code>evidence</code> array alongside your main data field, with the four-key spec above.</li>
+    <li>Add an <code>extraction_confidence</code> object at the top level of the output, with one entry per major data block.</li>
+    <li>Paste the worked examples from this page into your prompt so the model sees the structure it must emit.</li>
+    <li>Return to the prompt editor — the warning should clear once both blocks are present.</li>
+  </ol>
+
+  <p style="margin-top:2.5em;color:#666;font-size:0.9em">
+    Why this matters: the renderer matches each evidence entry's
+    <code>field</code> path back to the JSON you produced, then highlights
+    the corresponding page region. The confidence object drives the
+    per-block badges on the results panel. Both depend on the structures
+    being present and JSON-shaped — keyword mentions alone aren't enough.
+  </p>
+
+  <a class="back" href="javascript:history.back()">&larr; Back to the prompt editor</a>
+</body>
+</html>

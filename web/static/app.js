@@ -12,16 +12,39 @@ const config = {
    localStorage, sent on every request as X-Session-Id.  The server uses it
    to scope /api/batches to "your" batches so the History view doesn't
    show other people's work.  Clearing localStorage forfeits history. */
+// crypto.randomUUID is only exposed in secure contexts (HTTPS or
+// localhost).  Running the dev server over a LAN IP / plain http
+// returns ``undefined`` for the function — calling it throws
+// "crypto.randomUUID is not a function" and any UI path that mints
+// an id (paper objects, session ids, batch ids) fails silently from
+// the user's perspective.  Single helper, used everywhere, with a
+// getRandomValues-backed v4 fallback when available and a
+// Math.random fallback as a last resort.
+function _uuidV4() {
+  if (typeof crypto !== 'undefined') {
+    if (typeof crypto.randomUUID === 'function') {
+      try { return crypto.randomUUID(); } catch (_) { /* fall through */ }
+    }
+    if (typeof crypto.getRandomValues === 'function') {
+      const b = new Uint8Array(16);
+      crypto.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40;   // version 4
+      b[8] = (b[8] & 0x3f) | 0x80;   // variant 10
+      const hex = [...b].map(x => x.toString(16).padStart(2, '0'));
+      return `${hex.slice(0,4).join('')}-${hex.slice(4,6).join('')}-${hex.slice(6,8).join('')}-${hex.slice(8,10).join('')}-${hex.slice(10,16).join('')}`;
+    }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 function _getOrCreateSessionId() {
   try {
     let sid = localStorage.getItem('paperlens.sessionId');
     if (!sid) {
-      sid = (crypto && crypto.randomUUID
-        ? crypto.randomUUID()
-        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-            const r = (Math.random() * 16) | 0;
-            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-          }));
+      sid = _uuidV4();
       localStorage.setItem('paperlens.sessionId', sid);
     }
     return sid;
@@ -478,6 +501,20 @@ function autoRestoreSession() {
       if (snapshot[k] !== undefined && snapshot[k] !== null) state[k] = snapshot[k];
     });
 
+    // Cross-mode preset bleed-through guard: the masem preset only
+    // belongs on /maseminer (or a maseminer-only deploy).  If the
+    // snapshot has it but the user is currently on PaperLens, drop it
+    // — otherwise downstream code (renderConfidenceBadges, manual
+    // scaffold, Start-over) keeps acting like we're in MASEMiner.
+    const onMaseminerNow = window.location.pathname === '/maseminer'
+      || !!window.__MASEMINER_ONLY__;
+    if (!onMaseminerNow
+        && state.activePreset
+        && typeof state.activePreset.id === 'string'
+        && state.activePreset.id.startsWith('masem')) {
+      state.activePreset = null;
+    }
+
     // Re-fetch the active preset from the server in the background so
     // any local edits since the snapshot was written (renamed sub-views,
     // new confidence_keys, prompt changes) take effect.  We keep the
@@ -787,9 +824,11 @@ function editSetup() {
 ────────────────────────────────────────────────────────── */
 
 function showStep3Choice() {
-  document.getElementById('step3Choice').style.display   = '';
-  document.getElementById('aiSection').style.display     = 'none';
-  document.getElementById('manualSection').style.display = 'none';
+  document.getElementById('step3Choice').style.display     = '';
+  document.getElementById('aiSection').style.display       = 'none';
+  document.getElementById('manualSection').style.display   = 'none';
+  const designer = document.getElementById('designerSection');
+  if (designer) designer.style.display = 'none';
   const b = document.getElementById('masemBuilder');
   if (b) b.style.display = 'none';
 }
@@ -818,9 +857,21 @@ function goBackFromManualPrompt() {
 function setInputMode(mode) {
   state.inputMode = mode;
   const isManual = mode === 'manual';
-  document.getElementById('step3Choice').style.display   = 'none';
-  document.getElementById('aiSection').style.display     = isManual ? 'none' : '';
-  document.getElementById('manualSection').style.display = isManual ? ''     : 'none';
+  document.getElementById('step3Choice').style.display     = 'none';
+  document.getElementById('manualSection').style.display   = isManual ? '' : 'none';
+  // The "Generate with AI" path now goes through the structured prompt
+  // designer (web/static/prompt-designer.js) instead of the legacy free-
+  // text question + context textareas.  ``aiSection`` is hidden — its
+  // hidden #questionInput / #contextInput still receive the assembled
+  // prompt-input on submit so the downstream pipeline is unchanged.
+  document.getElementById('aiSection').style.display = 'none';
+  const designer = document.getElementById('designerSection');
+  if (designer) {
+    designer.style.display = isManual ? 'none' : '';
+    if (!isManual && typeof window._designerInit === 'function') {
+      window._designerInit();
+    }
+  }
   const b = document.getElementById('masemBuilder');
   if (b) b.style.display = 'none';
 }
@@ -849,23 +900,153 @@ function useManualPrompt() {
   }
 }
 
-/* ── Evidence-schema warning + adapt ──────────────────────────────────── */
+/* ── Prompt readiness check + warning + adapt ─────────────────────────── */
 
+// Client-side mirror of web/prompt_check.py — same detection rules so
+// the warning can update without a round-trip on every keystroke.  The
+// server check is the authoritative gate (at /api/extract submit time);
+// this just keeps the banner honest while the user is editing.
+function _checkPromptReadiness(prompt) {
+  const p = String(prompt || '');
+  const keyRe = name => new RegExp(`["']${name}["']\\s*:`);
+
+  const evidenceKey   = keyRe('evidence').test(p);
+  const evidenceOpens = /["']evidence["']\s*:\s*\[/.test(p);
+  const subkeyHits =
+    Number(keyRe('snippet').test(p))
+    + Number(keyRe('page').test(p))
+    + Number(keyRe('source').test(p))
+    + Number(keyRe('field').test(p));
+  const hasEvidence = evidenceKey && evidenceOpens && subkeyHits >= 3;
+
+  const confKey   = keyRe('extraction_confidence').test(p);
+  const confOpens = /["']extraction_confidence["']\s*:\s*\{/.test(p);
+  const levelTok  = /(?:["']level["']\s*:)|(?:["'](?:high|medium|low)["'])/i.test(p);
+  const hasConfidence = confKey && confOpens && levelTok;
+
+  const missing = [];
+  if (!hasEvidence)   missing.push('evidence');
+  if (!hasConfidence) missing.push('extraction_confidence');
+  return {
+    ok:                       hasEvidence && hasConfidence,
+    has_evidence_structure:   hasEvidence,
+    has_confidence_structure: hasConfidence,
+    missing,
+  };
+}
+
+// Back-compat alias used in older call sites (notably the dataset
+// extension code path).  Same yes/no semantics as the previous helper.
 function _hasEvidenceSchema(prompt) {
-  // Mirror server-side check: ≥3 of (evidence, snippet, page, source)
-  const p = (prompt || '').toLowerCase();
-  let hits = 0;
-  for (const tok of ['evidence', 'snippet', 'page', 'source']) {
-    if (p.includes(tok)) hits++;
+  return _checkPromptReadiness(prompt).has_evidence_structure;
+}
+
+function _renderReadinessWarning(readiness) {
+  const el = document.getElementById('promptReadinessWarning');
+  if (!el) return;
+  if (readiness.ok) { el.style.display = 'none'; return; }
+  const body = document.getElementById('promptReadinessBody');
+  if (body) {
+    const parts = [];
+    if (!readiness.has_evidence_structure) {
+      parts.push(
+        '<strong>This prompt does not request an evidence array.</strong> '
+        + 'Without it, page highlighting and snippet matching won\'t work.'
+      );
+    }
+    if (!readiness.has_confidence_structure) {
+      parts.push(
+        '<strong>This prompt does not request an extraction_confidence object.</strong> '
+        + 'Without it, per-block confidence ratings (high / medium / low) won\'t display.'
+      );
+    }
+    body.innerHTML = parts.join('<br><br>');
   }
-  return hits >= 3;
+  el.style.display = 'flex';
 }
 
 function updateEvidenceWarning() {
-  const el = document.getElementById('promptEvidenceWarning');
-  if (!el) return;
-  el.style.display = _hasEvidenceSchema(state.generatedPrompt) ? 'none' : 'flex';
+  // Recompute readiness from the current prompt and (re)render the
+  // warning banner.  Called on prompt-generation success, manual prompt
+  // submission, debounced textarea edits, and explicit re-fetches.
+  const readiness = _checkPromptReadiness(state.generatedPrompt);
+  state.lastReadiness = readiness;
+  // Once a prompt becomes ok, drop any stale "Proceed anyway" ack.  This
+  // means an edit that fixes the prompt re-arms the gate cleanly.
+  if (readiness.ok) state.acknowledgedReadiness = false;
+  _renderReadinessWarning(readiness);
 }
+
+function _openReadinessModal(readiness) {
+  const overlay = document.getElementById('readinessModalOverlay');
+  const body    = document.getElementById('readinessModalBody');
+  if (!overlay) return;
+  if (body) {
+    const missing = readiness.missing || [];
+    const labels = missing.map(m =>
+      m === 'evidence'
+        ? 'an <code>evidence</code> array (drives PDF highlighting)'
+        : m === 'extraction_confidence'
+          ? 'an <code>extraction_confidence</code> object (drives confidence badges)'
+          : m
+    );
+    body.innerHTML =
+      'Your prompt is missing ' + labels.join(' and ') + '. '
+      + 'Without these, the corresponding UI panels will be empty after extraction.';
+  }
+  overlay.classList.add('is-open');
+}
+
+function _closeReadinessModal() {
+  const overlay = document.getElementById('readinessModalOverlay');
+  if (overlay) overlay.classList.remove('is-open');
+}
+
+function _acknowledgeReadinessAndProceed() {
+  // User has read the warning and chosen to extract anyway.  Persist
+  // the flag for this turn so submitUpload sends acknowledge_no_evidence=1
+  // and the server-side gate lets the request through.  Cleared on any
+  // prompt edit that fixes the readiness check.
+  state.acknowledgedReadiness = true;
+  _closeReadinessModal();
+  // Continue the flow that the user had started — re-enter confirmPrompt
+  // which will now bypass the gate because the ack flag is set.
+  confirmPrompt();
+}
+
+// Expose to inline onclick handlers on the modal markup.
+window._closeReadinessModal              = _closeReadinessModal;
+window._acknowledgeReadinessAndProceed   = _acknowledgeReadinessAndProceed;
+
+// Bind a debounced re-check to the manual-prompt textarea so the banner
+// updates live as the user types/pastes.  Idempotent — safe to call
+// multiple times (e.g. on script reload).
+(function _bindManualPromptReadinessHook() {
+  if (typeof document === 'undefined') return;
+  const attach = () => {
+    const ta = document.getElementById('manualPromptInput');
+    if (!ta || ta._readinessBound) return;
+    ta._readinessBound = true;
+    let timer = null;
+    ta.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        // Treat the current textarea value as the prompt for the
+        // banner check — the user hasn't necessarily clicked "Use this
+        // prompt" yet, but we still want to surface the warning early.
+        const readiness = _checkPromptReadiness(ta.value);
+        state.lastReadiness = readiness;
+        if (readiness.ok) state.acknowledgedReadiness = false;
+        _renderReadinessWarning(readiness);
+      }, 500);
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attach);
+  } else {
+    attach();
+  }
+})();
 
 async function adaptPromptForEvidence() {
   const btn = document.getElementById('adaptPromptBtn');
@@ -951,6 +1132,20 @@ function _suggestVisionModel(provider) {
 }
 
 function confirmPrompt() {
+  // Readiness gate — if the prompt is missing evidence and/or
+  // extraction_confidence structure AND the user hasn't acknowledged
+  // already, intercept and show the modal.  state.acknowledgedReadiness
+  // is set by _acknowledgeReadinessAndProceed; cleared by any edit that
+  // makes the prompt ok.  Preset-driven prompts always pass.
+  if (!state.acknowledgedReadiness) {
+    const readiness = _checkPromptReadiness(state.generatedPrompt);
+    state.lastReadiness = readiness;
+    if (!readiness.ok) {
+      _openReadinessModal(readiness);
+      return;
+    }
+  }
+
   document.getElementById('promptSummaryText').textContent  = state.generatedPrompt;
   document.getElementById('promptSummaryModel').textContent = state.model;
   const note = document.getElementById('visionNote');
@@ -1461,14 +1656,10 @@ async function submitUpload() {
     return;
   }
 
-  // crypto.randomUUID is only available in secure contexts (HTTPS or localhost).
-  // Fall back to a manual UUID v4 if the browser doesn't expose it.
-  const uuid = () => (crypto && crypto.randomUUID
-    ? crypto.randomUUID()
-    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = (Math.random() * 16) | 0;
-        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-      }));
+  // Local alias for the top-level _uuidV4 helper — kept so the rest of
+  // this function's body (which calls ``uuid()`` repeatedly) stays
+  // untouched.
+  const uuid = _uuidV4;
 
   try {
     // Incremental upload: when the user has already processed some papers
@@ -1735,6 +1926,10 @@ async function processPaper(paper) {
   form.append('use_text_extraction', useText ? '1' : '0');
   if (state.baseUrl) form.append('base_url', state.baseUrl);
   if (state.batchId) form.append('batch_id', state.batchId);
+  // When the user has clicked "Proceed anyway" in the readiness modal,
+  // tell the server to bypass the structural readiness gate.  Without
+  // this flag the server returns 400 with code=prompt_missing_structure.
+  if (state.acknowledgedReadiness) form.append('acknowledge_no_evidence', '1');
   // Email is collected after submission via /api/batches/<id>/email — see submitBatchEmail()
   form.append('pdf',                 paper.blob, paper.filename);
 
@@ -2071,16 +2266,31 @@ async function applyPreset(presetId) {
   }
 
   let preset;
-  try {
-    const res = await fetchScoped(`/api/presets/${encodeURIComponent(presetId)}`);
-    if (!res.ok) {
-      showToast(`Preset "${presetId}" not found.`);
+  // User-built presets (from the structured prompt designer) live in
+  // localStorage, not on the server.  Check there first — if the id
+  // matches a user preset, activate it without hitting the API.  This
+  // also means user presets keep working offline / on a stale cache.
+  if (typeof presetId === 'string'
+      && presetId.startsWith('user-')
+      && typeof window._designerLoadUserPresets === 'function') {
+    const userPresets = window._designerLoadUserPresets();
+    const candidate = userPresets[presetId];
+    if (candidate) {
+      preset = candidate;
+    }
+  }
+  if (!preset) {
+    try {
+      const res = await fetchScoped(`/api/presets/${encodeURIComponent(presetId)}`);
+      if (!res.ok) {
+        showToast(`Preset "${presetId}" not found.`);
+        return false;
+      }
+      preset = await res.json();
+    } catch (err) {
+      showToast('Could not load preset: ' + err.message);
       return false;
     }
-    preset = await res.json();
-  } catch (err) {
-    showToast('Could not load preset: ' + err.message);
-    return false;
   }
 
   state.activePreset = preset;
@@ -2265,7 +2475,46 @@ async function renderInlineWorkflows() {
     // card.  Panel itself remains hidden until the user clicks the
     // card (handled in toggleWorkflowsDisclosure).
     if (discCard) discCard.style.display = '';
-    list.innerHTML = items.map(p => `
+
+    // User-built presets from the structured prompt designer (stored
+    // in localStorage under paperlens.userPresets.v1).  Surfaced as
+    // their own group at the top of the workflows panel so they're
+    // easy to find and visually distinct from bundled presets.
+    let userBlock = '';
+    if (typeof window._designerLoadUserPresets === 'function') {
+      const userPresets = window._designerLoadUserPresets();
+      const userItems = Object.values(userPresets || {});
+      if (userItems.length) {
+        userBlock = `
+          <div class="workflow-group-label">
+            <span>Your workflows</span>
+            <span class="workflow-group-hint">From the structured prompt designer (stored in this browser)</span>
+          </div>
+          ${userItems.map(p => `
+            <div class="workflow-card-wrap">
+              <button class="workflow-card option-card-load workflow-card-user"
+                      onclick="applyPreset('${escHtml(p.id)}')">
+                <div class="option-icon">✨</div>
+                <div class="option-card-load-text">
+                  <h3>${escHtml(p.title || p.id)}</h3>
+                  <p>${escHtml(p.tagline || '')}</p>
+                </div>
+              </button>
+              <button class="workflow-card-del" title="Delete this workflow"
+                      onclick="event.stopPropagation(); deleteUserPreset('${escHtml(p.id)}')">
+                &times;
+              </button>
+            </div>
+          `).join('')}
+          ${items.length ? `
+            <div class="workflow-group-label" style="margin-top:14px">
+              <span>Built-in workflows</span>
+            </div>` : ''}
+        `;
+      }
+    }
+
+    list.innerHTML = userBlock + items.map(p => `
       <button class="workflow-card option-card-load" onclick="applyPreset('${escHtml(p.id)}')">
         <div class="option-icon">🔬</div>
         <div class="option-card-load-text">
@@ -2278,6 +2527,19 @@ async function renderInlineWorkflows() {
     wrap.style.display = 'none';
     if (discCard) discCard.style.display = 'none';
   }
+}
+
+/* Remove a user-built preset from localStorage and re-render the
+ * workflows panel.  Confirms before deleting because there's no undo. */
+function deleteUserPreset(presetId) {
+  if (!confirm('Delete this workflow? This cannot be undone.')) return;
+  try {
+    const key = 'paperlens.userPresets.v1';
+    const all = JSON.parse(localStorage.getItem(key) || '{}');
+    delete all[presetId];
+    localStorage.setItem(key, JSON.stringify(all));
+  } catch (_) { /* localStorage disabled */ }
+  renderInlineWorkflows();
 }
 
 /* Toggle the pre-built workflows panel from the disclosure card on the
@@ -2570,11 +2832,41 @@ function renderEvidenceWarning(paper) {
   const usable     = paper.evidenceCount ?? 0;   // entries we could highlight
   // Highlights work — no notice needed
   if (usable > 0) { el.style.display = 'none'; return; }
+
+  // Distinguish three failure modes:
+  //  (a) Loaded from JSON, evidence present, PDF not uploaded — the
+  //      bottleneck is the missing PDF, not the prompt or the model.
+  //  (b) Loaded from JSON OR fresh extraction with no evidence array
+  //      at all — either prompt didn't ask, or the model didn't comply.
+  //  (c) Evidence array present but every entry is missing a page —
+  //      the model emitted snippets but no page anchors.
+  // Treating (a) as (b) ("prompt doesn't request evidence") was wrong
+  // for the Review-existing-results flow: the JSON often does carry an
+  // evidence array, the user just hasn't uploaded the matching PDF.
+  const loadedFromFile = !!state.loadedFromFile;
+  const hasPdfHere     = !!paper.blob || (paper.pageImages && paper.pageImages.length);
+  if (total > 0 && loadedFromFile && !hasPdfHere) {
+    body.innerHTML =
+      `Page highlights aren't available — the JSON carries ${total} evidence ` +
+      `snippet${total !== 1 ? 's' : ''}, but no PDF for this paper was uploaded ` +
+      `alongside it.  Drag the original PDF onto the upload zone above (or click ` +
+      `the "Original PDFs" tile on the previous step) to see highlights.`;
+    el.style.display = 'flex';
+    return;
+  }
+
   // No evidence emitted at all — and the server-side recovery couldn't
   // help.  Either the prompt didn't ask, or the model stayed silent.
   const promptHasSchema = _hasEvidenceSchema(state.generatedPrompt);
   if (total === 0) {
-    if (!promptHasSchema) {
+    if (loadedFromFile) {
+      // The JSON itself omits an evidence array — distinct from "the
+      // prompt forgot to ask" because we have no prompt to blame.
+      body.innerHTML =
+        `Page highlights aren't available — the loaded JSON does not include ` +
+        `an <code>evidence</code> array for this paper.  Results are shown on ` +
+        `the left; the PDF on the right is browsable but unhighlighted.`;
+    } else if (!promptHasSchema) {
       body.innerHTML =
         `Page highlights aren't available — your prompt doesn't request an ` +
         `<code>evidence</code> array. Results are shown on the left; the PDF on ` +
@@ -2595,7 +2887,7 @@ function renderEvidenceWarning(paper) {
       `returned without page numbers, and we couldn't locate them in the PDF text. ` +
       `The extracted data is shown on the left; the snippets are in the raw response. ` +
       `<button class="btn btn-outline btn-sm" onclick="setViewMode('raw')">View raw response</button> ` +
-      `<button class="btn btn-outline btn-sm" onclick="retryPaper('${paper.id}')">Re-run</button>`;
+      (loadedFromFile ? '' : `<button class="btn btn-outline btn-sm" onclick="retryPaper('${paper.id}')">Re-run</button>`);
   }
   el.style.display = 'flex';
 }
@@ -2612,7 +2904,7 @@ function goToAdaptPrompt() {
   goTo(5);
   // Scroll into view + flash the warning so it's obvious where to click
   setTimeout(() => {
-    const w = document.getElementById('promptEvidenceWarning');
+    const w = document.getElementById('promptReadinessWarning');
     if (w) {
       w.style.display = 'flex';
       w.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -4513,6 +4805,20 @@ function renderValueHtml(data, depth = 0, path = '') {
   }
   if (Array.isArray(data)) {
     if (data.length === 0) return '<span class="rv-null">empty list</span>';
+    // ``evidence_idx`` arrays index into the paper's top-level
+    // ``evidence`` array (the AI-findings pattern: each finding lists
+    // which evidence entries support it).  Render as clickable chips
+    // instead of the generic numbered-list-of-editables so users can
+    // jump straight to the supporting evidence.  Match on the leaf
+    // segment of the path so it works whether the field sits inside
+    // an entry sub-object or at the entry's top level.
+    if (/(^|\.)evidence_idx$/.test(path || '')
+        && data.every(v => Number.isInteger(v))) {
+      return `<span class="ev-idx-chips">${data.map(n => `
+        <button type="button" class="ev-idx-chip" data-evidence-idx="${n}"
+                title="Jump to evidence entry #${n + 1}">${n + 1}</button>
+      `).join('')}</span>`;
+    }
     // Table shape: array of homogeneous objects
     if (isTableArray(data)) {
       return renderTableHtml(data, _collectColumns(data), null, path, 'auto');
@@ -4792,6 +5098,14 @@ function initResultDisplay() {
   display.addEventListener('focusin', handleCellEvidenceJump);
   display.addEventListener('click',   handleCellEvidenceJump);
 
+  // ``evidence_idx`` chips have their own explicit lookup — each chip's
+  // ``data-evidence-idx`` is a direct index into the paper's evidence
+  // array, so we don't need the field-path matching that
+  // ``handleCellEvidenceJump`` does.  Catches the click before the
+  // generic handler so the chip's wrapping rv-editable (if any)
+  // doesn't fire a parent-path jump that would land elsewhere.
+  display.addEventListener('click', handleEvidenceIdxChipClick, true);
+
   // Prevent Enter from inserting <br>/<div>; treat it as commit
   display.addEventListener('keydown', e => {
     if (!e.target.classList.contains('rv-editable')) return;
@@ -4805,6 +5119,31 @@ function initResultDisplay() {
     const text = (e.clipboardData || window.clipboardData).getData('text/plain');
     document.execCommand('insertText', false, text);
   });
+}
+
+/* Handle a click on an ``.ev-idx-chip`` chip rendered for an
+ * ``evidence_idx`` array.  The chip's ``data-evidence-idx`` is a
+ * direct index into the active paper's evidence array — read the
+ * referenced entry, navigate the PDF panel to its page, and flash
+ * the highlight so the user sees the supporting snippet.
+ */
+function handleEvidenceIdxChipClick(event) {
+  const chip = event.target.closest && event.target.closest('.ev-idx-chip');
+  if (!chip) return;
+  event.stopPropagation();
+  event.preventDefault();
+  const idx = parseInt(chip.dataset.evidenceIdx, 10);
+  if (!Number.isFinite(idx)) return;
+  const paper = getActivePaper();
+  if (!paper) return;
+  const evidence = (paper.parsed && Array.isArray(paper.parsed.evidence))
+    ? paper.parsed.evidence : [];
+  const target = evidence[idx];
+  if (!target) return;
+  const page = toPageNum(target.page);
+  if (page && paper.pageImages && paper.pageImages.length) {
+    showPageImage(paper, page);
+  }
 }
 
 /* Look up the page where the model cited evidence for a given JSON-path
@@ -5712,46 +6051,290 @@ async function loadJsonFile(file) {
   if (loadBtn) loadBtn.disabled = false;
 }
 
+/* Normalise an evidence entry's ``field`` path to the canonical
+ * ``samples[N]....`` form that the renderer + click-to-jump both
+ * expect.  Upstream pipelines emit ``findings[N]....`` (AI dataset),
+ * ``regressions[N]....`` (econ), or ``records[N]....`` (effect-size
+ * shape).  Only the leading top-level segment is rewritten; sub-
+ * paths after the first ``.`` stay untouched.  Returns the same
+ * entry unchanged when no rewrite is needed.  Pure function.
+ */
+const _EVIDENCE_PATH_REWRITES = [
+  [/^findings\[/,    'samples['],
+  [/^regressions\[/, 'samples['],
+  [/^records\[/,     'samples['],
+];
+function _canonicaliseEvidenceField(e) {
+  if (!e || typeof e !== 'object' || typeof e.field !== 'string') return e;
+  let f = e.field;
+  for (const [re, rep] of _EVIDENCE_PATH_REWRITES) {
+    if (re.test(f)) { f = f.replace(re, rep); break; }
+  }
+  return f === e.field ? e : Object.assign({}, e, {field: f});
+}
+
+/* Detect which bundled preset best matches a loaded JSON's entry
+ * shape and activate it.  Schema signatures (first match wins):
+ *
+ *   - ai-findings:    entries have ``finding_type`` AND ``subtopic``
+ *   - econ-headline:  entries have ``regression_id`` OR (``table`` AND
+ *                     ``estimates`` array)
+ *   - masem-ncs18:    entries have ``factor_loadings``
+ *   - masem:          entries have ``records`` array (effect-size shape)
+ *
+ * Skipped when state.activePreset is already set (the user picked one
+ * deliberately) or when no entries look detectable.  Fetches the
+ * preset from /api/presets/<id> so sub_views are populated; falls
+ * back silently if the server can't be reached. */
+async function _autoActivatePresetForLoadedData(papers) {
+  if (state.activePreset && state.activePreset.id) return;
+  const sample = (papers || []).find(p =>
+    Array.isArray(p.entries) && p.entries.length > 0
+  );
+  if (!sample) return;
+  const e0 = sample.entries[0] || {};
+  let presetId = null;
+  if (e0.finding_type !== undefined && e0.subtopic !== undefined) {
+    presetId = 'ai-findings';
+  } else if (e0.regression_id !== undefined
+             || (e0.table !== undefined && Array.isArray(e0.estimates))) {
+    presetId = 'econ-headline';
+  } else if (e0.factor_loadings !== undefined) {
+    presetId = 'masem-ncs18';
+  } else if (Array.isArray(e0.records)) {
+    presetId = 'masem';
+  }
+  if (!presetId) return;
+  try {
+    const r = await fetchScoped(`/api/presets/${encodeURIComponent(presetId)}`);
+    if (!r.ok) return;
+    const preset = await r.json();
+    if (preset && preset.id) {
+      state.activePreset = preset;
+      if (document && document.body) document.body.dataset.preset = preset.id;
+      showToast(`Activated preset: ${preset.title || preset.id}`, 'success');
+      if (typeof renderPaperSidebar === 'function') renderPaperSidebar();
+      const active = state.papers.find(p => p.id === state.activePaperId);
+      if (active && typeof displayPaper === 'function') displayPaper(active);
+    }
+  } catch (_) { /* network failure — leave preset unset */ }
+}
+
+/* Pull entries / evidence / extraction_confidence / paper_metadata /
+ * original_model_response out of a loaded paper object, handling the
+ * three common upstream shapes we've seen in the wild:
+ *
+ *   (1) canonical MetaPaperLens shape — fields already at paper level:
+ *       {filename, entries: [...], evidence: [...], extraction_confidence,
+ *        original_model_response, ...}
+ *
+ *   (2) one-level-of-nesting (43_ai_labor_dashboard / many external
+ *       pipelines):
+ *       {filename, model, result: {paper_metadata, findings|samples|
+ *        regressions, evidence, extraction_confidence}}
+ *
+ *   (3) bare top-level extraction (the model's raw response written
+ *       directly to a per-paper file with no wrapper):
+ *       {filename, findings|samples|regressions, evidence, ...}
+ *
+ * For (2) and (3), the array-shaped key (``findings`` / ``samples`` /
+ * ``regressions``) is hoisted to ``entries``.  The original ``result``
+ * sub-object (or, for shape 3, the whole record minus ``filename`` /
+ * ``model``) is serialised as ``original_model_response`` so the raw-
+ * view + parseFull paths still work.
+ *
+ * Pure function — no DOM, no state.  Returns:
+ *   {entries, evidence, extraction_confidence, paper_metadata,
+ *    original_model_response}
+ */
+function _canonicaliseLoadedPaper(p) {
+  const ENTRY_ARRAY_KEYS = ['entries', 'findings', 'samples',
+                            'regressions', 'records'];
+  // Look for an entries-shaped array first at the top level, then
+  // inside a ``result`` wrapper.  First non-empty hit wins.
+  const result = (p && typeof p === 'object' && p.result && typeof p.result === 'object')
+    ? p.result : null;
+  let entries = null;
+  let evidence = null;
+  let confidence = null;
+  let paperMeta = null;
+  for (const key of ENTRY_ARRAY_KEYS) {
+    if (Array.isArray(p[key])) { entries = p[key]; break; }
+  }
+  if (!entries && result) {
+    for (const key of ENTRY_ARRAY_KEYS) {
+      if (Array.isArray(result[key])) { entries = result[key]; break; }
+    }
+  }
+  if (Array.isArray(p.evidence)) evidence = p.evidence;
+  else if (result && Array.isArray(result.evidence)) evidence = result.evidence;
+  evidence = evidence || [];
+
+  if (p.extraction_confidence && typeof p.extraction_confidence === 'object') {
+    confidence = p.extraction_confidence;
+  } else if (result && result.extraction_confidence
+             && typeof result.extraction_confidence === 'object') {
+    confidence = result.extraction_confidence;
+  }
+
+  if (p.paper_metadata && typeof p.paper_metadata === 'object') {
+    paperMeta = p.paper_metadata;
+  } else if (result && result.paper_metadata
+             && typeof result.paper_metadata === 'object') {
+    paperMeta = result.paper_metadata;
+  }
+
+  // Synthesize a sample_id for each entry when it's missing.  Helps
+  // the sidebar render readable labels even when the entries came
+  // from a flat-shape upstream that didn't bother naming them.
+  if (Array.isArray(entries)) {
+    entries = entries.map((e, i) => {
+      if (!e || typeof e !== 'object') return e;
+      if (typeof e.sample_id === 'string' && e.sample_id.trim()) return e;
+      const synthesized =
+        (typeof e.regression_id === 'string' && e.regression_id) ||
+        (typeof e.finding_type === 'string' && e.metric
+            ? `${e.finding_type}: ${e.metric}` : null) ||
+        (typeof e.metric === 'string' && e.metric) ||
+        (typeof e.id === 'string' && e.id) ||
+        `Entry ${i + 1}`;
+      return Object.assign({}, e, {sample_id: synthesized});
+    });
+  }
+
+  // original_model_response — for shape 1 use the existing field;
+  // for shapes 2/3 serialise the source object so parseFull can
+  // round-trip the structured view.
+  let originalRaw = '';
+  if (typeof p.original_model_response === 'string' && p.original_model_response) {
+    originalRaw = p.original_model_response;
+  } else if (result) {
+    try { originalRaw = JSON.stringify(result); } catch (_) { originalRaw = ''; }
+  } else {
+    // Shape 3 — synthesise from the array-shaped key + sibling fields
+    try {
+      const synthRoot = {};
+      for (const key of ENTRY_ARRAY_KEYS) {
+        if (Array.isArray(p[key])) { synthRoot[key] = p[key]; }
+      }
+      if (Array.isArray(p.evidence))           synthRoot.evidence = p.evidence;
+      if (p.extraction_confidence)             synthRoot.extraction_confidence = p.extraction_confidence;
+      if (p.paper_metadata)                    synthRoot.paper_metadata = p.paper_metadata;
+      originalRaw = JSON.stringify(synthRoot);
+    } catch (_) { originalRaw = ''; }
+  }
+
+  // Rewrite evidence ``field`` paths so the renderer's click-to-jump
+  // logic + the sub-tab routing both work.  The canonical form the
+  // app expects is ``samples[N]....``; upstream pipelines emit any of
+  // ``findings[N]....`` (AI dataset), ``regressions[N]....`` (econ),
+  // or ``records[N]....`` (effect-size shape).  Rewrite leading
+  // segments only — sub-paths like ``.estimates[0].estimate`` stay
+  // untouched.  Done in-place on a copy so we don't mutate the
+  // user's loaded JSON object.
+  evidence = evidence.map(_canonicaliseEvidenceField);
+
+  return {
+    entries:                  entries,
+    evidence:                 evidence,
+    extraction_confidence:    confidence,
+    paper_metadata:           paperMeta,
+    original_model_response:  originalRaw,
+  };
+}
+
 // Step 2: commit — build paper objects and navigate to results.
+//
+// Wrapped in try/catch so any synchronous throw in the rendering chain
+// (parseFull, displayPaper, renderEntry, sidebar) surfaces a clear
+// error message instead of failing silently and leaving the user
+// staring at the unchanged Load button.  Without this guard a single
+// malformed paper anywhere in a 30-paper bundle is invisible to the
+// user — the click registers, the handler throws, nothing navigates.
 function commitLoadJson() {
-  if (!reviewJsonData) return;
+  if (!reviewJsonData) {
+    showJsonError('Internal: no parsed JSON in memory. Re-drop the file.');
+    return;
+  }
   const data = reviewJsonData;
+  try {
+    state.generatedPrompt = data.prompt || '';
+    state.model           = data.model  || 'gpt-4o';
+    state.loadedFromFile  = true;
 
-  state.generatedPrompt = data.prompt || '';
-  state.model           = data.model  || 'gpt-4o';
-  state.loadedFromFile  = true;
+    state.papers = data.papers.map((p, idx) => {
+      // Auto-adapter: external research pipelines commonly emit a
+      // ``{filename, model, result: {paper_metadata, findings|samples|
+      // regressions, evidence, extraction_confidence, ...}}`` shape
+      // instead of MetaPaperLens' canonical (entries at the paper
+      // level).  Treat ``paper.result`` as a transparent wrapper and
+      // lift its array-shaped contents into the canonical fields.
+      const canonical = _canonicaliseLoadedPaper(p);
+      const rawResult = canonical.original_model_response;
+      const parsed    = parseFull(rawResult) || canonical.entries || null;
+      // Apply the same evidence-field-path rewrite to ``parsed.evidence``
+      // — the click-to-jump handler (``_evidencePageForPath``) reads
+      // evidence from ``paper.parsed.evidence`` not ``paper.evidence``,
+      // so without this the rewrite would only fix sub-tab routing.
+      if (parsed && Array.isArray(parsed.evidence)) {
+        parsed.evidence = parsed.evidence.map(_canonicaliseEvidenceField);
+      }
+      // The loaded JSON may carry evidence at the paper level (the
+      // canonical shape) or nested under ``result.evidence``.  The
+      // canonical-iser handles both; surface counts so the
+      // evidence-warning banner doesn't falsely claim the prompt
+      // skipped evidence.  ``Count`` is an OPTIMISTIC estimate
+      // (entries with an integer page) — when the user also uploads
+      // PDFs, ``fetchReviewPageImages`` re-verifies and replaces this.
+      const evArr  = canonical.evidence;
+      const evTotal = evArr.length;
+      const evCount = evArr.filter(e => Number.isInteger(e?.page)).length;
+      return {
+        id:              _uuidV4(),
+        blob:            null,
+        filename:        p.filename || `unknown-${idx}.pdf`,
+        status:          'done',
+        result:          rawResult,
+        rawResponse:     rawResult,
+        pageImages:      [],
+        entries:         canonical.entries,
+        parsed:          parsed,
+        entryIndex:      0,
+        evidencePages:   [],
+        evidencePageIdx: 0,
+        evidenceTotal:   evTotal,
+        evidenceCount:   evCount,
+        tokenUsage:      p.token_usage || null,
+        resolvedModel:   p.resolved_model || null,
+        pagesProcessed:  p.pages_processed || 0,
+        error:           null,
+        overrides:       reconstructOverrides(p.human_overrides),
+      };
+    });
 
-  state.papers = data.papers.map(p => {
-    const rawResult = p.original_model_response || '';
-    return {
-      id:              crypto.randomUUID(),
-      blob:            null,
-      filename:        p.filename || 'unknown.pdf',
-      status:          'done',
-      result:          rawResult,
-      rawResponse:     rawResult,
-      pageImages:      [],
-      entries:         p.entries || null,
-      parsed:          parseFull(rawResult) || p.entries || null,
-      entryIndex:      0,
-      evidencePages:   [],
-      evidencePageIdx: 0,
-      evidenceCount:   null,
-      tokenUsage:      p.token_usage || null,
-      resolvedModel:   p.resolved_model || null,
-      pagesProcessed:  p.pages_processed || 0,
-      error:           null,
-      overrides:       reconstructOverrides(p.human_overrides),
-    };
-  });
+    const pdfsToFetch = [...reviewPdfFiles];
+    state.activePaperId = state.papers[0].id;
+    cancelLoadOption();
 
-  const pdfsToFetch = [...reviewPdfFiles];
-  state.activePaperId = state.papers[0].id;
-  cancelLoadOption();
-  displayPaper(state.papers[0]);
-  goTo(8);
+    // Auto-activate a matching preset based on the entries' field
+    // signatures — gives users sub-tabs without forcing them to pick
+    // the preset before loading.  Best-effort: fetches the preset
+    // descriptor from the server in the background; the renderer
+    // picks up state.activePreset.sub_views on the next displayPaper.
+    _autoActivatePresetForLoadedData(state.papers);
 
-  if (pdfsToFetch.length) fetchReviewPageImages(pdfsToFetch);
+    displayPaper(state.papers[0]);
+    goTo(8);
+
+    if (pdfsToFetch.length) fetchReviewPageImages(pdfsToFetch);
+  } catch (err) {
+    console.error('[commitLoadJson] failed:', err);
+    showJsonError(
+      'Load failed while preparing the review view: '
+      + (err && err.message ? err.message : String(err))
+      + '. Check the browser console for the full stack trace.'
+    );
+  }
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -5849,11 +6432,15 @@ function goBackFromResults() {
 }
 
 function startOver() {
-  // Capture MASEMiner-ness BEFORE wiping state — the body class, the
-  // active preset, and the URL path all matter; reloading is the
-  // cleanest way to get back to the welcome hero in any of them.
+  // Capture MASEMiner-ness BEFORE wiping state — but ONLY trust the
+  // body class and the URL path.  state.activePreset is contaminated
+  // by autoRestoreSession: a user who used MASEMiner once and then
+  // navigated to "/" for plain MetaPaperLens will silently carry the
+  // restored masem preset in state even though the visible UI is
+  // PaperLens.  Trusting state.activePreset.id.startsWith("masem")
+  // here would teleport them to /maseminer on Start-over — which is
+  // exactly the "backwards-button lands on MASEMiner" bug.
   const inMasemMode = document.body.classList.contains('is-maseminer')
-    || (state.activePreset && state.activePreset.id && state.activePreset.id.startsWith('masem'))
     || window.location.pathname === '/maseminer';
 
   Object.assign(state, {

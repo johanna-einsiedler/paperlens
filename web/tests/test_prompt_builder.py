@@ -33,9 +33,23 @@ def test_evidence_appendix_has_good_bad_examples():
     # Markers we use to delineate the lists
     assert "BAD" in text
     assert "GOOD" in text
-    # Concrete bad/good phrasings should appear so the model has memorable anchors
-    assert "Cronbach" in text or "fit indices" in text  # bad-evidence anchors
-    assert "TABLE" in text                              # good-evidence anchor
+    # Concrete bad/good phrasings — domain-neutral anchors after the
+    # de-MASEM refactor (was: Cronbach / TAS-20 / factor_loadings).
+    assert "fit indices" in text  # generic bad-evidence anchor
+    assert "TABLE" in text        # good-evidence anchor
+
+
+def test_evidence_appendix_has_no_masem_isms():
+    """The appendix is shown to users on every domain.  It must NOT
+    leak factor-analysis or MASEMiner-specific anchors that would
+    confuse a reader extracting a different kind of data."""
+    text = prompt_builder.EVIDENCE_APPENDIX
+    for bad in ("TAS-20", "Cronbach", "factor_loadings", "factor_correlations",
+                "factor matrix", "three-factor"):
+        assert bad not in text, (
+            f"appendix contains the MASEM-specific anchor {bad!r} — "
+            "domain leakage; replace with a neutral placeholder"
+        )
 
 
 def test_evidence_appendix_requires_table_caption_evidence():
@@ -50,14 +64,43 @@ def test_evidence_appendix_requires_table_caption_evidence():
     assert "MUST" in text
 
 
+def test_evidence_appendix_demands_extraction_confidence():
+    """Every auto-generated prompt (built via ``/api/generate-prompt`` →
+    ``generated + EVIDENCE_APPENDIX``) must instruct the downstream model
+    to self-rate extraction confidence — symmetric with the MASEM presets
+    which carry the same self-assessment block.  Without this, users who
+    skip the preset builder and ask the AI to draft a prompt get evidence
+    but no confidence signal."""
+    text = prompt_builder.EVIDENCE_APPENDIX
+    assert '"extraction_confidence"' in text
+    # The three rating levels must all be named explicitly.
+    for level in ('"high"', '"medium"', '"low"'):
+        assert level in text
+    # And notes must be required on the non-high levels.
+    lower = text.lower()
+    assert "notes" in lower
+    assert "must" in lower
+
+
+def test_extraction_confidence_block_in_generated_prompt():
+    """Smoke: a real ``build_meta_prompt`` + appendix concat (what the
+    API actually returns) must contain the confidence block."""
+    bare = prompt_builder.build_meta_prompt("extraction", "extract loadings", "")
+    full = bare + prompt_builder.EVIDENCE_APPENDIX
+    assert "extraction_confidence" in full
+    assert "SELF-ASSESS" in full
+
+
 def test_evidence_appendix_field_is_json_path():
     """The 'field' property must be specified as a JSON path that mirrors the
     output structure (so we can map evidence -> cell)."""
     text = prompt_builder.EVIDENCE_APPENDIX
     assert "JSON path" in text or "json path" in text.lower()
-    # Concrete path examples
+    # Concrete path examples — keep ``samples[0]`` (still the canonical
+    # extraction top-level key) but the field placeholder is now
+    # domain-neutral (``<your_field>`` rather than ``factor_loadings``).
     assert "samples[0]" in text
-    assert "factor_loadings._table[0]" in text
+    assert "_table[0]" in text
 
 
 def test_meta_prompt_propagates_caption_and_path_conventions():
@@ -127,10 +170,16 @@ def test_prompt_has_evidence_schema_negative_bare_prompt():
     assert not _prompt_has_evidence_schema("Extract sample sizes from the paper.")
 
 
-def test_prompt_has_evidence_schema_threshold_at_three():
-    """Heuristic requires ≥3 of {evidence, snippet, page, source}."""
+def test_prompt_has_evidence_schema_rejects_keyword_only():
+    """After the structural-checker refactor, keyword-only prompts
+    (mentioning evidence/snippet/page/source in prose without any JSON
+    example block) must NOT pass.  This is the failure mode that
+    motivated tightening the helper — the old ≥3-of-4 keyword count was
+    gameable by any prompt that happened to use the words in passing."""
     from server import _prompt_has_evidence_schema
-    # 2 hits → false
+    # All four keywords present in prose, but no JSON block → must fail
+    assert not _prompt_has_evidence_schema(
+        "Quote the snippet from the page and cite source for evidence."
+    )
+    # Two keywords → also fails
     assert not _prompt_has_evidence_schema("Quote the snippet from the page.")
-    # 3 hits → true
-    assert _prompt_has_evidence_schema("Quote the snippet from the page and cite source.")

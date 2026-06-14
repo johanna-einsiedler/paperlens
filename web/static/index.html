@@ -398,17 +398,29 @@
               <li><strong>A results JSON</strong> previously exported from this app (use <em>Download JSON</em> on the results page). It must contain a <code>papers</code> array.</li>
               <li><strong>The original PDF files</strong> <em>(optional but recommended)</em> &mdash; upload them alongside the JSON so the viewer can show page images with yellow highlights for each extracted value.</li>
             </ul>
-            <p class="json-format-evidence-note">For page highlighting to work, each result must include an <code>evidence</code> array:</p>
+            <p class="json-format-evidence-note">
+              For page highlighting and confidence badges to work, each result
+              must include an <code>evidence</code> array and an
+              <code>extraction_confidence</code> object.
+              <a href="/static/faq-prompt-structure.html" target="_blank" rel="noopener">Full spec &rarr;</a>
+            </p>
             <details class="json-format-example">
-              <summary>Show expected evidence format</summary>
+              <summary>Show expected evidence + confidence format</summary>
 <pre class="json-format-pre">"evidence": [
   {
-    "snippet": "Table 2. Rotated factor matrix",
-    "page": 4,
-    "source": "Table 2",
-    "field": "F1 loadings"
+    "snippet": "TABLE 1. Descriptive statistics by group...",
+    "page": 3,
+    "source": "Table 1",
+    "field": "samples[0].&lt;your_field&gt;"
   }
-]</pre>
+],
+"extraction_confidence": {
+  "&lt;data_block_1&gt;": { "level": "high" },
+  "&lt;data_block_2&gt;": {
+    "level": "medium",
+    "notes": "country inferred from author affiliations; not stated explicitly"
+  }
+}</pre>
             </details>
           </div>
 
@@ -581,8 +593,8 @@
                       fill="#367380"/>
               </svg>
             </div>
-            <h3>Generate with AI</h3>
-            <p>Describe your task in plain language &mdash; AI will write a detailed prompt for you</p>
+            <h3>Create prompt</h3>
+            <p>Describe your task in a structured form &mdash; we'll write a tailored prompt and a custom review UI for you</p>
           </button>
           <button class="option-card" onclick="setInputMode('manual')">
             <div class="option-icon" aria-hidden="true">
@@ -709,35 +721,102 @@ pa: A measure of physical activity — exercise length, frequency, duration."></
         </div>
       </div>
 
-      <!-- AI generation section -->
+      <!-- AI generation section (legacy free-text path — kept hidden and
+           unused; designerSection replaces it.  Inputs stay in the DOM
+           because the prompt-generation pipeline reads ``state.question``
+           and ``state.context`` from these elements during ``callGenerateAPI``.
+           designerSubmit() writes the assembled question / context into
+           those same inputs before invoking the existing pipeline. -->
       <div id="aiSection" style="display:none">
-        <h2 id="step3Heading">Describe what you want to extract</h2>
-        <p class="subtitle" id="step3Sub">Be specific about what information you need from the papers</p>
+        <textarea id="questionInput" style="display:none"></textarea>
+        <textarea id="contextInput" style="display:none"></textarea>
+      </div>
 
-        <div class="form-group">
-          <label for="questionInput">Your question / task description</label>
-          <textarea
-            id="questionInput"
-            rows="5"
-            placeholder="E.g., Extract the sample size, mean age, and percentage of female participants from each study..."
-          ></textarea>
-        </div>
+      <!-- Structured prompt designer — the "Generate with AI" path.
+           Captures a hierarchy (unit + chunks + paper-metadata + context),
+           assembles a meta-prompt input, and persists a derived preset
+           descriptor to localStorage so the resulting extraction renders
+           with sub-tabs. -->
+      <div id="designerSection" style="display:none">
+        <h2>Describe what to extract</h2>
+        <p class="subtitle">Fill in once &mdash; we'll generate both a tailored prompt and a custom review UI from your answers.</p>
 
-        <div class="form-group">
-          <label for="contextInput">
-            Additional context
-            <span class="optional">(optional)</span>
+        <!-- A: Unit of analysis -->
+        <fieldset class="designer-group">
+          <legend>1. Unit of analysis within each paper</legend>
+          <p class="designer-hint">What single thing inside each paper are you extracting? Examples: <em>sample</em>, <em>table</em>, <em>finding</em>, <em>regression</em>, <em>scale validation</em>.</p>
+
+          <div class="designer-row">
+            <label class="designer-field">
+              <span class="designer-field-label">Name of one unit</span>
+              <input id="designerUnitName" type="text" placeholder="e.g. finding" autocomplete="off" />
+              <span class="designer-field-hint">Singular noun &mdash; e.g. "finding" not "findings"</span>
+            </label>
+
+            <fieldset class="designer-field designer-radioset">
+              <legend class="designer-field-label">How many per paper?</legend>
+              <label><input type="radio" name="designerUnitCardinality" value="one" /> Exactly one</label>
+              <label><input type="radio" name="designerUnitCardinality" value="many" checked /> Many</label>
+            </fieldset>
+          </div>
+
+          <label class="designer-field">
+            <span class="designer-field-label">Sidebar label format <span class="optional">(optional)</span></span>
+            <input id="designerSidebarLabel" type="text" placeholder="e.g. {finding_type}: {metric}" autocomplete="off" />
+            <span class="designer-field-hint">Use <code>{field_name}</code> to reference any field. Falls back to a generic counter if blank.</span>
           </label>
-          <textarea
-            id="contextInput"
-            rows="3"
-            placeholder="E.g., Papers are from medical journals. Age is always reported as mean ± SD..."
-          ></textarea>
-        </div>
+
+          <label class="designer-field">
+            <span class="designer-field-label">Identifier field <span class="optional">(optional)</span></span>
+            <input id="designerIdField" type="text" placeholder="e.g. finding_type" autocomplete="off" />
+            <span class="designer-field-hint">Which field becomes the canonical <code>sample_id</code> for evidence + corrections. Blank = use auto-generated id.</span>
+          </label>
+        </fieldset>
+
+        <!-- B: Chunks -->
+        <fieldset class="designer-group">
+          <legend>2. Information chunks</legend>
+          <p class="designer-hint">
+            Group your fields into logical chunks &mdash; each chunk becomes its own review tab with its own confidence rating.
+            You can have as many as you need. Common patterns:
+            <br>&bull; <strong>MASEM</strong>: "Loadings" + "Correlations" + "Reliabilities"
+            <br>&bull; <strong>Econometrics</strong>: "Specification" + "Estimates" + "Classification"
+            <br>&bull; <strong>Findings</strong>: "Effect size" + "Comparison context" + "Subtopic mapping"
+          </p>
+
+          <div id="designerChunks">
+            <!-- Chunk cards rendered by prompt-designer.js -->
+          </div>
+
+          <div class="btn-row" style="margin-top:8px">
+            <button type="button" class="btn btn-outline btn-sm" onclick="designerAddChunk()">+ Add chunk</button>
+          </div>
+        </fieldset>
+
+        <!-- C: Paper-level metadata -->
+        <fieldset class="designer-group">
+          <legend>3. Paper-level metadata <span class="optional">(extracted once per paper)</span></legend>
+          <p class="designer-hint">
+            Fields extracted once per paper, not per-unit. <code>title</code> / <code>doi</code> / <code>year</code> / <code>authors</code> are always included.
+            Add additional fields below, one per line, in <code>name: description</code> format.
+          </p>
+          <textarea id="designerPaperFields" rows="5"
+                    placeholder="domain: knowledge work | game | ...
+study_type: lab_rct | field_rct | ...
+n: total sample size in the paper"></textarea>
+        </fieldset>
+
+        <!-- D: Free-form context -->
+        <fieldset class="designer-group">
+          <legend>4. Additional context <span class="optional">(optional)</span></legend>
+          <p class="designer-hint">Anything that doesn't fit a structured field &mdash; domain-specific rules, edge cases, definitions, references to existing extraction protocols.</p>
+          <textarea id="designerContext" rows="4"
+                    placeholder="E.g. For papers reporting multiple effect sizes from one experimental design, extract each as a separate finding. For meta-analyses, do NOT decompose; record the meta-analytic summary as one finding."></textarea>
+        </fieldset>
 
         <div class="btn-row">
           <button class="btn btn-ghost" onclick="showStep3Choice()">Back</button>
-          <button class="btn btn-primary" onclick="submitStep3()">Generate prompt</button>
+          <button class="btn btn-primary" onclick="designerSubmit()">Generate prompt &amp; preset &rarr;</button>
         </div>
       </div>
 
@@ -745,6 +824,54 @@ pa: A measure of physical activity — exercise length, frequency, duration."></
       <div id="manualSection" style="display:none">
         <h2>Write your own prompt</h2>
         <p class="subtitle">Paste or write your prompt directly &mdash; the AI generation step will be skipped</p>
+
+        <!-- Compliance info: a prompt only renders correctly in MetaPaperLens
+             if it instructs the model to emit (a) a top-level evidence array
+             and (b) a top-level extraction_confidence object.  Spell out the
+             contract with copy-pasteable JSON snippets so a researcher
+             arriving with their own prompt knows exactly what to include
+             before clicking "Use this prompt".  Re-stating the canonical
+             shape here (instead of only on the FAQ page) keeps the cognitive
+             distance to a working prompt very short. -->
+        <details class="designer-group" id="manualComplianceInfo" open>
+          <summary style="cursor:pointer;font-weight:600;font-size:13.5px">
+            What your prompt must include for the UI to render evidence + confidence
+          </summary>
+          <p class="designer-hint" style="margin-top:8px">
+            MetaPaperLens needs your prompt to instruct the AI model to emit
+            two specific JSON structures: an <code>evidence</code> array and an
+            <code>extraction_confidence</code> object. Without them the
+            extraction still runs, but evidence highlighting and confidence
+            badges stay empty.
+          </p>
+          <p class="designer-hint" style="margin-bottom:4px">
+            <strong>Canonical evidence array</strong> (drives PDF highlighting):
+          </p>
+<pre class="json-format-pre">"evidence": [
+  {
+    "snippet": "TABLE 1. Descriptive statistics by group...",
+    "page":    3,
+    "source":  "Table 1",
+    "field":   "samples[0].&lt;your_field&gt;"
+  }
+]</pre>
+          <p class="designer-hint" style="margin-top:10px;margin-bottom:4px">
+            <strong>Canonical extraction_confidence object</strong> (drives per-block badges):
+          </p>
+<pre class="json-format-pre">"extraction_confidence": {
+  "&lt;data_block_1&gt;": { "level": "high" },
+  "&lt;data_block_2&gt;": {
+    "level": "medium",
+    "notes": "country inferred from author affiliations; not stated explicitly"
+  }
+}</pre>
+          <p class="designer-hint" style="margin-top:10px">
+            <a href="/static/faq-prompt-structure.html" target="_blank" rel="noopener">Full spec &rarr;</a>
+            &nbsp;|&nbsp;
+            Want sub-tabs and confidence badges in the review UI?
+            <a href="#" onclick="event.preventDefault(); showStep3Choice(); setInputMode('generate');">Use the structured builder instead &rarr;</a>
+          </p>
+        </details>
 
         <div class="form-group">
           <label for="manualPromptInput">Prompt</label>
@@ -785,17 +912,21 @@ pa: A measure of physical activity — exercise length, frequency, duration."></
       <h2>Review your generated prompt</h2>
       <p class="subtitle">Does this prompt accurately capture what you need?</p>
 
-      <!-- Shown only when a custom (manual) prompt does not request the evidence schema -->
-      <div class="evidence-warning" id="promptEvidenceWarning" style="display:none">
+      <!-- Shown when the prompt is missing the evidence or extraction_confidence
+           structure.  Body text + buttons update via _renderReadinessWarning(). -->
+      <div class="evidence-warning" id="promptReadinessWarning" style="display:none">
         <span class="evidence-warning-icon">&#9888;</span>
         <div style="flex:1">
-          <div style="margin-bottom:6px">
-            <strong>This prompt does not request an evidence array.</strong>
-            Without it, page highlighting and snippet matching won't work.
+          <div id="promptReadinessBody" style="margin-bottom:6px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a class="btn btn-outline btn-sm" href="/static/faq-prompt-structure.html"
+               target="_blank" rel="noopener">
+              &#9432;&ensp;Read FAQ — required prompt structure
+            </a>
+            <button class="btn btn-primary btn-sm" id="adaptPromptBtn" onclick="adaptPromptForEvidence()">
+              &#10024;&ensp;Adapt prompt
+            </button>
           </div>
-          <button class="btn btn-primary btn-sm" id="adaptPromptBtn" onclick="adaptPromptForEvidence()">
-            &#10024;&ensp;Adapt prompt for evidence
-          </button>
         </div>
       </div>
 
@@ -1248,6 +1379,37 @@ The viewer renders any object containing a <code>_table</code> array as a real H
 <!-- Vision-model picker modal — shown when "Re-run · VLM" is clicked
      and the current provider has multiple vision-capable models.
      Populated by app.js _openVlmPicker(). -->
+<!-- Pre-extraction readiness modal — fires when the user clicks
+     "Looks good — upload paper" with a prompt that's missing the
+     evidence and/or extraction_confidence structure.  Three choices:
+     read the FAQ, proceed without those features, or cancel back to
+     the editor.  Submitting with "Proceed anyway" sets a session flag
+     that adds acknowledge_no_evidence=1 to the /api/extract POST. -->
+<div class="modal-overlay" id="readinessModalOverlay" role="dialog" aria-modal="true"
+     aria-labelledby="readinessModalTitle">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="readinessModalTitle">Prompt is missing required structure</h3>
+      <button class="modal-close" type="button" onclick="_closeReadinessModal()"
+              aria-label="Close">&times;</button>
+    </div>
+    <p id="readinessModalBody" style="margin-top:0"></p>
+    <p style="color:var(--muted, #666);font-size:0.92em">
+      Extractions will still run — the model just won't be instructed to emit
+      the evidence array or the extraction_confidence object, so the
+      corresponding UI panels stay empty.
+    </p>
+    <div class="btn-row" style="justify-content:flex-end;margin-top:14px;flex-wrap:wrap;gap:8px">
+      <button class="btn btn-ghost" type="button"
+              onclick="_closeReadinessModal()">Cancel</button>
+      <a class="btn btn-outline" href="/static/faq-prompt-structure.html"
+         target="_blank" rel="noopener">Read FAQ</a>
+      <button class="btn btn-primary" type="button"
+              onclick="_acknowledgeReadinessAndProceed()">Proceed anyway</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="vlmPickerOverlay" role="dialog" aria-modal="true"
      aria-labelledby="vlmPickerTitle">
   <div class="modal vlm-picker-modal">
@@ -1446,6 +1608,7 @@ The viewer renders any object containing a <code>_table</code> array as a real H
 
 <script src="/static/app.js"></script>
 <script src="/static/masem-builder.js"></script>
+<script src="/static/prompt-designer.js"></script>
 <script src="/static/donor.js"></script>
 </body>
 </html>
