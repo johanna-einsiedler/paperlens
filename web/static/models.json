@@ -58,6 +58,11 @@
     ],
     "anthropic": [
       {
+        "value": "claude-fable-5",
+        "label": "Claude Fable 5",
+        "vision": true
+      },
+      {
         "value": "claude-opus-4-8",
         "label": "Claude Opus 4 8",
         "vision": true
@@ -75,11 +80,6 @@
       {
         "value": "claude-opus-4-6",
         "label": "Claude Opus 4 6",
-        "vision": true
-      },
-      {
-        "value": "claude-opus-4-5-20251101",
-        "label": "Claude Opus 4 5 20251101",
         "vision": true
       }
     ],
@@ -107,18 +107,18 @@
         "vision": true
       },
       {
-        "value": "mistral-medium-latest",
-        "label": "Mistral Medium Latest",
+        "value": "open-mistral-nemo",
+        "label": "Open Mistral Nemo",
         "vision": true
       },
       {
-        "value": "mistral-medium",
-        "label": "Mistral Medium",
+        "value": "open-mistral-nemo-2407",
+        "label": "Open Mistral Nemo 2407",
         "vision": true
       },
       {
-        "value": "mistral-vibe-cli-with-tools",
-        "label": "Mistral Vibe Cli With Tools",
+        "value": "mistral-tiny-2407",
+        "label": "Mistral Tiny 2407",
         "vision": true
       }
     ]
@@ -207,6 +207,10 @@
     "claude-opus-4-7-20260416": {
       "in": 5.0,
       "out": 25.0
+    },
+    "claude-fable-5": {
+      "in": 10.0,
+      "out": 50.0
     },
     "claude-opus-4-8": {
       "in": 5.0,
@@ -1173,5 +1177,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-06-08T08:06:55Z"
+  "generated_at": "2026-06-15T08:30:09Z"
 }
