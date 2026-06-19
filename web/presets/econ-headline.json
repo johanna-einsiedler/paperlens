@@ -22,54 +22,19 @@
     {
       "id":              "regmeta",
       "label":           "Metadata",
-      "include_keys":    ["sample_id", "table", "table_caption", "page",
-                          "n_regressions", "regressions_metadata"],
-      "evidence_keys":   ["regressions_metadata", "table", "table_caption",
-                          "page", "panel", "column", "column_label"],
-      "confidence_keys": ["regressions_metadata"]
-    },
-    {
-      "id":              "regspec",
-      "label":           "Specification",
-      "include_keys":    ["sample_id", "regressions_specification"],
-      "evidence_keys":   ["regressions_specification", "model_type",
-                          "sample_size", "standard_errors", "fixed_effects",
-                          "continuous_controls", "sample_restrictions",
-                          "weights", "treatment_definition",
-                          "iv_instruments", "unit_of_observation",
-                          "time_period", "outcome_construction"],
-      "confidence_keys": ["regressions_specification"]
-    },
-    {
-      "id":              "regestimates",
-      "label":           "Estimates",
-      "include_keys":    ["sample_id", "regressions_estimates"],
-      "evidence_keys":   ["regressions_estimates", "estimates",
-                          "dependent_var",
-                          "non_displayed_coefficients_present",
-                          "data_construction_steps"],
-      "confidence_keys": ["regressions_estimates"]
-    },
-    {
-      "id":              "regclass",
-      "label":           "Classification",
-      "include_keys":    ["sample_id", "regressions_classification"],
-      "evidence_keys":   ["regressions_classification",
-                          "is_treatment_effect", "non_treatment_category",
-                          "is_robustness_check", "is_headline",
-                          "headline_reasoning"],
-      "confidence_keys": ["regressions_classification"]
-    },
-    {
-      "id":              "papermeta",
-      "label":           "Paper metadata",
-      "include_keys":    ["sample_id", "paper_metadata"],
-      "evidence_keys":   ["paper_metadata", "title", "doi", "authors",
-                          "year", "study_design",
-                          "identification_strategy", "data_type",
-                          "data_origin", "proprietary_data",
-                          "geographic_scope"],
-      "confidence_keys": ["paper_metadata"]
+      "exclude_keys":    ["sample_id"],
+      "evidence_keys":   ["regressions_metadata", "regressions_specification",
+                          "regressions_estimates", "regressions_classification",
+                          "paper_metadata",
+                          "regressions", "table", "table_caption", "page",
+                          "panel", "column", "column_label", "regression_id",
+                          "dependent_var", "treatment", "n_obs_captured",
+                          "cluster", "fixed_effects", "captured_spec_id",
+                          "captured_spec_path", "decision_final",
+                          "title", "doi", "authors", "year"],
+      "confidence_keys": ["regressions_metadata", "regressions_specification",
+                          "regressions_estimates", "regressions_classification",
+                          "paper_metadata"]
     }
   ],
   "skip_to":           "setup",

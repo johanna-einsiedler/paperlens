@@ -2496,7 +2496,8 @@ body.wide-mode .app {
    Slightly inset and tinted so adjacent samples for the same paper read
    as a related cluster, while still being clickable independently. */
 .paper-item-sample {
-  padding-left: 22px;
+  padding-left: 28px;
+  font-size: 13px;
 }
 .paper-sample-suffix {
   color: var(--text-muted);
@@ -2504,6 +2505,31 @@ body.wide-mode .app {
 }
 .paper-item.active .paper-sample-suffix {
   color: var(--primary);
+}
+.paper-sample-bullet {
+  color: var(--text-muted);
+  width: 14px;
+  display: inline-block;
+  text-align: center;
+  flex-shrink: 0;
+}
+.paper-sample-label {
+  color: var(--text);
+}
+.paper-item-sample.active .paper-sample-label {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Header row for multi-entry papers — visually distinct from the
+   nested sample rows below.  Uses a small bottom border so the
+   cluster of indented entries reads as belonging to this paper. */
+.paper-item-header {
+  font-weight: 600;
+  background: var(--bg-subtle, #fafafa);
+}
+.paper-item-header.active-parent {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 /* ── Result column ───────────────────────────────── */
@@ -2759,6 +2785,41 @@ body.wide-mode .app {
   0%   { fill: rgba(54, 115, 128, 0.55); }
   60%  { fill: rgba(54, 115, 128, 0.38); }
   100% { fill: rgba(54, 115, 128, 0.32); }
+}
+
+/* Green-focus highlight — drawn on top of the yellow underlay for
+   evidence the user explicitly clicked (a cell or an evidence_idx
+   chip).  Coexists with the yellow rects from the always-on baseline:
+   green sits on top, outlined, so the focused snippet pops out. */
+.highlight-overlay .highlight-rect-green-focus {
+  fill: rgba(34, 197, 94, 0.20);     /* green-500 wash */
+  stroke: rgba(22, 163, 74, 0.95);   /* green-600 outline */
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 4px rgba(22, 163, 74, 0.4));
+  animation: mpl-green-focus-pulse 1.4s ease-out 1;
+}
+@keyframes mpl-green-focus-pulse {
+  0%   { fill: rgba(34, 197, 94, 0.45); }
+  60%  { fill: rgba(34, 197, 94, 0.28); }
+  100% { fill: rgba(34, 197, 94, 0.20); }
+}
+
+/* Value-focus highlight — drawn on top of all other layers for literal
+   text matches of the clicked cell's value (e.g. clicking "42.87" on
+   a finding outlines every "42.87" on the visible PDF page).  Sharper
+   outline + tighter pulse so it pops out from the snippet-level
+   green-focus rectangle that surrounds it. */
+.highlight-overlay .highlight-rect-value-focus {
+  fill: rgba(34, 197, 94, 0.35);
+  stroke: rgba(21, 128, 61, 1.0);    /* green-700, fully opaque */
+  stroke-width: 2.0;
+  filter: drop-shadow(0 0 3px rgba(21, 128, 61, 0.7));
+  animation: mpl-value-focus-pulse 1.0s ease-out 1;
+}
+@keyframes mpl-value-focus-pulse {
+  0%   { fill: rgba(34, 197, 94, 0.65); }
+  70%  { fill: rgba(34, 197, 94, 0.42); }
+  100% { fill: rgba(34, 197, 94, 0.35); }
 }
 
 #pageDisplayNone {
@@ -3795,6 +3856,66 @@ kbd {
   border-color: var(--accent, #367380);
   color: #fff;
   outline: none;
+}
+.ev-idx-chip.ev-idx-chip-active {
+  background: #16a34a;            /* matches the green-focus overlay */
+  border-color: #15803d;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+}
+
+/* Inline detail panel rendered under the chip when clicked.  Shows
+   the evidence snippet, page, source, and which field the snippet
+   supports so the reviewer can audit the link from a single click. */
+.ev-idx-detail {
+  margin: 6px 0 10px 0;
+  padding: 10px 12px;
+  border-left: 3px solid #16a34a;
+  background: rgba(34, 197, 94, 0.08);
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+/* When the detail panel is inserted as a sibling of an .rv-row inside
+   the .rv-obj grid (display:grid with auto 1fr), force it to span both
+   key + value columns so it reads as full-width rather than squeezed
+   into the key column.  Same trick for HTML-table contexts: the TR
+   wrapper's TD uses colSpan, but a stray detail panel slipped into a
+   grid container needs the explicit grid-column rule. */
+.rv-obj > .ev-idx-detail {
+  grid-column: 1 / -1;
+}
+.ev-idx-detail-snippet {
+  font-style: italic;
+  margin-bottom: 6px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.ev-idx-detail-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.ev-idx-detail-meta code {
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11px;
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.ev-idx-detail-source { color: var(--text); }
+.ev-idx-detail-page   { color: #15803d; font-weight: 600; }
+.ev-idx-detail-idx    { color: var(--text-muted); font-family: "SF Mono", "Menlo", "Monaco", monospace; }
+
+/* The TR wrapper used to embed the detail panel inside an HTML table.
+   No border so the panel reads as belonging to the row above it. */
+.ev-idx-detail-row > td {
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 /* "?"-icon tooltip used next to each data-source label.  The hover/focus

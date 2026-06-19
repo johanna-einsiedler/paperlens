@@ -2,19 +2,23 @@
 <!--
   MetaPaperLens — sibling mark to the Metalens logo.
 
-  Four shapes form the letter M:
-    - two vertical pillars (left + right), drawn on top of the diagonals
-    - two diagonal bars meeting at a V apex in the centre
+  The M is built from FOUR identical "bar" strokes:
+    - two vertical pillars (left + right)
+    - two diagonals (top-left → V-apex, top-right → V-apex)
 
-  Each bar uses the same vertical gradient (dark navy → soft teal-mint
-  → dark navy), giving the whole mark the layered-glass feel of the
-  original metalens logo.  Colour stops mirror the metalens palette
-  (#122740 → #c6dde1 → #122740) so the two products read as a family.
+  Every bar is the same form: an 80-wide line with `stroke-linecap="round"`,
+  so both ends are capped by a semicircle of radius 40.  No polygons,
+  no paths — just four <line>s with the same stroke + cap recipe.
 
-  Top-of-M rounding: pillars extend slightly above the diagonal tops
-  (y=60 vs y=80) and are drawn LAST so the rounded pillar caps cover
-  the diagonal corners — the M reads as two soft round tops with a
-  V valley between them, with no spiky polygon corners visible.
+  The two diagonals share an endpoint at the V-apex (250, 330); their
+  rounded end-caps overlap there to form a single soft rounded apex.
+  The top ends of the diagonals (120, 100) and (380, 100) coincide
+  with the top ends of the pillars, so the pillar caps (drawn last)
+  sit on top and the join reads as a single rounded crown.
+
+  All four bars share one gradient (`mpl-bar`) defined in user space
+  from y=60 to y=440 — so the light teal-mint band runs horizontally
+  across the whole M at the same y-level on every bar.
 
   Designed to scale cleanly from 24px (favicon) to 240px (hero).
 -->
@@ -23,32 +27,26 @@
      role="img"
      aria-label="MetaPaperLens logo">
   <defs>
-    <linearGradient id="mpl-bar" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="mpl-bar" gradientUnits="userSpaceOnUse"
+                    x1="0" y1="60" x2="0" y2="440">
       <stop offset="0%"   stop-color="#122740"/>
       <stop offset="42%"  stop-color="#9cbcc4"/>
       <stop offset="58%"  stop-color="#9cbcc4"/>
       <stop offset="100%" stop-color="#122740"/>
     </linearGradient>
-    <linearGradient id="mpl-diag-l" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop offset="0%"   stop-color="#1b485e"/>
-      <stop offset="50%"  stop-color="#b8d3da"/>
-      <stop offset="100%" stop-color="#367380"/>
-    </linearGradient>
-    <linearGradient id="mpl-diag-r" x1="0.8" y1="0" x2="0.2" y2="1">
-      <stop offset="0%"   stop-color="#1b485e"/>
-      <stop offset="50%"  stop-color="#b8d3da"/>
-      <stop offset="100%" stop-color="#367380"/>
-    </linearGradient>
   </defs>
 
-  <!-- Diagonals first so the pillars (drawn next) cover their top
-       corners and give the M a clean rounded crown. -->
-  <polygon points="80,80 160,80 282,310 215,330" fill="url(#mpl-diag-l)"/>
-  <polygon points="420,80 340,80 218,310 285,330" fill="url(#mpl-diag-r)"/>
+  <!-- Diagonals first so the pillars (drawn next) sit on top at the
+       top-of-M joins.  Both diagonals end at the same V-apex point
+       so their rounded caps merge into a single rounded apex. -->
+  <line x1="120" y1="100" x2="250" y2="330"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
+  <line x1="380" y1="100" x2="250" y2="330"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
 
-  <!-- Pillars on top, extended up to y=60 so the rounded tops sit
-       above the diagonal corners and the M reads as two soft round
-       caps separated by the V valley. -->
-  <rect x="80"  y="60" width="80" height="380" rx="40" ry="40" fill="url(#mpl-bar)"/>
-  <rect x="340" y="60" width="80" height="380" rx="40" ry="40" fill="url(#mpl-bar)"/>
+  <!-- Pillars drawn last so their top caps cover the diagonal tops. -->
+  <line x1="120" y1="100" x2="120" y2="400"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
+  <line x1="380" y1="100" x2="380" y2="400"
+        stroke="url(#mpl-bar)" stroke-width="80" stroke-linecap="round"/>
 </svg>

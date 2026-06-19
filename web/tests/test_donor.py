@@ -336,7 +336,14 @@ def test_strip_to_publishable_handles_gemini_fences_with_preamble():
 
 
 # ── Zenodo wiring ─────────────────────────────────────────────────────────────
+# DISABLED (2026-06): the Zenodo integration is paused — see the banner
+# at the top of web/zenodo.py.  ``is_configured()`` is hard-wired to
+# False, so the env-reading test below would fail; the helper-level
+# tests still pass (they only touch internal helpers) but we skip the
+# whole section so the disabled-feature status is loud in test output.
+# Re-enable by removing the @pytest.mark.skip decorators.
 
+@pytest.mark.skip(reason="Zenodo integration disabled — see web/zenodo.py")
 def test_donate_skips_zenodo_when_unconfigured(seeded_batch, pepper, monkeypatch, tmp_path):
     """When PAPERLENS_ZENODO_TOKEN isn't set, the donation flow should
     just skip the Zenodo step silently — no Zenodo URL in the result,
@@ -351,6 +358,7 @@ def test_donate_skips_zenodo_when_unconfigured(seeded_batch, pepper, monkeypatch
     assert "zenodo_error" not in result
 
 
+@pytest.mark.skip(reason="Zenodo integration disabled — see web/zenodo.py")
 def test_zenodo_is_configured_reads_env(monkeypatch):
     import zenodo as zenodo_mod
     monkeypatch.delenv("PAPERLENS_ZENODO_TOKEN", raising=False)
@@ -359,6 +367,7 @@ def test_zenodo_is_configured_reads_env(monkeypatch):
     assert zenodo_mod.is_configured() is True
 
 
+@pytest.mark.skip(reason="Zenodo integration disabled — see web/zenodo.py")
 def test_zenodo_base_url_switches_on_sandbox_flag(monkeypatch):
     import zenodo as zenodo_mod
     monkeypatch.delenv("PAPERLENS_ZENODO_SANDBOX", raising=False)
@@ -367,6 +376,7 @@ def test_zenodo_base_url_switches_on_sandbox_flag(monkeypatch):
     assert zenodo_mod._base_url() == "https://sandbox.zenodo.org/api"
 
 
+@pytest.mark.skip(reason="Zenodo integration disabled — see web/zenodo.py")
 def test_zenodo_creators_anonymous_and_attributed():
     import zenodo as zenodo_mod
     anon = zenodo_mod._creators_block("anonymous", "", "")
@@ -508,6 +518,7 @@ def test_donate_extension_refuses_missing_target_dataset(
         donor.donate(req, ip_hash=ip_hash)
 
 
+@pytest.mark.skip(reason="Zenodo integration disabled — see web/zenodo.py")
 def test_zenodo_metadata_includes_related_pr_when_provided():
     import zenodo as zenodo_mod
     body = zenodo_mod._metadata_block(

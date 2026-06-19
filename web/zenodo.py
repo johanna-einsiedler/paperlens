@@ -44,10 +44,16 @@ def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+# ── DISABLED: Zenodo integration paused (2026-06) ──────────────────
+# The donation flow no longer mints Zenodo DOIs.  ``is_configured()``
+# is hard-wired to False so every caller's existing ``if zenodo.is_configured():``
+# guard skips the deposit step.  To re-enable: delete this banner and
+# restore the original body (read PAPERLENS_ZENODO_TOKEN from env).
+# The rest of this module (deposit creation, file upload, metadata) is
+# kept intact so a re-enable is a one-line change here.
 def is_configured() -> bool:
-    """True when the donation flow should try to create a Zenodo deposit.
-    Off when the token isn't set — donor.py just skips Zenodo silently."""
-    return bool(os.environ.get("PAPERLENS_ZENODO_TOKEN"))
+    """DISABLED — always returns False while the Zenodo step is paused."""
+    return False
 
 
 def _base_url() -> str:

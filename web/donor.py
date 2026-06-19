@@ -777,11 +777,11 @@ def donate(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             pass
 
-        # Zenodo step is best-effort.  A failure here doesn't undo the
-        # PR — the GitHub side is the durable record.  We log the
-        # error on the donation row so curators can retry the deposit
-        # manually if needed, but the user still gets a successful
-        # response (with just the PR URL).
+        # ── DISABLED: Zenodo deposit step paused (2026-06) ─────────
+        # The Zenodo client's ``is_configured()`` is hard-wired to False,
+        # so this whole block is dead code at runtime.  Kept verbatim
+        # (not deleted) so re-enabling is a one-line flip in zenodo.py.
+        # When you re-enable: nothing here needs to change.
         zenodo_info: dict[str, Any] | None = None
         zenodo_error: str | None = None
         if zenodo.is_configured():
@@ -808,6 +808,7 @@ def donate(req: DonationRequest, *, ip_hash: str) -> dict[str, Any]:
                     status="pr-opened",
                     error=zenodo_error,
                 )
+        # ── END DISABLED Zenodo block ──────────────────────────────
 
         result: dict[str, Any] = {
             "donation_id":    donation_id,

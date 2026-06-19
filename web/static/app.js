@@ -2102,10 +2102,28 @@ function renderPaperSidebar() {
           </span>
           ${stopBtn}
         </div>`);
-      if (isActiveP && subViews?.length && p.status === 'done') {
+      if (isActiveP && subViews?.length > 1 && p.status === 'done') {
         html.push(_renderSidebarSubTabs(p, subViews));
       }
     } else {
+      // Multi-entry papers: one header row per paper showing just the
+      // filename, then one indented child row per entry showing just
+      // the sample_id (no paper-name prefix on every child).  Clicking
+      // the header opens entry 0 so the header itself acts as a
+      // shortcut to the first entry (typically "Paper metadata").
+      const headerCls = ['paper-item', 'paper-item-header',
+                         isActiveP ? 'active-parent' : '',
+                         `status-${p.status}`].filter(Boolean).join(' ');
+      const headerOnclick = clickable ? `onclick="setActivePaperEntry('${p.id}', 0)"` : '';
+      html.push(`
+        <div class="${headerCls}" ${headerOnclick}>
+          <span class="paper-status-icon">${icon}</span>
+          <span class="paper-name-wrap">
+            <span class="paper-name">${baseName}</span>
+            ${phaseLabel}
+          </span>
+          ${stopBtn}
+        </div>`);
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const rawSample  = entry && typeof entry.sample_id === 'string' ? entry.sample_id.trim() : '';
@@ -2116,12 +2134,12 @@ function renderPaperSidebar() {
         const onclick = `onclick="setActivePaperEntry('${p.id}', ${i})"`;
         html.push(`
           <div class="${cls}" ${onclick}>
-            <span class="paper-status-icon">${icon}</span>
+            <span class="paper-sample-bullet">•</span>
             <span class="paper-name-wrap">
-              <span class="paper-name">${baseName} <span class="paper-sample-suffix">&mdash; ${escHtml(sampleName)}</span></span>
+              <span class="paper-sample-label">${escHtml(sampleName)}</span>
             </span>
           </div>`);
-        if (isActiveSample && subViews?.length) {
+        if (isActiveSample && subViews?.length > 1) {
           html.push(_renderSidebarSubTabs(p, subViews));
         }
       }
@@ -2224,6 +2242,26 @@ function _evidencePagesForSubView(parsed, subView, entryIndex) {
     if (p !== null) pages.add(p);
   }
   return [...pages].sort((a, b) => a - b);
+}
+
+/* Pick the initial PDF page to show when opening an entry.  Prefers
+ * the page of the entry's ``table_caption`` evidence so opening a
+ * TABLE-5 entry lands on the table itself, not (say) the abstract
+ * page where a headline-justifying snippet happens to live.  Falls
+ * back to the lowest evidence page when no table_caption is present
+ * for this entry. */
+function _preferredInitialPage(parsed, entryIndex, evidencePages) {
+  if (Array.isArray(parsed?.evidence)) {
+    for (const e of parsed.evidence) {
+      if (!e || typeof e !== 'object' || typeof e.field !== 'string') continue;
+      const idx = _evidenceEntryIndex(e.field);
+      if (idx !== null && idx !== entryIndex) continue;
+      if (!e.field.endsWith('.table_caption')) continue;
+      const p = toPageNum(e.page);
+      if (p !== null) return p;
+    }
+  }
+  return evidencePages[0] ?? null;
 }
 
 function setSubView(subViewId) {
@@ -3470,9 +3508,22 @@ function _renderConfidenceBadges(entry, subView) {
     const level = _normaliseConfidence(raw);
     if (raw == null && level === 'unknown') continue;  // skip categories the model omitted
     hadAny = true;
-    const displayValue = (typeof raw === 'string' && raw.trim()) ? raw.trim() : '—';
+    // Display the rating word ("high" / "medium" / "low") regardless of
+    // whether the model emitted a plain string or the canonical
+    // {level, notes} object shape.  Fall back to em-dash only when the
+    // category exists but the level is unparseable.
+    const displayValue = (typeof raw === 'string' && raw.trim())
+      ? raw.trim()
+      : (raw && typeof raw === 'object' && typeof raw.level === 'string' && raw.level.trim())
+        ? raw.level.trim()
+        : '—';
+    const notes = (raw && typeof raw === 'object' && typeof raw.notes === 'string' && raw.notes.trim())
+      ? raw.notes.trim() : '';
+    const tip = notes
+      ? `${cat.label}: ${displayValue} — ${notes}`
+      : `${cat.label}: ${displayValue}`;
     parts.push(`
-      <span class="confidence-badge confidence-${level}" title="${escHtml(cat.label)}: ${escHtml(displayValue)}">
+      <span class="confidence-badge confidence-${level}" title="${escHtml(tip)}">
         <span class="confidence-badge-label">${escHtml(cat.label)}</span>
         <span class="confidence-badge-value">${escHtml(displayValue)}</span>
       </span>
@@ -3622,8 +3673,17 @@ function _renderMasemRowWarnings(entry) {
    about.  Falls back to ``unknown`` for anything unrecognised so the
    grey pill flags it without crashing the render. */
 function _normaliseConfidence(v) {
-  if (typeof v !== 'string') return 'unknown';
-  const s = v.trim().toLowerCase();
+  // String form: "high" / "medium" / "low" (or short aliases).
+  // Object form: {level: "high", notes: "..."} — the spec's canonical
+  // shape per the extraction prompt's EXTRACTION CONFIDENCE block.
+  let s = null;
+  if (typeof v === 'string') {
+    s = v;
+  } else if (v && typeof v === 'object' && typeof v.level === 'string') {
+    s = v.level;
+  }
+  if (!s) return 'unknown';
+  s = s.trim().toLowerCase();
   if (s === 'high'   || s === 'h') return 'high';
   if (s === 'medium' || s === 'med' || s === 'm') return 'medium';
   if (s === 'low'    || s === 'l') return 'low';
@@ -3729,11 +3789,14 @@ function renderEntry(paper) {
     evidencePages     = entryPages.length ? entryPages
       : [...findAllEntryPages(paper.parsed)].sort((a, b) => a - b);
   }
-  paper.evidencePages   = evidencePages;
-  paper.evidencePageIdx = 0;
-  // Open on the first cited page so the relevant content is what the
-  // user sees first, but the nav can flip through every page in the PDF.
-  const initialPage = paper.evidencePages[0] ?? (paper.pageImages.length ? 1 : null);
+  paper.evidencePages = evidencePages;
+  // Prefer the table_caption page (so opening a TABLE entry lands on
+  // the table, not on the abstract where a headline-justifying snippet
+  // happens to live).  Falls back to evidencePages[0] when no
+  // table_caption evidence exists for this entry.
+  const initialPage = _preferredInitialPage(paper.parsed, paper.entryIndex, evidencePages)
+                      ?? (paper.pageImages.length ? 1 : null);
+  paper.evidencePageIdx = Math.max(0, paper.evidencePages.indexOf(initialPage));
   paper.browseAllPagesIdx = initialPage ? (initialPage - 1) : 0;
   updatePageNav(paper);
   showPageImage(paper, initialPage);
@@ -3930,34 +3993,78 @@ function renderHighlightOverlay(paper, pageNum) {
     return;
   }
   const subView = _activeSubViewFor(paper);
+  // ``focusedFields`` is the green-focus set — populated when the user
+  // clicks an evidence_idx chip or a finding cell.  Focused rects
+  // bypass the sub-view filter so the green outline is always visible
+  // even when the matching evidence's ``field`` doesn't belong to the
+  // active sub-view's ``evidence_keys``.
+  const focusedFields = (paper.focusedFields instanceof Set)
+    ? paper.focusedFields
+    : new Set(Array.isArray(paper.focusedFields) ? paper.focusedFields
+              : (paper.focusedField ? [paper.focusedField] : []));
   const matching = paper.highlights.filter(h =>
-    h.page === pageNum && _highlightMatchesSubView(h, subView)
+    h.page === pageNum
+    && (focusedFields.has(h.field) || _highlightMatchesSubView(h, subView))
   );
   if (!matching.length) { svg.style.display = 'none'; return; }
 
-  const focusedField = paper.focusedField || null;
+  // The legacy single-field "focused" (teal) still fires when set
+  // explicitly via paper.focusedField; the new ``focusedFields`` set
+  // drives the green-focus class for chip/cell clicks.
+  const teal = paper.focusedField || null;
 
   _withImageDims(paper, pageNum - 1, dims => {
     if (!dims) { svg.style.display = 'none'; return; }
     svg.setAttribute('viewBox', `0 0 ${dims.w} ${dims.h}`);
     svg.style.display = 'block';
     for (const h of matching) {
-      const isFocused = focusedField && h.field === focusedField;
+      const isGreen = focusedFields.has(h.field);
+      const isTeal  = teal && h.field === teal && !isGreen;
+      const cls = isGreen ? 'highlight-rect highlight-rect-green-focus'
+                : isTeal  ? 'highlight-rect highlight-rect-focused'
+                          : 'highlight-rect';
       for (const r of (h.rects || [])) {
         const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         rect.setAttribute('x',      r[0]);
         rect.setAttribute('y',      r[1]);
         rect.setAttribute('width',  r[2]);
         rect.setAttribute('height', r[3]);
-        rect.setAttribute('class',  isFocused ? 'highlight-rect highlight-rect-focused'
-                                              : 'highlight-rect');
+        rect.setAttribute('class',  cls);
         const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
         title.textContent = (h.field ? `[${h.field}] ` : '') + (h.snippet || '');
         rect.appendChild(title);
         svg.appendChild(rect);
       }
     }
+    // Second layer: literal-value occurrences the cell-click triggered.
+    // Drawn last so the green outline sits on top of the snippet rects.
+    const vf = paper.valueFocusRects;
+    if (vf && vf.page === pageNum && Array.isArray(vf.rects)) {
+      for (const r of vf.rects) {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x',      r[0]);
+        rect.setAttribute('y',      r[1]);
+        rect.setAttribute('width',  r[2]);
+        rect.setAttribute('height', r[3]);
+        rect.setAttribute('class',  'highlight-rect highlight-rect-value-focus');
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        title.textContent = `Value match: ${vf.text}`;
+        rect.appendChild(title);
+        svg.appendChild(rect);
+      }
+    }
   });
+}
+
+/* Set the green-focus field set on the active paper and re-render the
+ * overlay.  ``fields`` is an array of evidence ``field`` strings.
+ * Pass an empty array to clear the focus. */
+function _setFocusedEvidenceFields(paper, fields) {
+  paper.focusedFields = new Set(Array.isArray(fields) ? fields : []);
+  const img = document.getElementById('pageDisplayImg');
+  if (!img || !paper.pageImages) return;
+  const currentIdx = paper.pageImages.indexOf(img.src);
+  if (currentIdx >= 0) renderHighlightOverlay(paper, currentIdx + 1);
 }
 
 /* Map a clicked cell's ``data-path`` to the best-matching evidence
@@ -5140,9 +5247,81 @@ function handleEvidenceIdxChipClick(event) {
     ? paper.parsed.evidence : [];
   const target = evidence[idx];
   if (!target) return;
+
+  // Inline expansion: render the snippet/source/page/field detail
+  // right under the clicked chip's row.  Toggling the same chip clears
+  // the expansion; clicking a different chip replaces it.
+  _toggleEvidenceIdxDetail(chip, target, idx);
+
+  // Green focus: outline this evidence's rect on its page.
+  _setFocusedEvidenceFields(paper, [target.field].filter(Boolean));
+  // Clear any prior value-focus rects (chip clicks are evidence-only).
+  paper.valueFocusRects = null;
+
   const page = toPageNum(target.page);
   if (page && paper.pageImages && paper.pageImages.length) {
     showPageImage(paper, page);
+  }
+}
+
+/* Render an inline expansion immediately under the row containing the
+ * clicked evidence-idx chip, showing the snippet / source / page /
+ * field of the referenced evidence entry.  Clicking the same chip
+ * twice clears the expansion; clicking another chip replaces it. */
+function _toggleEvidenceIdxDetail(chip, evidence, idx) {
+  // Remove any existing detail panel anywhere in the active result view.
+  const display = document.getElementById('resultDisplay');
+  if (display) {
+    display.querySelectorAll('.ev-idx-detail').forEach(el => el.remove());
+    display.querySelectorAll('.ev-idx-chip-active').forEach(el => {
+      el.classList.remove('ev-idx-chip-active');
+    });
+  }
+  // If the user re-clicked the active chip, just clear (toggle off).
+  if (chip.dataset.evidenceIdxOpen === '1') {
+    delete chip.dataset.evidenceIdxOpen;
+    return;
+  }
+  chip.classList.add('ev-idx-chip-active');
+  chip.dataset.evidenceIdxOpen = '1';
+
+  const snippet = evidence.snippet || '(no snippet)';
+  const page    = evidence.page    != null ? `p. ${evidence.page}` : 'page unknown';
+  const source  = evidence.source  || '';
+  const field   = evidence.field   || '';
+
+  const detail = document.createElement('div');
+  detail.className = 'ev-idx-detail';
+  detail.innerHTML =
+    `<div class="ev-idx-detail-snippet">&ldquo;${escHtml(snippet)}&rdquo;</div>` +
+    `<div class="ev-idx-detail-meta">` +
+      `<span class="ev-idx-detail-page">${escHtml(page)}</span>` +
+      (source ? `<span class="ev-idx-detail-source">${escHtml(source)}</span>` : '') +
+      (field  ? `<span class="ev-idx-detail-field">supports <code>${escHtml(field)}</code></span>` : '') +
+      `<span class="ev-idx-detail-idx">evidence[${idx}]</span>` +
+    `</div>`;
+
+  // Insert the detail panel after the chip's containing table row when
+  // the chip lives inside a <td>; otherwise after the chip's nearest
+  // block-level ancestor.  This keeps the panel visually grouped with
+  // the finding-row it came from.
+  const tr = chip.closest('tr');
+  if (tr && tr.parentNode) {
+    const wrapper = document.createElement('tr');
+    wrapper.className = 'ev-idx-detail-row';
+    const td = document.createElement('td');
+    const colCount = tr.children.length || 1;
+    td.colSpan = colCount;
+    td.appendChild(detail);
+    wrapper.appendChild(td);
+    tr.parentNode.insertBefore(wrapper, tr.nextSibling);
+  } else {
+    const block = chip.closest('.rv-row, .rv-key-value, .rv-leaf, div');
+    if (block && block.parentNode) {
+      block.parentNode.insertBefore(detail, block.nextSibling);
+    } else {
+      chip.parentNode && chip.parentNode.appendChild(detail);
+    }
   }
 }
 
@@ -5165,27 +5344,135 @@ function handleCellEvidenceJump(event) {
   const paper = getActivePaper();
   if (!paper || !paper.pageImages || !paper.pageImages.length) return;
 
+  // Collect EVERY evidence field whose path matches the clicked cell —
+  // a single cell may be supported by multiple snippets (e.g. value +
+  // table-caption + classification_reasoning), and we want all of them
+  // outlined in green when the user clicks the cell.
+  const matchingFields = _findAllEvidenceFieldsForPath(paper, path);
+  _setFocusedEvidenceFields(paper, matchingFields);
+
+  // Also outline literal occurrences of the cell's displayed value on
+  // the resolved page.  Server roundtrip is fast (a single text search
+  // per PDF page), and it gives precise green highlighting on the
+  // actual number / token the user clicked rather than just the
+  // surrounding snippet.
+  const cellText = (el.textContent || '').trim();
+  // Don't search for empty-cell placeholders, prose-length text, or
+  // text that's obviously a stringified array/dict (rendered cells of
+  // structured values).
+  const isSearchable = cellText
+    && cellText !== '—' && cellText !== 'null'
+    && cellText.length >= 2 && cellText.length <= 80
+    && !cellText.startsWith('[') && !cellText.startsWith('{');
+
   const page = _evidencePageForPath(paper, path);
-  if (!page) return;
+  if (!page) {
+    // No evidence-derived page — but maybe we can still surface a
+    // value-match on whatever page is currently shown.
+    if (isSearchable) {
+      _findAndOutlineValueOnPage(paper, cellText, _currentDisplayedPage(paper));
+    }
+    return;
+  }
   // Skip the work (and the zoom reset inside showPageImage) when we're
   // already on the right page — clicking different cells on the same page
   // shouldn't keep collapsing the user's zoom.
   const img = document.getElementById('pageDisplayImg');
   const currentSrc = img && img.src;
   const targetSrc  = paper.pageImages[page - 1];
-  if (currentSrc === targetSrc) return;
-
-  showPageImage(paper, page);
-  // Keep the page-evidence counter in sync if the resolved page is one of
-  // the navigator's stops (purely cosmetic — overlay update was already
-  // handled by showPageImage).
-  if (Array.isArray(paper.evidencePages)) {
-    const idx = paper.evidencePages.indexOf(page);
-    if (idx >= 0) {
-      paper.evidencePageIdx = idx;
-      updatePageNav(paper);
+  if (currentSrc === targetSrc) {
+    // Same page but maybe new focus — re-paint the overlay so the green
+    // updates without the showPageImage zoom-reset.
+    renderHighlightOverlay(paper, page);
+  } else {
+    showPageImage(paper, page);
+    // Keep the page-evidence counter in sync if the resolved page is one of
+    // the navigator's stops (purely cosmetic — overlay update was already
+    // handled by showPageImage).
+    if (Array.isArray(paper.evidencePages)) {
+      const idx = paper.evidencePages.indexOf(page);
+      if (idx >= 0) {
+        paper.evidencePageIdx = idx;
+        updatePageNav(paper);
+      }
     }
   }
+
+  // Fire the value-text search asynchronously — overlay re-paints when
+  // the rects come back so the value gets outlined without blocking
+  // the page-jump above.
+  if (isSearchable) _findAndOutlineValueOnPage(paper, cellText, page);
+}
+
+/* Return the 1-indexed page currently shown in the PDF viewer, or
+ * null if no page is shown.  Used when the click handler wants to
+ * search the visible page for the cell value even though no
+ * evidence-derived page exists. */
+function _currentDisplayedPage(paper) {
+  const img = document.getElementById('pageDisplayImg');
+  if (!img || !paper || !Array.isArray(paper.pageImages)) return null;
+  const idx = paper.pageImages.indexOf(img.src);
+  return idx >= 0 ? (idx + 1) : null;
+}
+
+/* Post (PDF, page, [text]) to /api/find-text, stash the returned rects
+ * on the paper, and re-paint the overlay.  The rects are attached under
+ * paper.valueFocusRects so renderHighlightOverlay can draw them as a
+ * second green layer on top of the evidence highlights. */
+async function _findAndOutlineValueOnPage(paper, text, page) {
+  if (!paper || !paper.pdfFile || !text || !page) return;
+  const form = new FormData();
+  form.append('pdf',   paper.pdfFile, paper.pdfFile.name);
+  form.append('page',  String(page));
+  form.append('texts', text);
+  try {
+    const res  = await fetchScoped('/api/find-text', {method: 'POST', body: form});
+    if (!res.ok) return;
+    const data = await res.json();
+    const rectsByText = (data && data.rects) || {};
+    const rects = rectsByText[text] || [];
+    paper.valueFocusRects = rects.length
+      ? {page: data.page || page, text, rects}
+      : null;
+    // Re-paint only when we're still on the same page (the user may have
+    // navigated away during the round-trip).
+    const shownPage = _currentDisplayedPage(paper);
+    if (shownPage === (data.page || page)) {
+      renderHighlightOverlay(paper, shownPage);
+    }
+  } catch (_) { /* network failure — silently skip the value-outline layer */ }
+}
+
+/* Return every evidence ``field`` whose path matches the clicked cell.
+ * Matches via exact equality OR longest-prefix on the path candidates
+ * (samples-rooted vs sample-relative).  Used to drive the green-focus
+ * overlay set for cell clicks. */
+function _findAllEvidenceFieldsForPath(paper, path) {
+  if (!paper || !paper.parsed || !path) return [];
+  const evidence = paper.parsed.evidence;
+  if (!Array.isArray(evidence) || !evidence.length) return [];
+  const idx = (paper.entryIndex == null) ? 0 : paper.entryIndex;
+  const candidates = [path, `samples[${idx}].${path}`];
+  const fields = new Set();
+  // Exact matches first — the precise cell-level evidence we want.
+  for (const e of evidence) {
+    if (!e || !e.field) continue;
+    if (candidates.includes(e.field)) fields.add(e.field);
+  }
+  if (fields.size) return [...fields];
+  // No exact match — fall back to longest-prefix so a click on a leaf
+  // still surfaces the closest enclosing evidence (e.g. clicking
+  // ``classification_reasoning`` falls back to ``samples[N]`` parent).
+  let best = null, bestLen = -1;
+  for (const e of evidence) {
+    if (!e || !e.field) continue;
+    for (const cand of candidates) {
+      if (cand === e.field || cand.startsWith(e.field + '.')) {
+        if (e.field.length > bestLen) { best = e.field; bestLen = e.field.length; }
+      }
+    }
+  }
+  return best ? [best] : [];
 }
 
 /* Pick the most specific evidence entry whose ``field`` either equals or
@@ -6120,6 +6407,208 @@ async function _autoActivatePresetForLoadedData(papers) {
   } catch (_) { /* network failure — leave preset unset */ }
 }
 
+/* Group flat per-regression entries into per-table entries + a paper-
+ * metadata entry, so the sidebar reads as
+ *   [Paper metadata, TABLE 9, TABLE 10, ...]
+ * instead of one row per regression cell.  Each per-table entry carries
+ * the regressions as a ``regressions: {_table: [...]}`` block — the
+ * renderer's existing ``_table`` marker turns that into an HTML table
+ * (rows = property, columns = regression-column).
+ *
+ * Triggers only when every entry has ``regression_id`` + ``table`` —
+ * the signature of the user's flat per-regression export.  Other shapes
+ * pass through untouched.
+ */
+function _groupPerRegressionByTable(p, entries) {
+  const isPerRegression = Array.isArray(entries) && entries.length > 0
+    && entries.every(e => e && typeof e === 'object'
+                          && typeof e.regression_id === 'string'
+                          && typeof e.table === 'string');
+  if (!isPerRegression) return {entries, indexMap: null};
+
+  const grouped = [];
+  let nextIdx = 0;
+
+  // ── Paper-metadata entry (first) ─────────────────────────────────
+  const META_FIELDS = ['title', 'doi', 'year', 'authors', 'id'];
+  const meta = {};
+  for (const f of META_FIELDS) {
+    if (p[f] !== undefined && p[f] !== null) meta[f] = p[f];
+  }
+  if (Object.keys(meta).length) {
+    meta.sample_id = 'Paper metadata';
+    grouped.push(meta);
+    nextIdx++;
+  }
+
+  // ── Group regressions by table (preserves insertion order) ──────
+  // Also build a {tableName → newEntryIndex} map so we can rewrite
+  // evidence's ``samples[N]`` indices to point at the grouped entry.
+  const byTable = new Map();
+  const tableToNewIdx = new Map();
+  for (const e of entries) {
+    const key = e.table;
+    if (!byTable.has(key)) {
+      byTable.set(key, []);
+      tableToNewIdx.set(key, nextIdx++);
+    }
+    byTable.get(key).push(e);
+  }
+  // Per-old-index → new-index lookup for evidence rewriting.
+  const indexMap = {};
+  entries.forEach((e, oldIdx) => {
+    indexMap[oldIdx] = tableToNewIdx.get(e.table);
+  });
+
+  // ── Build one entry per table with a _table-marked render block ─
+  for (const [tableName, regs] of byTable) {
+    const colLabel = (r) => r.regression_id;   // guaranteed unique
+    const fmt      = (n) => (n == null ? null
+                             : Number.isInteger(n) ? n
+                             : Math.abs(n) >= 0.001 ? +n.toFixed(3) : n);
+
+    // Treatment variable names — union across regressions in the group
+    const treatNames = [];
+    const seenT = new Set();
+    for (const r of regs) for (const t of (r.treatment || [])) {
+      const name = t.display || t.stata || '?';
+      if (!seenT.has(name)) { seenT.add(name); treatNames.push(name); }
+    }
+
+    const mkRow = (label, valFn) => {
+      const row = {' ': label};
+      for (const r of regs) row[colLabel(r)] = valFn(r);
+      return row;
+    };
+
+    const rows = [];
+    rows.push(mkRow('Column', r => r.column || null));
+    rows.push(mkRow('Dependent var', r =>
+      r.dependent_var ? (r.dependent_var.display || r.dependent_var.stata) : null
+    ));
+    for (const tName of treatNames) {
+      rows.push(mkRow(tName, r => {
+        const m = (r.treatment || []).find(t => (t.display || t.stata) === tName);
+        return m ? fmt(m.estimate) : null;
+      }));
+      rows.push(mkRow('  (SE)', r => {
+        const m = (r.treatment || []).find(t => (t.display || t.stata) === tName);
+        if (!m || m.standard_error == null) return null;
+        return `(${(+m.standard_error).toFixed(3)})`;
+      }));
+    }
+    rows.push(mkRow('N obs', r => r.n_obs_captured ?? null));
+    rows.push(mkRow('Cluster', r => r.cluster ?? null));
+    rows.push(mkRow('Fixed effects', r =>
+      Array.isArray(r.fixed_effects) ? r.fixed_effects.join(', ')
+                                     : (r.fixed_effects ?? null)
+    ));
+    rows.push(mkRow('Panel', r => r.panel ?? null));
+    rows.push(mkRow('Spec ID', r => r.captured_spec_id ?? null));
+    rows.push(mkRow('Decision', r => r.decision_final ?? null));
+
+    grouped.push({
+      sample_id:      tableName,
+      table:          tableName,
+      n_regressions:  regs.length,
+      regressions:    {_table: rows},
+    });
+  }
+
+  return {entries: grouped, indexMap};
+}
+
+
+/* Prepend a synthesised "Paper metadata" entry to AI-findings entries,
+ * combining paper-level fields (paper_metadata + subtopics + one_line +
+ * qual_notes) into one sidebar row so the reviewer can audit the
+ * paper-level context separately from each individual finding.
+ *
+ * Triggers when every entry looks like an AI-findings record (carries
+ * ``finding_type`` OR ``subtopic`` OR ``metric``+``value``) AND the
+ * paper has at least one paper-level metadata field.  Other shapes
+ * pass through untouched.
+ *
+ * Also returns an ``indexMap`` of {old-entry-index → new-entry-index}
+ * so the caller can shift evidence ``samples[N]`` indices by +1 to
+ * account for the synthesised entry at index 0.  Paper-level evidence
+ * (``paper_metadata.*`` / ``subtopics.*`` / ``one_line`` / ``qual_notes``)
+ * is rewritten in a separate helper since it lacks the ``samples[N]``
+ * prefix entirely.
+ */
+function _synthesizeAiFindingsMetadataEntry(p, entries) {
+  const isAiFindings = Array.isArray(entries) && entries.length > 0
+    && entries.every(e => e && typeof e === 'object'
+                          && ('finding_type' in e || 'subtopic' in e
+                              || ('metric' in e && 'value' in e)));
+  if (!isAiFindings) return {entries, indexMap: null};
+
+  // Paper-level fields may sit at the top of the paper object OR under
+  // a ``result`` wrapper (the user's prompt emits {id, result: {...}}).
+  // Read each field with the wrapper as fallback so the synthesis works
+  // for both shapes.
+  const r = (p && typeof p === 'object' && p.result && typeof p.result === 'object')
+    ? p.result : null;
+  const pick = (k) => (p[k] !== undefined ? p[k] : (r ? r[k] : undefined));
+
+  const meta = {sample_id: 'Paper metadata'};
+  const pm = pick('paper_metadata');
+  if (pm && typeof pm === 'object') meta.paper_metadata = pm;
+  const st = pick('subtopics');
+  if (st && typeof st === 'object') meta.subtopics = st;
+  const ol = pick('one_line');
+  if (typeof ol === 'string' && ol) meta.one_line = ol;
+  const qn = pick('qual_notes');
+  if (typeof qn === 'string' && qn) meta.qual_notes = qn;
+
+  // Nothing to synthesise — leave entries alone so the loader doesn't
+  // produce a phantom metadata row for non-AI papers.
+  if (Object.keys(meta).length <= 1) return {entries, indexMap: null};
+
+  const newEntries = [meta, ...entries];
+  // Original findings[N] are now at entry index N+1.
+  const indexMap = {};
+  entries.forEach((_, i) => { indexMap[i] = i + 1; });
+  return {entries: newEntries, indexMap};
+}
+
+
+/* Wrap a paper-level evidence field path under ``samples[0]`` so it
+ * resolves against the synthesised metadata entry that
+ * ``_synthesizeAiFindingsMetadataEntry`` prepends.  Recognises field
+ * paths starting with ``paper_metadata`` / ``subtopics`` / ``one_line``
+ * / ``qual_notes`` — everything else is returned unchanged. */
+const _PAPER_LEVEL_EVIDENCE_PREFIXES = ['paper_metadata', 'subtopics', 'one_line', 'qual_notes'];
+function _wrapPaperLevelEvidence(e) {
+  if (!e || typeof e !== 'object' || typeof e.field !== 'string') return e;
+  const f = e.field;
+  for (const prefix of _PAPER_LEVEL_EVIDENCE_PREFIXES) {
+    if (f === prefix || f.startsWith(prefix + '.') || f.startsWith(prefix + '[')) {
+      return Object.assign({}, e, {field: `samples[0].${f}`});
+    }
+  }
+  return e;
+}
+
+
+/* Rewrite the leading ``samples[N]`` index in an evidence field path to
+ * match a new entry numbering.  Used after ``_groupPerRegressionByTable``
+ * collapses multiple per-regression entries into a single per-table
+ * entry: the original evidence still references the per-regression
+ * indices it was emitted with, so without this rewrite the click-to-jump
+ * + per-entry evidence filter silently drop every snippet. */
+function _remapEvidenceIndex(e, indexMap) {
+  if (!e || typeof e !== 'object' || typeof e.field !== 'string') return e;
+  const m = e.field.match(/^samples\[(\d+)\](.*)$/);
+  if (!m) return e;
+  const oldIdx = parseInt(m[1], 10);
+  if (!(oldIdx in indexMap)) return e;
+  const newIdx = indexMap[oldIdx];
+  if (newIdx === oldIdx) return e;
+  return Object.assign({}, e, {field: `samples[${newIdx}]${m[2]}`});
+}
+
+
 /* Pull entries / evidence / extraction_confidence / paper_metadata /
  * original_model_response out of a loaded paper object, handling the
  * three common upstream shapes we've seen in the wild:
@@ -6184,6 +6673,33 @@ function _canonicaliseLoadedPaper(p) {
     paperMeta = result.paper_metadata;
   }
 
+  // Two shape-specific transformations, mutually exclusive — at most
+  // one fires per paper because the detection signatures don't overlap.
+  // Both return an ``indexMap`` of {old-entry-index → new-entry-index}
+  // so we can rewrite evidence ``samples[N]`` indices to track the
+  // regrouping — without this the per-entry evidence filter would drop
+  // every snippet pointing at an entry that's been moved or merged.
+  //
+  // (a) Econ per-regression → per-table grouping + paper-meta entry.
+  // (b) AI-findings: prepend a "Paper metadata" entry so the reviewer
+  //     sees paper-level context separately from individual findings.
+  let _entryIndexMap = null;
+  let _wrapPaperLevel = false;
+  if (Array.isArray(entries)) {
+    const grp = _groupPerRegressionByTable(p, entries);
+    entries        = grp.entries;
+    _entryIndexMap = grp.indexMap;
+  }
+  if (Array.isArray(entries) && !_entryIndexMap) {
+    const syn = _synthesizeAiFindingsMetadataEntry(p, entries);
+    entries        = syn.entries;
+    _entryIndexMap = syn.indexMap;
+    // The AI-findings synthesis inserts a synthesised metadata entry
+    // at samples[0] — paper-level evidence (paper_metadata.* etc.) needs
+    // wrapping under that prefix so it resolves to the right entry.
+    _wrapPaperLevel = (syn.indexMap !== null);
+  }
+
   // Synthesize a sample_id for each entry when it's missing.  Helps
   // the sidebar render readable labels even when the entries came
   // from a flat-shape upstream that didn't bother naming them.
@@ -6233,6 +6749,37 @@ function _canonicaliseLoadedPaper(p) {
   // untouched.  Done in-place on a copy so we don't mutate the
   // user's loaded JSON object.
   evidence = evidence.map(_canonicaliseEvidenceField);
+  if (_entryIndexMap) {
+    evidence = evidence.map(e => _remapEvidenceIndex(e, _entryIndexMap));
+  }
+  if (_wrapPaperLevel) {
+    evidence = evidence.map(_wrapPaperLevelEvidence);
+  }
+  // Propagate extraction_confidence onto every entry so the
+  // per-entry confidence-badge renderer (_renderConfidenceBadges,
+  // which reads entry.extraction_confidence) lights up.  The
+  // canonical shape carries the ratings at paper level; copying the
+  // reference onto each entry is cheap and keeps the badge logic
+  // unchanged.  Synthesised entries (Paper metadata for AI-findings,
+  // per-table groups for econ) get the same set so badges are
+  // consistent across the sidebar.
+  if (Array.isArray(entries) && confidence && typeof confidence === 'object') {
+    entries = entries.map(e => (
+      e && typeof e === 'object' && !('extraction_confidence' in e)
+        ? Object.assign({}, e, {extraction_confidence: confidence})
+        : e
+    ));
+  }
+  // Surface the remap markers so commitLoadJson can apply the same
+  // transformations to ``paper.parsed.evidence`` — without this,
+  // click-to-jump silently fails after a synthesis fires because the
+  // click handler reads parsed.evidence (which would still carry the
+  // pre-synthesis sample indices) while the renderer uses
+  // canonical.entries (post-synthesis).
+  const _syncMeta = {
+    indexMap:        _entryIndexMap,
+    wrapPaperLevel:  _wrapPaperLevel,
+  };
 
   return {
     entries:                  entries,
@@ -6240,6 +6787,7 @@ function _canonicaliseLoadedPaper(p) {
     extraction_confidence:    confidence,
     paper_metadata:           paperMeta,
     original_model_response:  originalRaw,
+    _sync_meta:               _syncMeta,
   };
 }
 
@@ -6272,12 +6820,18 @@ function commitLoadJson() {
       const canonical = _canonicaliseLoadedPaper(p);
       const rawResult = canonical.original_model_response;
       const parsed    = parseFull(rawResult) || canonical.entries || null;
-      // Apply the same evidence-field-path rewrite to ``parsed.evidence``
-      // — the click-to-jump handler (``_evidencePageForPath``) reads
-      // evidence from ``paper.parsed.evidence`` not ``paper.evidence``,
-      // so without this the rewrite would only fix sub-tab routing.
-      if (parsed && Array.isArray(parsed.evidence)) {
-        parsed.evidence = parsed.evidence.map(_canonicaliseEvidenceField);
+      // Keep parsed in sync with the canonicalised view: the click-to-
+      // jump handler reads ``paper.parsed.evidence`` while the renderer
+      // reads ``paper.entries``.  If a synthesis fired (per-regression
+      // grouping or AI-findings metadata-entry) the canonical evidence
+      // has been remapped to the new entry indices but parsed.evidence
+      // would still carry the pre-synthesis indices.  Sharing the same
+      // arrays guarantees the two stay aligned.
+      if (parsed && Array.isArray(canonical.evidence)) {
+        parsed.evidence = canonical.evidence;
+      }
+      if (parsed && Array.isArray(canonical.entries)) {
+        parsed.entries = canonical.entries;
       }
       // The loaded JSON may carry evidence at the paper level (the
       // canonical shape) or nested under ``result.evidence``.  The
@@ -6297,6 +6851,7 @@ function commitLoadJson() {
         result:          rawResult,
         rawResponse:     rawResult,
         pageImages:      [],
+        highlights:      [],
         entries:         canonical.entries,
         parsed:          parsed,
         entryIndex:      0,
@@ -6309,6 +6864,7 @@ function commitLoadJson() {
         pagesProcessed:  p.pages_processed || 0,
         error:           null,
         overrides:       reconstructOverrides(p.human_overrides),
+        _syncMeta:       canonical._sync_meta || null,
       };
     });
 
@@ -6392,10 +6948,16 @@ async function handleReuploadPdfSelect(eventOrFiles) {
 }
 
 async function fetchReviewPageImages(pdfFiles) {
+  // Strip any leading directory components — the JSON often carries
+  // ``pdfs/foo.pdf`` while the browser File API only gives us ``foo.pdf``.
+  const _baseName = (s) =>
+    (s || '').split(/[/\\]/).pop().toLowerCase();
+
   for (const pdfFile of pdfFiles) {
-    // Match by filename (case-insensitive)
+    // Match by basename (case-insensitive, path-prefix-tolerant)
+    const uploadedBase = _baseName(pdfFile.name);
     const paper = state.papers.find(
-      p => p.filename.toLowerCase() === pdfFile.name.toLowerCase()
+      p => _baseName(p.filename) === uploadedBase
     );
     if (!paper) continue; // PDF has no matching paper in the JSON
 
@@ -6411,6 +6973,44 @@ async function fetchReviewPageImages(pdfFiles) {
         continue;
       }
       paper.pageImages = data.page_images || [];
+      paper.scannedPages = data.scanned_pages || [];
+      // Keep the File object around so the cell-click value-search can
+      // re-post the PDF to /api/find-text without asking the user to
+      // re-upload.  The File object stays in browser memory cheaply
+      // (it's a handle, not a copy of the bytes).
+      paper.pdfFile = pdfFile;
+      // Populate paper.highlights so the SVG overlay can draw yellow
+      // baseline rects AND the green-focus class for clicked cells /
+      // evidence_idx chips.  The server returns field paths from the
+      // raw JSON (e.g. ``findings[0].value``) so we apply the same
+      // canonicalisation + index-remap + paper-level wrap chain that
+      // ran on paper.parsed.evidence — otherwise the green-focus
+      // set (which keys off the canonicalised paths) won't match.
+      paper.highlights = (data.highlights || []).map(h => {
+        if (!h || typeof h !== 'object' || typeof h.field !== 'string') return h;
+        let mapped = _canonicaliseEvidenceField(h);
+        const sync = paper._syncMeta;
+        if (sync) {
+          if (sync.indexMap)       mapped = _remapEvidenceIndex(mapped, sync.indexMap);
+          if (sync.wrapPaperLevel) mapped = _wrapPaperLevelEvidence(mapped);
+        }
+        return mapped;
+      });
+
+      // Journal-page-vs-PDF-page offset: when the JSON's evidence pages
+      // are journal page numbers (e.g. 153) and the PDF is internally
+      // 1-indexed at a smaller range, the server detects the constant
+      // offset and we apply it to evidence here so click-to-jump and
+      // the initial-page picker target the right PDF page.
+      const offset = data.page_offset || 0;
+      if (offset && paper.parsed && Array.isArray(paper.parsed.evidence)) {
+        for (const e of paper.parsed.evidence) {
+          if (typeof e.page === 'number') e.page = e.page + offset;
+        }
+        paper.evidenceCount = paper.parsed.evidence.filter(
+          e => Number.isInteger(e?.page)
+        ).length;
+      }
       // If this paper is currently displayed, refresh the page view
       if (state.activePaperId === paper.id) {
         renderEntry(paper);

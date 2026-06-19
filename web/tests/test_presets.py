@@ -378,26 +378,26 @@ def test_econ_headline_preset_loads(client):
     assert data["mode"]  == "extraction"
     assert isinstance(data.get("title"), str) and data["title"]
     assert isinstance(data.get("prompt"), str) and "samples" in data["prompt"]
-    assert isinstance(data.get("sub_views"), list) and len(data["sub_views"]) == 5
+    assert isinstance(data.get("sub_views"), list) and len(data["sub_views"]) == 1
 
 
-def test_econ_headline_sub_views_cover_five_blocks(client):
-    """The five sub-tabs (Metadata / Specification / Estimates /
-    Classification / Paper metadata) must each show up with the right
-    id + confidence_keys, in declaration order.  Drift here breaks the
-    per-sub-tab confidence-badge filtering downstream."""
+def test_econ_headline_sub_view_is_unified_metadata(client):
+    """The preset uses a single ``regmeta`` sub-view that surfaces every
+    field of every entry — the loader groups flat per-regression data
+    into per-table entries (one HTML table per regression group), so
+    separate Specification/Estimates/Classification tabs are redundant.
+    The single tab must still carry every confidence-category key so
+    the per-block confidence badges keep working."""
     data = client.get("/api/presets/econ-headline").json()
     ids = [sv["id"] for sv in data["sub_views"]]
-    assert ids == ["regmeta", "regspec", "regestimates", "regclass", "papermeta"]
-    # Each sub-view's confidence_keys mirrors the categories the prompt
-    # rates in extraction_confidence — pin the mapping so the badge UI
-    # always shows the right label per tab.
-    by_id = {sv["id"]: sv for sv in data["sub_views"]}
-    assert by_id["regmeta"]["confidence_keys"]      == ["regressions_metadata"]
-    assert by_id["regspec"]["confidence_keys"]      == ["regressions_specification"]
-    assert by_id["regestimates"]["confidence_keys"] == ["regressions_estimates"]
-    assert by_id["regclass"]["confidence_keys"]     == ["regressions_classification"]
-    assert by_id["papermeta"]["confidence_keys"]    == ["paper_metadata"]
+    assert ids == ["regmeta"]
+    sv = data["sub_views"][0]
+    expected_categories = {
+        "regressions_metadata", "regressions_specification",
+        "regressions_estimates", "regressions_classification",
+        "paper_metadata",
+    }
+    assert expected_categories.issubset(set(sv["confidence_keys"]))
 
 
 def test_econ_headline_prompt_passes_readiness_check(client):
@@ -418,8 +418,10 @@ def test_econ_headline_prompt_passes_readiness_check(client):
 def test_ai_findings_preset_loads(client):
     """The AI-findings preset is the first one shipped via the
     structured prompt-designer flow (see web/static/prompt-designer.js).
-    Smoke: it auto-discovers, has the four expected sub-views, and the
-    rendered prompt mentions the canonical structures."""
+    Smoke: it auto-discovers and ships a single unified ``details``
+    sub-view that surfaces every per-finding + paper-metadata field
+    (the loader synthesises a "Paper metadata" entry at samples[0],
+    so per-tab splitting would mostly produce empty tabs)."""
     r = client.get("/api/presets/ai-findings")
     assert r.status_code == 200
     data = r.json()
@@ -427,7 +429,7 @@ def test_ai_findings_preset_loads(client):
     assert data["mode"] == "extraction"
     assert isinstance(data.get("prompt"), str) and "samples" in data["prompt"]
     ids = [sv["id"] for sv in data["sub_views"]]
-    assert ids == ["effect_size", "comparison", "classification", "descriptives"]
+    assert ids == ["details"]
 
 
 def test_ai_findings_prompt_passes_readiness_check(client):

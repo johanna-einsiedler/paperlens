@@ -62,7 +62,14 @@ from _helpers import (
     _prompt_has_evidence_schema,
     _provider_error_response,
 )
-from pdf_utils import extract_evidence_snippets, pdf_to_highlighted_images
+from pdf_utils import (
+    detect_journal_page_offset,
+    evidence_items_from_result,
+    extract_evidence_snippets,
+    find_text_rects_on_page,
+    pdf_to_highlighted_images,
+    pdf_to_pages_with_rects,
+)
 from prompt_builder import EVIDENCE_APPENDIX, build_meta_prompt
 from prompt_check import prompt_has_extraction_signals
 from providers import generate_text
@@ -225,12 +232,12 @@ def get_config() -> dict:
         # Donation flow is feature-flagged; the frontend hides the modal
         # when donate.enabled is false.  ``live`` distinguishes dry-run from
         # the real-PR mode so the modal's success copy is honest.
-        # ``zenodo`` is best-effort — when the token isn't set the donor
-        # silently skips the Zenodo step, the PR still works.
+        # ``zenodo`` is DISABLED (2026-06) — kept in the response for
+        # frontend back-compat; ``is_configured()`` always returns False.
         "donate": {
             "enabled": donor.is_enabled(),
             "live":    donor.is_live(),
-            "zenodo":  zenodo.is_configured(),
+            "zenodo":  zenodo.is_configured(),  # DISABLED: always False
         },
     }
 
@@ -926,10 +933,74 @@ async def render_pages(
     pdf_bytes = await pdf.read()
 
     snippets_by_page = extract_evidence_snippets(result) if result else {}
-    images = await asyncio.to_thread(pdf_to_highlighted_images, pdf_bytes, snippets_by_page)
+    # Journal-page-vs-PDF-page mismatch: when evidence claims pages that
+    # don't exist in the PDF (e.g. journal page 153 in a 23-page PDF),
+    # try to detect the constant offset between the two numbering schemes
+    # so highlights land on the right page AND the client can correct
+    # its click-to-jump navigation.
+    page_offset = 0
+    if snippets_by_page:
+        page_offset = await asyncio.to_thread(
+            detect_journal_page_offset, pdf_bytes, snippets_by_page
+        )
+
+    # Build structured evidence items (snippet + page + field + source)
+    # so the client gets per-snippet rect coordinates and can draw a
+    # green-focus SVG overlay on top of the yellow-baked baseline.
+    # Apply the detected page-offset to each item's claimed page so
+    # the rect locator searches the right PDF page.
+    evidence_items: list[dict] = []
+    if result:
+        evidence_items = evidence_items_from_result(result) or []
+        if page_offset:
+            for ev in evidence_items:
+                p_ = ev.get("page")
+                if isinstance(p_, int):
+                    ev["page"] = p_ + page_offset
+
+    page_images, highlights, scanned_pages = await asyncio.to_thread(
+        pdf_to_pages_with_rects, pdf_bytes, evidence_items
+    )
     return {
-        "filename":    filename,
-        "page_images": [f"data:image/jpeg;base64,{b}" for b in images],
+        "filename":      filename,
+        "page_images":   [f"data:image/jpeg;base64,{b}" for b in page_images],
+        "highlights":    highlights,
+        "scanned_pages": scanned_pages,
+        "page_offset":   page_offset,
+    }
+
+
+# ── /api/find-text ───────────────────────────────────────────────────────────
+#
+# On-demand text search for a single PDF page.  Used by the cell-click
+# UI: when the user clicks a literal value cell (e.g. ``"42.87"``), the
+# viewer wants to outline every occurrence of that text on the
+# currently-displayed page in green — in addition to the green outline
+# on the supporting evidence snippet that handleCellEvidenceJump already
+# paints from paper.highlights[].rects.
+#
+# Returns rects in image-pixel coordinates so the client can drop them
+# straight into the SVG overlay's viewBox without further conversion.
+
+@app.post("/api/find-text")
+async def find_text(
+    pdf:   UploadFile = File(...),
+    page:  int        = Form(...),
+    texts: list[str]  = Form(...),
+) -> dict:
+    filename = pdf.filename or ""
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Please upload a PDF file (.pdf).")
+    if page < 1:
+        raise HTTPException(status_code=400, detail="page must be >= 1")
+    pdf_bytes = await pdf.read()
+    rects = await asyncio.to_thread(
+        find_text_rects_on_page, pdf_bytes, page, texts
+    )
+    return {
+        "filename": filename,
+        "page":     page,
+        "rects":    rects,
     }
 
 

@@ -442,6 +442,149 @@ def count_evidence_entries(result_text: str) -> int:
     return n
 
 
+def find_text_rects_on_page(
+    pdf_bytes: bytes,
+    page_1indexed: int,
+    texts: list[str],
+    dpi: int = DISPLAY_DPI,
+) -> dict[str, list[list[float]]]:
+    """Find rect coordinates for each ``text`` on the specified PDF page.
+
+    Used by the on-demand click-to-jump UI: when the user clicks a cell
+    value (e.g. ``"42.87"``) the viewer wants to outline every occurrence
+    of that literal text on the currently-displayed PDF page.  Rects are
+    returned in image-pixel coordinates (multiplied by ``dpi/72``) so
+    the client can drop them straight into the SVG overlay's viewBox
+    without further conversion.
+
+    Returns a dict ``{text: [[x, y, w, h], ...]}``.  Texts not found
+    on the page map to empty lists.  Searches the literal string first,
+    then dehyphenated, then case-insensitive — same fallback ladder the
+    snippet locator uses, so the two highlight layers agree on what
+    counts as a hit.  Skips texts shorter than 2 chars (would match
+    noise) and longer than 200 chars (treat as a snippet, not a value).
+    """
+    import fitz  # PyMuPDF
+
+    out: dict[str, list[list[float]]] = {}
+    if not texts:
+        return out
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        if page_1indexed < 1 or page_1indexed > len(doc):
+            return {t: [] for t in texts}
+        page = doc[page_1indexed - 1]
+        scale = dpi / 72.0
+        _DEHY = getattr(fitz, "TEXT_DEHYPHENATE", 0)
+        seen: set[str] = set()
+        for raw in texts:
+            t = (raw or "").strip()
+            if not t or len(t) < 2 or len(t) > 200 or t in seen:
+                continue
+            seen.add(t)
+            rects = page.search_for(t)
+            if not rects:
+                try:
+                    rects = page.search_for(t, flags=_DEHY)
+                except Exception:
+                    rects = []
+            scaled: list[list[float]] = []
+            for r in (rects or []):
+                # PyMuPDF Rect → [x, y, w, h] in image pixels
+                scaled.append([
+                    round(r.x0 * scale, 2),
+                    round(r.y0 * scale, 2),
+                    round((r.x1 - r.x0) * scale, 2),
+                    round((r.y1 - r.y0) * scale, 2),
+                ])
+            out[t] = scaled
+    finally:
+        doc.close()
+    return out
+
+
+def detect_journal_page_offset(
+    pdf_bytes: bytes,
+    snippets_by_page: dict[int, list[str]],
+    max_search_pages: int = 200,
+    max_samples: int = 12,
+) -> int:
+    """Detect the offset between journal page numbers (what the evidence
+    claims) and PDF-internal page indices (what the renderer needs).
+
+    Academic-journal PDFs often start at, say, journal page 134 (article
+    spans 134-156) while the PDF file itself has internal pages 1-23.
+    The evidence array carries journal page numbers, so the click-to-jump
+    and the snippet-highlighter both fall off the end without remapping.
+
+    Strategy: gather snippets across out-of-range claimed pages, sort
+    longest-first (longer = more unique → less likely to false-match on
+    a similar-looking phrase elsewhere), search each across all PDF
+    pages, and **vote** on the resulting offset.  The most common
+    offset wins.  Voting protects against single-snippet false matches
+    like ``"Observations 20"`` landing on a figure caption mentioning
+    "20 observations" instead of the actual results table.  Returns 0
+    when every claimed page is already in range or no snippet can be
+    located.
+    """
+    if not snippets_by_page:
+        return 0
+    import fitz  # PyMuPDF
+    from collections import Counter
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    n_pdf_pages = len(doc)
+    if not any(p > n_pdf_pages for p in snippets_by_page.keys()):
+        return 0
+    scan_limit = min(n_pdf_pages, max_search_pages)
+
+    # Build (claimed_page, snippet) pairs from every out-of-range page,
+    # sorted longest-snippet-first so distinctive text votes before
+    # generic phrases.
+    candidates: list[tuple[int, str]] = []
+    for claimed_page, snippets in snippets_by_page.items():
+        if claimed_page <= n_pdf_pages:
+            continue
+        for snippet in snippets:
+            if snippet and len(snippet) >= 10:
+                candidates.append((claimed_page, snippet))
+    candidates.sort(key=lambda t: -len(t[1]))
+
+    offsets: Counter = Counter()
+    for claimed_page, snippet in candidates[:max_samples]:
+        needle = _normalize_snippet(snippet)
+        found_page = None
+        for length in (180, 120, 80):
+            candidate = needle[:length]
+            if len(candidate) < 10:
+                continue
+            for page_num in range(scan_limit):
+                page = doc[page_num]
+                rects = page.search_for(candidate)
+                if not rects:
+                    try:
+                        rects = page.search_for(candidate, flags=1)
+                    except Exception:
+                        pass
+                if rects:
+                    found_page = page_num + 1
+                    break
+            if found_page:
+                break
+        if found_page is not None:
+            offsets[found_page - claimed_page] += 1
+
+    if not offsets:
+        return 0
+    # If two offsets tie, prefer the one closer to zero (smaller absolute
+    # offset) — academic PDFs rarely have large negative offsets that
+    # overlap with a smaller plausible one.
+    top = offsets.most_common()
+    best_count = top[0][1]
+    contenders = [off for off, count in top if count == best_count]
+    return min(contenders, key=lambda o: abs(o))
+
+
 def _orphan_snippets(result_text: str) -> list[str]:
     """Snippets emitted by the model that lack a usable page number.
 

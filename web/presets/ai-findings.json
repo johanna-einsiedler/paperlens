@@ -2,7 +2,7 @@
   "id":                "ai-findings",
   "title":             "AI x labour — findings",
   "tagline":           "Extract every effect-size finding from each paper, with topical mapping and study-design metadata",
-  "description":       "Empirical AI-and-labour research extractor.  Walks the paper's results and emits one entry per reported finding (effect size, comparison, classification) plus a topical mapping back to study subtopics.  Built to render the AI-jobs research dataset where each paper contributes several effect-size findings organised by subtopic.",
+  "description":       "Empirical AI-and-labour research extractor.  Each paper renders as one synthesised \"Paper metadata\" entry plus one entry per reported finding (effect size, comparison, classification, classification_reasoning).  A single unified Details view per entry — confidence badges (paper_metadata / subtopics / findings) at the top, evidence_idx chips that expand inline with snippet + page + source on click, and click-to-jump cells that green-outline the supporting snippet on the PDF page.",
   "mode":              "extraction",
   "default_provider":  "openai",
   "default_model":     "gpt-4o",
@@ -19,39 +19,22 @@
   },
   "sub_views": [
     {
-      "id":              "effect_size",
-      "label":           "Effect size",
-      "include_keys":    ["sample_id", "metric", "value", "ci_low", "ci_high",
-                          "unit", "direction", "p_value", "evidence_idx"],
-      "evidence_keys":   ["effect_size", "metric", "value", "ci_low", "ci_high",
-                          "unit", "direction", "p_value", "evidence_idx",
-                          "findings"],
-      "confidence_keys": ["effect_size", "findings"]
-    },
-    {
-      "id":              "comparison",
-      "label":           "Comparison",
-      "include_keys":    ["sample_id", "comparison", "metric_definition", "note"],
-      "evidence_keys":   ["comparison", "metric_definition", "note", "findings"],
-      "confidence_keys": ["comparison", "findings"]
-    },
-    {
-      "id":              "classification",
-      "label":           "Classification",
-      "include_keys":    ["sample_id", "finding_type", "subtopic"],
-      "evidence_keys":   ["classification", "finding_type", "subtopic",
-                          "findings"],
-      "confidence_keys": ["classification", "findings"]
-    },
-    {
-      "id":              "descriptives",
-      "label":           "Paper metadata",
-      "include_keys":    ["sample_id", "paper_metadata"],
-      "evidence_keys":   ["paper_metadata", "title", "doi", "year", "authors",
-                          "domain", "study_type", "study_design", "is_genai",
-                          "is_conceptual", "n", "sample", "topics", "subtopics",
-                          "one_line", "qual_notes"],
-      "confidence_keys": ["paper_metadata", "subtopics"]
+      "id":              "details",
+      "label":           "Details",
+      "exclude_keys":    ["sample_id"],
+      "evidence_keys":   ["findings", "effect_size", "metric", "value",
+                          "ci_low", "ci_high", "unit", "direction",
+                          "p_value", "evidence_idx", "comparison",
+                          "metric_definition", "note", "classification",
+                          "finding_type", "subtopic",
+                          "classification_reasoning", "outcome", "group",
+                          "paper_metadata", "title", "doi", "year",
+                          "authors", "domain", "study_type", "study_design",
+                          "is_genai", "is_conceptual", "n", "sample",
+                          "topics", "subtopics", "one_line", "qual_notes",
+                          "countries", "weblink", "short", "date", "scale"],
+      "confidence_keys": ["effect_size", "comparison", "classification",
+                          "findings", "paper_metadata", "subtopics"]
     }
   ],
   "skip_to":           "setup",

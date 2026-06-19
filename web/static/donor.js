@@ -296,10 +296,7 @@
     const text = document.getElementById('donateSuccessText');
 
     if (data.mode === 'live' && data.pr_url) {
-      // GitHub PR link is always present in live mode.  Zenodo URL is
-      // optional (present when the server has PAPERLENS_ZENODO_TOKEN set
-      // AND the deposit succeeded); a zenodo_error is shown when the
-      // token was set but the deposit failed (the PR still went through).
+      // GitHub PR link is always present in live mode.
       const isExt = data.kind === 'extension';
       let html =
         (isExt
@@ -309,19 +306,24 @@
             `for human review:<br>`) +
         `<a href="${data.pr_url}" target="_blank" rel="noopener" style="word-break:break-all">${data.pr_url}</a>`;
 
-      if (data.zenodo_html_url) {
-        html +=
-          `<br><br><strong>Draft Zenodo deposit:</strong> review and publish ` +
-          `when you're ready to mint the DOI &mdash;<br>` +
-          `<a href="${data.zenodo_html_url}" target="_blank" rel="noopener" style="word-break:break-all">${data.zenodo_html_url}</a>`;
-        if (data.zenodo_doi) {
-          html += `<br><span style="font-size:12px;color:var(--text-muted)">Pre-reserved DOI: <code>${data.zenodo_doi}</code> (live after publish)</span>`;
-        }
-      } else if (data.zenodo_error) {
-        html +=
-          `<br><br><span style="color:#92400e;font-size:13px">⚠ Zenodo deposit failed: ${escHtmlSafe(data.zenodo_error)}.  ` +
-          `The GitHub PR is unaffected; you can mint a DOI manually on Zenodo later.</span>`;
-      }
+      // ── DISABLED: Zenodo deposit links paused (2026-06) ────────
+      // Backend's zenodo step is hard-disabled, so data.zenodo_html_url
+      // and data.zenodo_error will never be set.  Block kept verbatim
+      // for trivial re-enable.
+      // if (data.zenodo_html_url) {
+      //   html +=
+      //     `<br><br><strong>Draft Zenodo deposit:</strong> review and publish ` +
+      //     `when you're ready to mint the DOI &mdash;<br>` +
+      //     `<a href="${data.zenodo_html_url}" target="_blank" rel="noopener" style="word-break:break-all">${data.zenodo_html_url}</a>`;
+      //   if (data.zenodo_doi) {
+      //     html += `<br><span style="font-size:12px;color:var(--text-muted)">Pre-reserved DOI: <code>${data.zenodo_doi}</code> (live after publish)</span>`;
+      //   }
+      // } else if (data.zenodo_error) {
+      //   html +=
+      //     `<br><br><span style="color:#92400e;font-size:13px">⚠ Zenodo deposit failed: ${escHtmlSafe(data.zenodo_error)}.  ` +
+      //     `The GitHub PR is unaffected; you can mint a DOI manually on Zenodo later.</span>`;
+      // }
+      // ── END DISABLED Zenodo block ──────────────────────────────
 
       html +=
         `<br><br><span style="font-size:12px;color:var(--text-muted)">` +
