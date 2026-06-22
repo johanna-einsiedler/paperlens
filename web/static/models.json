@@ -87,12 +87,12 @@
       {
         "value": "deepseek-v4-flash",
         "label": "DeepSeek v4 Flash",
-        "vision": true
+        "vision": false
       },
       {
         "value": "deepseek-v4-pro",
         "label": "DeepSeek v4 Pro",
-        "vision": true
+        "vision": false
       }
     ],
     "mistral": [
@@ -944,6 +944,10 @@
       "in": 0.4,
       "out": 2.0
     },
+    "mistral-medium-3-5": {
+      "in": 1.5,
+      "out": 7.5
+    },
     "mistral-small": {
       "in": 0.1,
       "out": 0.3
@@ -1175,7 +1179,15 @@
     "gemini-pro-latest": {
       "in": 1.25,
       "out": 10.0
+    },
+    "deepseek-v4-flash": {
+      "in": 0.14,
+      "out": 0.28
+    },
+    "deepseek-v4-pro": {
+      "in": 0.435,
+      "out": 0.87
     }
   },
-  "generated_at": "2026-06-15T08:30:09Z"
+  "generated_at": "2026-06-22T08:29:25Z"
 }
