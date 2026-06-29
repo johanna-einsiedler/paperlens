@@ -340,9 +340,17 @@
       "in": 0.3,
       "out": 2.5
     },
+    "gemini-3-pro-image": {
+      "in": 2.0,
+      "out": 12.0
+    },
     "gemini-3-pro-image-preview": {
       "in": 2.0,
       "out": 12.0
+    },
+    "gemini-3.1-flash-image": {
+      "in": 0.25,
+      "out": 1.5
     },
     "gemini-3.1-flash-image-preview": {
       "in": 0.25,
@@ -936,9 +944,17 @@
       "in": 0.4,
       "out": 2.0
     },
-    "mistral-medium-latest": {
+    "mistral-medium-2508": {
       "in": 0.4,
       "out": 2.0
+    },
+    "mistral-medium-2604": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "mistral-medium-latest": {
+      "in": 1.5,
+      "out": 7.5
     },
     "mistral-medium-3-1-2508": {
       "in": 0.4,
@@ -1189,5 +1205,5 @@
       "out": 0.87
     }
   },
-  "generated_at": "2026-06-22T08:29:25Z"
+  "generated_at": "2026-06-29T08:08:13Z"
 }
