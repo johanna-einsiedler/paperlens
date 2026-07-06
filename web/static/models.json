@@ -58,6 +58,11 @@
     ],
     "anthropic": [
       {
+        "value": "claude-sonnet-5",
+        "label": "Claude Sonnet 5",
+        "vision": true
+      },
+      {
         "value": "claude-fable-5",
         "label": "Claude Fable 5",
         "vision": true
@@ -75,11 +80,6 @@
       {
         "value": "claude-sonnet-4-6",
         "label": "Claude Sonnet 4 6",
-        "vision": true
-      },
-      {
-        "value": "claude-opus-4-6",
-        "label": "Claude Opus 4 6",
         "vision": true
       }
     ],
@@ -167,6 +167,10 @@
     "claude-sonnet-4-5-20250929": {
       "in": 3.0,
       "out": 15.0
+    },
+    "claude-sonnet-5": {
+      "in": 2.0,
+      "out": 10.0
     },
     "claude-sonnet-4-6": {
       "in": 3.0,
@@ -1205,5 +1209,5 @@
       "out": 0.87
     }
   },
-  "generated_at": "2026-06-29T08:08:13Z"
+  "generated_at": "2026-07-06T07:52:10Z"
 }
