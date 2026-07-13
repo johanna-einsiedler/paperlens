@@ -4,6 +4,21 @@
   "providers": {
     "openai": [
       {
+        "value": "gpt-5.6-luna",
+        "label": "GPT-5.6 Luna",
+        "vision": true
+      },
+      {
+        "value": "gpt-5.6-terra",
+        "label": "GPT-5.6 Terra",
+        "vision": true
+      },
+      {
+        "value": "gpt-5.6-sol",
+        "label": "GPT-5.6 Sol",
+        "vision": true
+      },
+      {
         "value": "gpt-5.5-pro-2026-04-23",
         "label": "GPT-5.5 Pro 2026 04 23",
         "vision": true
@@ -11,21 +26,6 @@
       {
         "value": "gpt-5.5-pro",
         "label": "GPT-5.5 Pro",
-        "vision": true
-      },
-      {
-        "value": "gpt-5.5-2026-04-23",
-        "label": "GPT-5.5-2026-04-23",
-        "vision": true
-      },
-      {
-        "value": "gpt-5.5",
-        "label": "GPT-5.5",
-        "vision": true
-      },
-      {
-        "value": "gpt-5.4-mini",
-        "label": "GPT-5.4 Mini",
         "vision": true
       }
     ],
@@ -708,6 +708,22 @@
       "in": 21.0,
       "out": 168.0
     },
+    "gpt-5.6": {
+      "in": 5.0,
+      "out": 30.0
+    },
+    "gpt-5.6-sol": {
+      "in": 5.0,
+      "out": 30.0
+    },
+    "gpt-5.6-terra": {
+      "in": 2.5,
+      "out": 15.0
+    },
+    "gpt-5.6-luna": {
+      "in": 1.0,
+      "out": 6.0
+    },
     "gpt-5.5": {
       "in": 5.0,
       "out": 30.0
@@ -827,6 +843,14 @@
     "gpt-realtime-2": {
       "in": 4.0,
       "out": 16.0
+    },
+    "gpt-realtime-2.1": {
+      "in": 4.0,
+      "out": 24.0
+    },
+    "gpt-realtime-2.1-mini": {
+      "in": 0.6,
+      "out": 2.4
     },
     "gpt-realtime-mini": {
       "in": 0.6,
@@ -1209,5 +1233,5 @@
       "out": 0.87
     }
   },
-  "generated_at": "2026-07-06T07:52:10Z"
+  "generated_at": "2026-07-13T07:25:00Z"
 }
