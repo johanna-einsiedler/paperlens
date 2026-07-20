@@ -420,6 +420,10 @@
       "in": 1.5,
       "out": 9.0
     },
+    "gemini-omni-flash-preview": {
+      "in": 1.5,
+      "out": 9.0
+    },
     "gemini-3.1-pro-preview": {
       "in": 2.0,
       "out": 12.0
@@ -1233,5 +1237,5 @@
       "out": 0.87
     }
   },
-  "generated_at": "2026-07-13T07:25:00Z"
+  "generated_at": "2026-07-20T07:22:23Z"
 }
