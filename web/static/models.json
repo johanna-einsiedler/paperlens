@@ -31,8 +31,18 @@
     ],
     "google": [
       {
+        "value": "gemini-3.6-flash",
+        "label": "Gemini 3.6 Flash",
+        "vision": true
+      },
+      {
         "value": "gemini-3.5-flash",
         "label": "Gemini 3.5 Flash",
+        "vision": true
+      },
+      {
+        "value": "gemini-3.5-flash-lite",
+        "label": "Gemini 3.5 Flash Lite",
         "vision": true
       },
       {
@@ -44,19 +54,14 @@
         "value": "gemini-3.1-pro-preview-customtools",
         "label": "Gemini 3.1 Pro Preview Customtools",
         "vision": true
-      },
-      {
-        "value": "gemini-3.1-flash-lite-preview",
-        "label": "Gemini 3.1 Flash Lite Preview",
-        "vision": true
-      },
-      {
-        "value": "gemini-3.1-flash-lite",
-        "label": "Gemini 3.1 Flash Lite",
-        "vision": true
       }
     ],
     "anthropic": [
+      {
+        "value": "claude-opus-5",
+        "label": "Claude Opus 5",
+        "vision": true
+      },
       {
         "value": "claude-sonnet-5",
         "label": "Claude Sonnet 5",
@@ -75,11 +80,6 @@
       {
         "value": "claude-opus-4-7",
         "label": "Claude Opus 4 7",
-        "vision": true
-      },
-      {
-        "value": "claude-sonnet-4-6",
-        "label": "Claude Sonnet 4 6",
         "vision": true
       }
     ],
@@ -215,6 +215,10 @@
     "claude-fable-5": {
       "in": 10.0,
       "out": 50.0
+    },
+    "claude-opus-5": {
+      "in": 5.0,
+      "out": 25.0
     },
     "claude-opus-4-8": {
       "in": 5.0,
@@ -412,6 +416,10 @@
       "in": 0.25,
       "out": 1.5
     },
+    "gemini-3.5-flash-lite": {
+      "in": 0.3,
+      "out": 2.5
+    },
     "gemini-3-flash-preview": {
       "in": 0.5,
       "out": 3.0
@@ -419,6 +427,10 @@
     "gemini-3.5-flash": {
       "in": 1.5,
       "out": 9.0
+    },
+    "gemini-3.6-flash": {
+      "in": 1.5,
+      "out": 7.5
     },
     "gemini-omni-flash-preview": {
       "in": 1.5,
@@ -1237,5 +1249,5 @@
       "out": 0.87
     }
   },
-  "generated_at": "2026-07-20T07:22:23Z"
+  "generated_at": "2026-07-27T07:26:19Z"
 }
