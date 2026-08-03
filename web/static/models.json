@@ -107,18 +107,18 @@
         "vision": true
       },
       {
-        "value": "open-mistral-nemo",
-        "label": "Open Mistral Nemo",
+        "value": "codestral-2508",
+        "label": "Codestral 2508",
         "vision": true
       },
       {
-        "value": "open-mistral-nemo-2407",
-        "label": "Open Mistral Nemo 2407",
+        "value": "codestral-latest",
+        "label": "Codestral Latest",
         "vision": true
       },
       {
-        "value": "mistral-tiny-2407",
-        "label": "Mistral Tiny 2407",
+        "value": "mistral-code-latest",
+        "label": "Mistral Code Latest",
         "vision": true
       }
     ]
@@ -733,12 +733,12 @@
       "out": 30.0
     },
     "gpt-5.6-terra": {
-      "in": 2.5,
-      "out": 15.0
+      "in": 2.0,
+      "out": 12.0
     },
     "gpt-5.6-luna": {
-      "in": 1.0,
-      "out": 6.0
+      "in": 0.2,
+      "out": 1.2
     },
     "gpt-5.5": {
       "in": 5.0,
@@ -1249,5 +1249,5 @@
       "out": 0.87
     }
   },
-  "generated_at": "2026-07-27T07:26:19Z"
+  "generated_at": "2026-08-03T07:26:00Z"
 }
