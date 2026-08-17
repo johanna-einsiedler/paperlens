@@ -31,6 +31,11 @@
     ],
     "google": [
       {
+        "value": "gemini-3.7-flash",
+        "label": "Gemini 3.7 Flash",
+        "vision": true
+      },
+      {
         "value": "gemini-3.6-flash",
         "label": "Gemini 3.6 Flash",
         "vision": true
@@ -48,11 +53,6 @@
       {
         "value": "gemini-3.1-pro-preview",
         "label": "Gemini 3.1 Pro Preview",
-        "vision": true
-      },
-      {
-        "value": "gemini-3.1-pro-preview-customtools",
-        "label": "Gemini 3.1 Pro Preview Customtools",
         "vision": true
       }
     ],
@@ -439,6 +439,10 @@
     "gemini-3.6-flash": {
       "in": 1.5,
       "out": 7.5
+    },
+    "gemini-3.7-flash": {
+      "in": 0.75,
+      "out": 3.75
     },
     "gemini-omni-flash-preview": {
       "in": 1.5,
@@ -1244,6 +1248,10 @@
       "in": 0.75,
       "out": 4.5
     },
+    "gemini-3.1-flash-tts-preview": {
+      "in": 1.0,
+      "out": 20.0
+    },
     "gemini-pro-latest": {
       "in": 1.25,
       "out": 10.0
@@ -1255,7 +1263,31 @@
     "deepseek-v4-pro": {
       "in": 0.435,
       "out": 0.87
+    },
+    "claude-mythos-5": {
+      "in": 10.0,
+      "out": 50.0
+    },
+    "claude-mythos-preview": {
+      "in": 10.0,
+      "out": 50.0
+    },
+    "gemini-robotics-er-2-streaming-preview": {
+      "in": 2.0,
+      "out": 10.0
+    },
+    "mistral-small-2603": {
+      "in": 0.15,
+      "out": 0.6
+    },
+    "labs-leanstral-1-5": {
+      "in": 0.0,
+      "out": 0.0
+    },
+    "mistral-moderation-2603": {
+      "in": 0.0,
+      "out": 0.0
     }
   },
-  "generated_at": "2026-08-10T06:45:13Z"
+  "generated_at": "2026-08-17T06:27:59Z"
 }
