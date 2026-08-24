@@ -93,6 +93,11 @@
         "value": "deepseek-v4-pro",
         "label": "DeepSeek v4 Pro",
         "vision": false
+      },
+      {
+        "value": "deepseek-v4-flash-vision-exp",
+        "label": "DeepSeek v4 Flash Vision Exp",
+        "vision": true
       }
     ],
     "mistral": [
@@ -365,10 +370,14 @@
       "out": 12.0
     },
     "gemini-3.1-flash-image": {
-      "in": 0.25,
-      "out": 1.5
+      "in": 0.5,
+      "out": 3.0
     },
     "gemini-3.1-flash-image-preview": {
+      "in": 0.5,
+      "out": 3.0
+    },
+    "gemini-3.1-flash-lite-image": {
       "in": 0.25,
       "out": 1.5
     },
@@ -437,8 +446,8 @@
       "out": 9.0
     },
     "gemini-3.6-flash": {
-      "in": 1.5,
-      "out": 7.5
+      "in": 0.75,
+      "out": 3.75
     },
     "gemini-3.7-flash": {
       "in": 0.75,
@@ -737,12 +746,12 @@
       "out": 168.0
     },
     "gpt-5.6": {
-      "in": 5.0,
-      "out": 30.0
+      "in": 4.0,
+      "out": 20.0
     },
     "gpt-5.6-sol": {
-      "in": 5.0,
-      "out": 30.0
+      "in": 4.0,
+      "out": 20.0
     },
     "gpt-5.6-terra": {
       "in": 2.0,
@@ -751,6 +760,22 @@
     "gpt-5.6-luna": {
       "in": 0.2,
       "out": 1.2
+    },
+    "gpt-5.6-cyber": {
+      "in": 12.5,
+      "out": 75.0
+    },
+    "daybreak-red-latest": {
+      "in": 12.5,
+      "out": 75.0
+    },
+    "daybreak-blue-latest": {
+      "in": 4.0,
+      "out": 20.0
+    },
+    "chat-latest": {
+      "in": 5.0,
+      "out": 30.0
     },
     "gpt-5.5": {
       "in": 5.0,
@@ -897,8 +922,8 @@
       "out": 0.9
     },
     "codestral-latest": {
-      "in": 1.0,
-      "out": 3.0
+      "in": 0.3,
+      "out": 0.9
     },
     "codestral-mamba-latest": {
       "in": 0.25,
@@ -935,6 +960,14 @@
     "devstral-2512": {
       "in": 0.4,
       "out": 2.0
+    },
+    "zai-glm-5-2": {
+      "in": 1.4,
+      "out": 4.4
+    },
+    "glm-5-2": {
+      "in": 1.4,
+      "out": 4.4
     },
     "magistral-medium-2506": {
       "in": 2.0,
@@ -1025,8 +1058,8 @@
       "out": 0.3
     },
     "mistral-small-latest": {
-      "in": 0.06,
-      "out": 0.18
+      "in": 0.15,
+      "out": 0.6
     },
     "mistral-small-3-2-2506": {
       "in": 0.06,
@@ -1257,12 +1290,12 @@
       "out": 10.0
     },
     "deepseek-v4-flash": {
-      "in": 0.14,
-      "out": 0.28
+      "in": 0.44,
+      "out": 1.32
     },
     "deepseek-v4-pro": {
-      "in": 0.435,
-      "out": 0.87
+      "in": 1.32,
+      "out": 3.96
     },
     "claude-mythos-5": {
       "in": 10.0,
@@ -1287,7 +1320,11 @@
     "mistral-moderation-2603": {
       "in": 0.0,
       "out": 0.0
+    },
+    "gemini-3.5-live-translate-preview": {
+      "in": 3.5,
+      "out": 21.0
     }
   },
-  "generated_at": "2026-08-17T06:27:59Z"
+  "generated_at": "2026-08-24T06:27:58Z"
 }
