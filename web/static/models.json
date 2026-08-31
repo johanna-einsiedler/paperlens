@@ -310,7 +310,7 @@
       "out": 16.0
     },
     "gemini-live-2.5-flash-preview-native-audio-09-2025": {
-      "in": 0.3,
+      "in": 0.5,
       "out": 2.0
     },
     "gemini-robotics-er-1.5-preview": {
@@ -369,6 +369,10 @@
       "in": 2.0,
       "out": 12.0
     },
+    "nano-banana-pro-preview": {
+      "in": 2.0,
+      "out": 12.0
+    },
     "gemini-3.1-flash-image": {
       "in": 0.5,
       "out": 3.0
@@ -410,8 +414,8 @@
       "out": 0.4
     },
     "gemini-2.5-flash-preview-tts": {
-      "in": 0.3,
-      "out": 2.5
+      "in": 0.5,
+      "out": 10.0
     },
     "gemini-2.5-pro": {
       "in": 1.25,
@@ -466,8 +470,8 @@
       "out": 12.0
     },
     "gemini-2.5-pro-preview-tts": {
-      "in": 1.25,
-      "out": 10.0
+      "in": 1.0,
+      "out": 20.0
     },
     "gemini-exp-1114": {
       "in": 0,
@@ -488,6 +492,14 @@
     "gemma-3-27b-it": {
       "in": 0,
       "out": 0
+    },
+    "gemma-4-26b-a4b-it": {
+      "in": 0.0,
+      "out": 0.0
+    },
+    "gemma-4-31b-it": {
+      "in": 0.0,
+      "out": 0.0
     },
     "learnlm-1.5-pro-experimental": {
       "in": 0,
@@ -961,6 +973,34 @@
       "in": 0.4,
       "out": 2.0
     },
+    "ministral-14b-2512": {
+      "in": 0.2,
+      "out": 0.2
+    },
+    "ministral-14b-latest": {
+      "in": 0.2,
+      "out": 0.2
+    },
+    "ministral-3b-2512": {
+      "in": 0.1,
+      "out": 0.1
+    },
+    "ministral-3b-latest": {
+      "in": 0.1,
+      "out": 0.1
+    },
+    "mistral-medium-3": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "voxtral-small-2507": {
+      "in": 0.1,
+      "out": 0.4
+    },
+    "voxtral-small-latest": {
+      "in": 0.1,
+      "out": 0.4
+    },
     "zai-glm-5-2": {
       "in": 1.4,
       "out": 4.4
@@ -1266,16 +1306,16 @@
       "out": 0.3
     },
     "gemini-2.5-flash-native-audio-latest": {
-      "in": 0.3,
-      "out": 2.5
+      "in": 0.5,
+      "out": 2.0
     },
     "gemini-2.5-flash-native-audio-preview-09-2025": {
-      "in": 0.3,
-      "out": 2.5
+      "in": 0.5,
+      "out": 2.0
     },
     "gemini-2.5-flash-native-audio-preview-12-2025": {
-      "in": 0.3,
-      "out": 2.5
+      "in": 0.5,
+      "out": 2.0
     },
     "gemini-3.1-flash-live-preview": {
       "in": 0.75,
@@ -1290,6 +1330,10 @@
       "out": 10.0
     },
     "deepseek-v4-flash": {
+      "in": 0.44,
+      "out": 1.32
+    },
+    "deepseek-v4-flash-vision-exp": {
       "in": 0.44,
       "out": 1.32
     },
@@ -1324,7 +1368,51 @@
     "gemini-3.5-live-translate-preview": {
       "in": 3.5,
       "out": 21.0
+    },
+    "gemini-3.5-transcribe": {
+      "in": 2.0,
+      "out": 12.0
+    },
+    "gemini-3.5-transcribe-live": {
+      "in": 3.5,
+      "out": 21.0
+    },
+    "gemini-omni-1.1-flash": {
+      "in": 1.5,
+      "out": 9.0
+    },
+    "mistral-medium-3.5": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "mistral-vibe-cli-latest": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "mistral-vibe-cli-with-tools": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "mistral-vibe-cli-fast": {
+      "in": 0.15,
+      "out": 0.6
+    },
+    "mistral-code-latest": {
+      "in": 0.3,
+      "out": 0.9
+    },
+    "mistral-code-fim-latest": {
+      "in": 0.3,
+      "out": 0.9
+    },
+    "mistral-code-agent-latest": {
+      "in": 0.4,
+      "out": 2.0
+    },
+    "labs-leanstral-1-5-1": {
+      "in": 0.0,
+      "out": 0.0
     }
   },
-  "generated_at": "2026-08-24T06:27:58Z"
+  "generated_at": "2026-08-31T06:49:03Z"
 }
