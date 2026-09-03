@@ -6848,6 +6848,35 @@ function _canonicaliseLoadedPaper(p) {
     } catch (_) { originalRaw = ''; }
   }
 
+  // Recover evidence / confidence / paper metadata from the raw model
+  // response when the paper object carries none of its own.  This app's
+  // OWN exports are exactly that case: "Download all → JSON" keeps the
+  // model's evidence array inside ``original_model_response`` and the
+  // per-paper "Download JSON" inside ``llm_raw_response``, with nothing
+  // at paper level.  Without this, re-loading a file the app itself
+  // wrote produced a review view with no highlights, no page navigator
+  // and no click-to-jump — commitLoadJson assigns ``canonical.evidence``
+  // over the parsed response, so an empty array here erased evidence
+  // that parseFull had already recovered.  parseFull (not JSON.parse)
+  // so fenced and truncated responses are tolerated the same way the
+  // live extraction path tolerates them.
+  if ((!evidence.length || !confidence || !paperMeta) && originalRaw) {
+    const fromRaw = parseFull(originalRaw);
+    if (fromRaw && typeof fromRaw === 'object') {
+      if (!evidence.length && Array.isArray(fromRaw.evidence)) {
+        evidence = fromRaw.evidence;
+      }
+      if (!confidence && fromRaw.extraction_confidence
+          && typeof fromRaw.extraction_confidence === 'object') {
+        confidence = fromRaw.extraction_confidence;
+      }
+      if (!paperMeta && fromRaw.paper_metadata
+          && typeof fromRaw.paper_metadata === 'object') {
+        paperMeta = fromRaw.paper_metadata;
+      }
+    }
+  }
+
   // Rewrite evidence ``field`` paths so the renderer's click-to-jump
   // logic + the sub-tab routing both work.  The canonical form the
   // app expects is ``samples[N]....``; upstream pipelines emit any of
