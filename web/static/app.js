@@ -5756,7 +5756,17 @@ function downloadAllPapers() {
 
 // Staged data for the review flow
 let reviewPdfFiles  = [];   // File[]
-let reviewJsonData  = null; // parsed JSON, held until user clicks "Load"
+// One entry per accepted JSON file: {name, prompt, model, papers[]}.  Several
+// files stage at once so a batch that was exported paper-by-paper (or split
+// across runs) can be reviewed in a single session.
+let reviewJsonFiles = [];
+let reviewJsonData  = null; // merged envelope, held until user clicks "Load"
+
+// Array-shaped keys that mark an object as a single paper's extraction.
+// Shared with _canonicaliseLoadedPaper so the staging check and the loader
+// agree on what counts as a paper.
+const _LOADED_ENTRY_ARRAY_KEYS = ['entries', 'findings', 'samples',
+                                  'regressions', 'records'];
 
 function selectLoadOption() {
   document.getElementById('modeGrid').style.display        = 'none';
@@ -6193,7 +6203,6 @@ function cancelLoadOption() {
   const errEl = document.getElementById('jsonError');
   if (errEl) errEl.style.display = 'none';
   reviewPdfFiles = [];
-  reviewJsonData = null;
   _resetJsonStage2();
 }
 
@@ -6211,18 +6220,15 @@ function showJsonStage2() {
 }
 
 function _resetJsonStage2() {
-  reviewPdfFiles = [];
-  reviewJsonData = null;
+  reviewPdfFiles  = [];
+  reviewJsonFiles = [];
   const hint = document.getElementById('reviewPdfHint');
   if (hint) hint.textContent = 'or drop here';
-  const jsonHint = document.getElementById('jsonDropHint');
-  if (jsonHint) jsonHint.textContent = 'or drop here';
-  const ready = document.getElementById('jsonReadyRow');
-  if (ready) ready.style.display = 'none';
-  const loadBtn = document.getElementById('jsonLoadBtn');
-  if (loadBtn) loadBtn.disabled = true;
   const errEl = document.getElementById('jsonError');
   if (errEl) errEl.style.display = 'none';
+  const input = document.getElementById('jsonInput');
+  if (input) input.value = '';
+  _refreshJsonReadyState();
 }
 
 function initDropZone(zoneId, onFiles) {
@@ -6240,8 +6246,8 @@ function initDropZone(zoneId, onFiles) {
 
 function initJsonUploadZone() {
   initDropZone('jsonUploadZone', files => {
-    const json = files.find(f => f.name.toLowerCase().endsWith('.json'));
-    if (json) loadJsonFile(json);
+    const jsons = files.filter(f => f.name.toLowerCase().endsWith('.json'));
+    if (jsons.length) addJsonFiles(jsons);
     // Also capture any PDFs dropped at the same time
     const pdfs = files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
     if (pdfs.length) addReviewPdfs(pdfs);
@@ -6274,8 +6280,21 @@ function addReviewPdfs(files) {
 }
 
 function handleJsonFileSelect(event) {
-  const file = event.target.files[0];
-  if (file) loadJsonFile(file);
+  const files = [...event.target.files];
+  // Clear the input so re-picking the same file still fires `change`.
+  event.target.value = '';
+  if (files.length) addJsonFiles(files);
+}
+
+/* Drop every staged JSON — the files accumulate, so this is the only way
+   back to an empty slate without leaving the step. */
+function clearReviewJson() {
+  reviewJsonFiles = [];
+  const input = document.getElementById('jsonInput');
+  if (input) input.value = '';
+  const errEl = document.getElementById('jsonError');
+  if (errEl) errEl.style.display = 'none';
+  _refreshJsonReadyState();
 }
 
 function handleReviewPdfSelect(event) {
@@ -6302,40 +6321,127 @@ function reconstructOverrides(overrideList) {
   return overrides;
 }
 
-// Step 1: parse and validate — does NOT navigate. Shows ready state + Load button.
-async function loadJsonFile(file) {
-  document.getElementById('jsonError').style.display = 'none';
+/* Wrap one file's contents in the {prompt, model, papers} envelope the
+   loader works in.  Three inputs are accepted:
 
-  if (!file.name.toLowerCase().endsWith('.json')) {
-    showJsonError('Please upload a .json file.');
-    return;
+     - the consolidated "Download all → JSON"  → {prompt, model, papers: [...]}
+     - a per-paper "Download JSON"             → a bare paper object, no wrapper
+     - a bare array of paper objects
+
+   Per-paper detection is deliberately loose — anything carrying an
+   entries-shaped array (at the top level or under a ``result`` wrapper) or a
+   raw model response is a paper, which is the same range of shapes
+   _canonicaliseLoadedPaper already unpacks downstream.  Returns null when
+   nothing paper-like is recognisable.  Pure function. */
+function _normalizeResultsJson(data) {
+  if (Array.isArray(data)) data = { papers: data };
+  if (!data || typeof data !== 'object') return null;
+
+  if (Array.isArray(data.papers)) {
+    if (!data.papers.length) return null;
+    return { prompt: data.prompt || '', model: data.model || '', papers: data.papers };
   }
 
-  let data;
-  try {
-    data = JSON.parse(await file.text());
-  } catch (e) {
-    showJsonError('Could not parse file: ' + e.message);
-    return;
+  const result = (data.result && typeof data.result === 'object') ? data.result : null;
+  const hasEntryArray = _LOADED_ENTRY_ARRAY_KEYS.some(
+    k => Array.isArray(data[k]) || (result && Array.isArray(result[k])));
+  const hasRawResponse = typeof data.llm_raw_response === 'string' ||
+                         typeof data.original_model_response === 'string';
+  if (hasEntryArray || hasRawResponse) {
+    return { prompt: data.prompt || '', model: data.model || '', papers: [data] };
   }
+  return null;
+}
 
-  if (!data.papers || !Array.isArray(data.papers) || data.papers.length === 0) {
-    showJsonError('This doesn\'t look like a valid results file — expected a "papers" array.');
-    return;
+/* Fold every staged file into one envelope.  Papers are deduplicated by
+   filename (first file staged wins) so dropping a per-paper export next to
+   the consolidated one doesn't list the same paper twice; papers with no
+   filename are always kept.  ``prompt`` and ``model`` come from the first
+   file carrying them — per-paper exports have no prompt, so a mixed drop
+   still recovers it. */
+function _mergedReviewJson() {
+  const papers = [];
+  const seen   = new Set();
+  let prompt = '', model = '';
+  for (const f of reviewJsonFiles) {
+    if (!prompt && f.prompt) prompt = f.prompt;
+    if (!model  && f.model)  model  = f.model;
+    for (const paper of f.papers) {
+      const key = (paper && paper.filename || '').toLowerCase();
+      if (key) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      papers.push(paper);
+    }
   }
+  return { prompt, model, papers };
+}
 
-  reviewJsonData = data;
+/* Re-derive reviewJsonData + the stage-2 chrome from the staged files. */
+function _refreshJsonReadyState() {
+  const merged = _mergedReviewJson();
+  reviewJsonData = merged.papers.length ? merged : null;
 
-  // Show ready confirmation and enable Load button
-  const n = data.papers.length;
+  const nFiles  = reviewJsonFiles.length;
+  const nPapers = merged.papers.length;
+  const plural  = (n, word) => `${n} ${word}${n !== 1 ? 's' : ''}`;
+
   const jsonHint = document.getElementById('jsonDropHint');
-  if (jsonHint) jsonHint.textContent = `\u2713 ${file.name} (${n} paper${n !== 1 ? 's' : ''})`;
+  if (jsonHint) {
+    jsonHint.textContent = nFiles
+      ? `\u2713 ${plural(nFiles, 'file')} \u00b7 ${plural(nPapers, 'paper')}`
+      : 'or drop here';
+  }
 
   const ready = document.getElementById('jsonReadyRow');
-  if (ready) ready.style.display = 'flex';
+  if (ready) ready.style.display = nPapers ? 'flex' : 'none';
+
+  const readyText = document.getElementById('jsonReadyText');
+  if (readyText && nPapers) {
+    readyText.textContent =
+      `${plural(nPapers, 'paper')} from ${plural(nFiles, 'file')} ready. ` +
+      'Add PDFs above if you want page previews, then click Load.';
+  }
 
   const loadBtn = document.getElementById('jsonLoadBtn');
-  if (loadBtn) loadBtn.disabled = false;
+  if (loadBtn) loadBtn.disabled = !nPapers;
+}
+
+/* Step 1: parse and validate — does NOT navigate.  Files accumulate, so a
+   folder of per-paper exports can be dropped in several goes.  A bad file is
+   reported by name and skipped; the good ones still stage. */
+async function addJsonFiles(files) {
+  const errEl = document.getElementById('jsonError');
+  if (errEl) errEl.style.display = 'none';
+
+  const errors = [];
+  for (const file of files) {
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      errors.push(`${file.name}: not a .json file`);
+      continue;
+    }
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch (e) {
+      errors.push(`${file.name}: could not parse (${e.message})`);
+      continue;
+    }
+    const norm = _normalizeResultsJson(data);
+    if (!norm) {
+      errors.push(`${file.name}: not a results file — expected a "papers" array or a single-paper export`);
+      continue;
+    }
+    // Re-dropping the same file replaces the earlier copy rather than
+    // stacking a second one.
+    const i = reviewJsonFiles.findIndex(f => f.name === file.name);
+    const entry = { name: file.name, ...norm };
+    if (i >= 0) reviewJsonFiles[i] = entry; else reviewJsonFiles.push(entry);
+  }
+
+  if (errors.length) showJsonError(errors.join(' · '));
+  _refreshJsonReadyState();
 }
 
 /* Normalise an evidence entry's ``field`` path to the canonical
@@ -6637,8 +6743,7 @@ function _remapEvidenceIndex(e, indexMap) {
  *    original_model_response}
  */
 function _canonicaliseLoadedPaper(p) {
-  const ENTRY_ARRAY_KEYS = ['entries', 'findings', 'samples',
-                            'regressions', 'records'];
+  const ENTRY_ARRAY_KEYS = _LOADED_ENTRY_ARRAY_KEYS;
   // Look for an entries-shaped array first at the top level, then
   // inside a ``result`` wrapper.  First non-empty hit wins.
   const result = (p && typeof p === 'object' && p.result && typeof p.result === 'object')
@@ -6724,6 +6829,9 @@ function _canonicaliseLoadedPaper(p) {
   let originalRaw = '';
   if (typeof p.original_model_response === 'string' && p.original_model_response) {
     originalRaw = p.original_model_response;
+  } else if (typeof p.llm_raw_response === 'string' && p.llm_raw_response) {
+    // Per-paper "Download JSON" export — same content, different key.
+    originalRaw = p.llm_raw_response;
   } else if (result) {
     try { originalRaw = JSON.stringify(result); } catch (_) { originalRaw = ''; }
   } else {

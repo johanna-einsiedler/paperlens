@@ -395,7 +395,7 @@
           <div class="json-format-info">
             <p>You will need:</p>
             <ul class="json-req-list">
-              <li><strong>A results JSON</strong> previously exported from this app (use <em>Download JSON</em> on the results page). It must contain a <code>papers</code> array.</li>
+              <li><strong>One or more results JSON files</strong> previously exported from this app &mdash; either the consolidated <em>Download all &rarr; JSON</em> file (a <code>papers</code> array) or the per-paper <em>Download JSON</em> files. Drop as many as you like; they are merged into one review session.</li>
               <li><strong>The original PDF files</strong> <em>(optional but recommended)</em> &mdash; upload them alongside the JSON so the viewer can show page images with yellow highlights for each extracted value.</li>
             </ul>
             <p class="json-format-evidence-note">
@@ -440,9 +440,9 @@
           <div class="json-upload-grid">
             <!-- JSON drop zone -->
             <div class="json-upload-section">
-              <p class="json-upload-label">Results JSON <span class="json-upload-required">required</span></p>
+              <p class="json-upload-label">Results JSON <span class="json-upload-required">required</span> <span class="json-upload-optional">one file, or one per paper</span></p>
               <div class="json-drop-row" id="jsonUploadZone">
-                <input type="file" id="jsonInput" accept=".json" style="display:none" onchange="handleJsonFileSelect(event)" />
+                <input type="file" id="jsonInput" accept=".json" multiple style="display:none" onchange="handleJsonFileSelect(event)" />
                 <button class="btn btn-primary btn-sm" onclick="document.getElementById('jsonInput').click()">Choose JSON</button>
                 <span class="json-drop-hint" id="jsonDropHint">or drop here</span>
               </div>
@@ -463,8 +463,11 @@
 
           <!-- Shown after a valid JSON is dropped/chosen -->
           <div class="json-ready-row" id="jsonReadyRow" style="display:none">
-            <div class="json-ready-text">JSON ready. Add PDFs above if you want page previews, then click Load.</div>
-            <button class="btn btn-primary" id="jsonLoadBtn" onclick="commitLoadJson()" disabled>Load &amp; review &#8594;</button>
+            <div class="json-ready-text" id="jsonReadyText">JSON ready. Add PDFs above if you want page previews, then click Load.</div>
+            <div class="json-ready-actions">
+              <button class="btn btn-ghost btn-sm" onclick="clearReviewJson()">Clear</button>
+              <button class="btn btn-primary" id="jsonLoadBtn" onclick="commitLoadJson()" disabled>Load &amp; review &#8594;</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1328,7 +1331,7 @@ n: total sample size in the paper"></textarea>
 
     <details class="help-section">
       <summary>Reviewing previously exported results</summary>
-      <p>From the start screen, click <strong>Review existing results</strong>. Drop in the JSON file you previously downloaded, and optionally drop the original PDFs alongside it — the viewer will show page images with the same yellow highlights as before. No API key needed.</p>
+      <p>From the start screen, click <strong>Review existing results</strong>. Drop in the JSON you previously downloaded — either the consolidated file covering the whole batch, or several per-paper files at once, which are merged into a single review session (papers sharing a filename are kept once). Optionally drop the original PDFs alongside — the viewer will show page images with the same yellow highlights as before. No API key needed.</p>
     </details>
 
     <details class="help-section">

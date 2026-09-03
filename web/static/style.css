@@ -1097,6 +1097,12 @@ header p {
   color: var(--success);
   font-weight: 500;
 }
+.json-ready-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 /* ── Edit hint ───────────────────────────────────── */
 
