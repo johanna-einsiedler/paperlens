@@ -4,6 +4,11 @@
   "providers": {
     "openai": [
       {
+        "value": "gpt-6-astra",
+        "label": "GPT-6 Astra",
+        "vision": true
+      },
+      {
         "value": "gpt-5.6-luna",
         "label": "GPT-5.6 Luna",
         "vision": true
@@ -22,14 +27,14 @@
         "value": "gpt-5.5-pro-2026-04-23",
         "label": "GPT-5.5 Pro 2026 04 23",
         "vision": true
-      },
-      {
-        "value": "gpt-5.5-pro",
-        "label": "GPT-5.5 Pro",
-        "vision": true
       }
     ],
     "google": [
+      {
+        "value": "gemini-3.8-flash",
+        "label": "Gemini 3.8 Flash",
+        "vision": true
+      },
       {
         "value": "gemini-3.7-flash",
         "label": "Gemini 3.7 Flash",
@@ -49,14 +54,14 @@
         "value": "gemini-3.5-flash-lite",
         "label": "Gemini 3.5 Flash Lite",
         "vision": true
-      },
-      {
-        "value": "gemini-3.1-pro-preview",
-        "label": "Gemini 3.1 Pro Preview",
-        "vision": true
       }
     ],
     "anthropic": [
+      {
+        "value": "claude-fable-5-1",
+        "label": "Claude Fable 5 1",
+        "vision": true
+      },
       {
         "value": "claude-opus-5",
         "label": "Claude Opus 5",
@@ -75,11 +80,6 @@
       {
         "value": "claude-opus-4-8",
         "label": "Claude Opus 4 8",
-        "vision": true
-      },
-      {
-        "value": "claude-opus-4-7",
-        "label": "Claude Opus 4 7",
         "vision": true
       }
     ],
@@ -102,16 +102,6 @@
     ],
     "mistral": [
       {
-        "value": "mistral-medium-2505",
-        "label": "Mistral Medium 2505",
-        "vision": true
-      },
-      {
-        "value": "mistral-medium-2508",
-        "label": "Mistral Medium 2508",
-        "vision": true
-      },
-      {
         "value": "codestral-2508",
         "label": "Codestral 2508",
         "vision": true
@@ -124,6 +114,16 @@
       {
         "value": "mistral-code-latest",
         "label": "Mistral Code Latest",
+        "vision": true
+      },
+      {
+        "value": "mistral-code-fim-latest",
+        "label": "Mistral Code Fim Latest",
+        "vision": true
+      },
+      {
+        "value": "mistral-small-2603",
+        "label": "Mistral Small 2603",
         "vision": true
       }
     ]
@@ -218,6 +218,10 @@
       "out": 25.0
     },
     "claude-fable-5": {
+      "in": 10.0,
+      "out": 50.0
+    },
+    "claude-fable-5-1": {
       "in": 10.0,
       "out": 50.0
     },
@@ -454,6 +458,10 @@
       "out": 3.75
     },
     "gemini-3.7-flash": {
+      "in": 0.75,
+      "out": 3.75
+    },
+    "gemini-3.8-flash": {
       "in": 0.75,
       "out": 3.75
     },
@@ -709,14 +717,6 @@
       "in": 5.0,
       "out": 10.0
     },
-    "gpt-image-2": {
-      "in": 5.0,
-      "out": 10.0
-    },
-    "gpt-image-2-2026-04-21": {
-      "in": 5.0,
-      "out": 10.0
-    },
     "gpt-5": {
       "in": 1.25,
       "out": 10.0
@@ -757,6 +757,10 @@
       "in": 21.0,
       "out": 168.0
     },
+    "gpt-6-astra": {
+      "in": 10.0,
+      "out": 50.0
+    },
     "gpt-5.6": {
       "in": 4.0,
       "out": 20.0
@@ -781,7 +785,15 @@
       "in": 12.5,
       "out": 75.0
     },
+    "gpt-daybreak-red-latest": {
+      "in": 12.5,
+      "out": 75.0
+    },
     "daybreak-blue-latest": {
+      "in": 4.0,
+      "out": 20.0
+    },
+    "gpt-daybreak-blue-latest": {
       "in": 4.0,
       "out": 20.0
     },
@@ -907,7 +919,7 @@
     },
     "gpt-realtime-2": {
       "in": 4.0,
-      "out": 16.0
+      "out": 24.0
     },
     "gpt-realtime-2.1": {
       "in": 4.0,
@@ -1022,16 +1034,16 @@
       "out": 5.0
     },
     "magistral-medium-latest": {
-      "in": 2.0,
-      "out": 5.0
+      "in": 1.5,
+      "out": 7.5
     },
     "magistral-small-2506": {
       "in": 0.5,
       "out": 1.5
     },
     "magistral-small-latest": {
-      "in": 0.5,
-      "out": 1.5
+      "in": 0.15,
+      "out": 0.6
     },
     "magistral-small-1-2-2509": {
       "in": 0.5,
@@ -1062,8 +1074,8 @@
       "out": 1.5
     },
     "mistral-medium": {
-      "in": 2.7,
-      "out": 8.1
+      "in": 1.5,
+      "out": 7.5
     },
     "mistral-medium-2312": {
       "in": 2.7,
@@ -1345,6 +1357,10 @@
       "in": 10.0,
       "out": 50.0
     },
+    "claude-mythos-5-1": {
+      "in": 10.0,
+      "out": 50.0
+    },
     "claude-mythos-preview": {
       "in": 10.0,
       "out": 50.0
@@ -1412,7 +1428,23 @@
     "labs-leanstral-1-5-1": {
       "in": 0.0,
       "out": 0.0
+    },
+    "lyria-3.5-clip-preview": {
+      "in": 0,
+      "out": 0
+    },
+    "lyria-3.5-pro-preview": {
+      "in": 0,
+      "out": 0
+    },
+    "gpt-image-2": {
+      "in": 5.0,
+      "out": 10.0
+    },
+    "gpt-image-2-2026-04-21": {
+      "in": 5.0,
+      "out": 10.0
     }
   },
-  "generated_at": "2026-08-31T06:49:03Z"
+  "generated_at": "2026-09-07T06:49:58Z"
 }
