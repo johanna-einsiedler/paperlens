@@ -321,8 +321,8 @@
       "out": 2.5
     },
     "gemini-robotics-er-2-preview": {
-      "in": 2.0,
-      "out": 10.0
+      "in": 1.0,
+      "out": 5.0
     },
     "gemini-robotics-er-1.6-preview": {
       "in": 1.0,
@@ -405,12 +405,12 @@
       "out": 2.5
     },
     "gemini-flash-latest": {
-      "in": 0.3,
-      "out": 2.5
+      "in": 0.75,
+      "out": 3.75
     },
     "gemini-flash-lite-latest": {
-      "in": 0.1,
-      "out": 0.4
+      "in": 0.3,
+      "out": 2.5
     },
     "gemini-2.5-flash-lite-preview-06-17": {
       "in": 0.1,
@@ -681,7 +681,7 @@
       "out": 5.0
     },
     "gpt-4o-mini-tts": {
-      "in": 2.5,
+      "in": 0.6,
       "out": 10.0
     },
     "gpt-4o-realtime-preview": {
@@ -1016,6 +1016,18 @@
       "in": 1.4,
       "out": 4.4
     },
+    "zai-glm-5-3": {
+      "in": 1.4,
+      "out": 4.4
+    },
+    "zai-glm-5": {
+      "in": 1.4,
+      "out": 4.4
+    },
+    "zai-glm-latest": {
+      "in": 1.4,
+      "out": 4.4
+    },
     "glm-5-2": {
       "in": 1.4,
       "out": 4.4
@@ -1277,11 +1289,11 @@
       "out": 0.0
     },
     "gpt-4o-mini-tts-2025-03-20": {
-      "in": 2.5,
+      "in": 0.6,
       "out": 10.0
     },
     "gpt-4o-mini-tts-2025-12-15": {
-      "in": 2.5,
+      "in": 0.6,
       "out": 10.0
     },
     "gpt-4o-mini-transcribe-2025-03-20": {
@@ -1308,6 +1320,10 @@
       "in": 0.6,
       "out": 2.4
     },
+    "chatgpt-image-latest": {
+      "in": 5.0,
+      "out": 10.0
+    },
     "gemini-2.0-flash-exp-image-generation": {
       "in": 0.0,
       "out": 0.0
@@ -1332,13 +1348,21 @@
       "in": 0.75,
       "out": 4.5
     },
+    "gemini-3.8-live": {
+      "in": 0.75,
+      "out": 4.5
+    },
+    "gemini-3.8-live-extended-thinking": {
+      "in": 0.75,
+      "out": 4.5
+    },
     "gemini-3.1-flash-tts-preview": {
       "in": 1.0,
       "out": 20.0
     },
     "gemini-pro-latest": {
-      "in": 1.25,
-      "out": 10.0
+      "in": 2.0,
+      "out": 12.0
     },
     "deepseek-flash": {
       "in": 0.3,
@@ -1444,6 +1468,14 @@
       "in": 0,
       "out": 0
     },
+    "gpt-5.5-cyber": {
+      "in": 12.5,
+      "out": 75.0
+    },
+    "gpt-rosalind-research": {
+      "in": 5.0,
+      "out": 25.0
+    },
     "gpt-image-2": {
       "in": 5.0,
       "out": 10.0
@@ -1453,5 +1485,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-09-14T06:51:02Z"
+  "generated_at": "2026-09-21T06:51:59Z"
 }
