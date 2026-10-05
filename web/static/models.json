@@ -4,6 +4,11 @@
   "providers": {
     "openai": [
       {
+        "value": "gpt-6.1-sol",
+        "label": "GPT-6.1 Sol",
+        "vision": true
+      },
+      {
         "value": "gpt-6-luna",
         "label": "GPT-6 Luna",
         "vision": true
@@ -21,11 +26,6 @@
       {
         "value": "gpt-6-astra",
         "label": "GPT-6 Astra",
-        "vision": true
-      },
-      {
-        "value": "gpt-5.6-luna",
-        "label": "GPT-5.6 Luna",
         "vision": true
       }
     ],
@@ -58,6 +58,11 @@
     ],
     "anthropic": [
       {
+        "value": "claude-sonnet-5-5",
+        "label": "Claude Sonnet 5 5",
+        "vision": true
+      },
+      {
         "value": "claude-opus-5-5",
         "label": "Claude Opus 5 5",
         "vision": true
@@ -75,11 +80,6 @@
       {
         "value": "claude-sonnet-5",
         "label": "Claude Sonnet 5",
-        "vision": true
-      },
-      {
-        "value": "claude-fable-5",
-        "label": "Claude Fable 5",
         "vision": true
       }
     ],
@@ -145,6 +145,10 @@
       "out": 15.0
     },
     "claude-sonnet-5": {
+      "in": 2.0,
+      "out": 10.0
+    },
+    "claude-sonnet-5-5": {
       "in": 2.0,
       "out": 10.0
     },
@@ -577,6 +581,10 @@
       "out": 5.0
     },
     "gpt-4o-mini-tts": {
+      "in": 0.6,
+      "out": 10.0
+    },
+    "gpt-4o-mini-tts-2025-03-20": {
       "in": 0.6,
       "out": 10.0
     },
@@ -1240,6 +1248,10 @@
       "in": 5.0,
       "out": 25.0
     },
+    "gpt-6.1-sol": {
+      "in": 2.0,
+      "out": 10.0
+    },
     "chatgpt-4o-latest": {
       "in": 5.0,
       "out": 15.0
@@ -1496,10 +1508,6 @@
       "in": 0.0,
       "out": 0.0
     },
-    "gpt-4o-mini-tts-2025-03-20": {
-      "in": 0.6,
-      "out": 10.0
-    },
     "gpt-realtime-mini-2025-10-06": {
       "in": 0.6,
       "out": 2.4
@@ -1517,5 +1525,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-09-28T06:56:21Z"
+  "generated_at": "2026-10-05T07:01:16Z"
 }
