@@ -58,6 +58,11 @@
     ],
     "anthropic": [
       {
+        "value": "claude-haiku-5-5",
+        "label": "Claude Haiku 5 5",
+        "vision": true
+      },
+      {
         "value": "claude-sonnet-5-5",
         "label": "Claude Sonnet 5 5",
         "vision": true
@@ -75,11 +80,6 @@
       {
         "value": "claude-opus-5",
         "label": "Claude Opus 5",
-        "vision": true
-      },
-      {
-        "value": "claude-sonnet-5",
-        "label": "Claude Sonnet 5",
         "vision": true
       }
     ],
@@ -117,8 +117,8 @@
         "vision": true
       },
       {
-        "value": "mistral-small-2603",
-        "label": "Mistral Small 2603",
+        "value": "labs-leanstral-1-5-1",
+        "label": "Labs Leanstral 1 5 1",
         "vision": true
       }
     ]
@@ -912,6 +912,14 @@
       "in": 0.15,
       "out": 0.6
     },
+    "mistral-large-4": {
+      "in": 0.68,
+      "out": 2.09
+    },
+    "mistral-large-4-0": {
+      "in": 0.68,
+      "out": 2.09
+    },
     "mistral-large-latest": {
       "in": 0.5,
       "out": 1.5
@@ -1252,6 +1260,18 @@
       "in": 2.0,
       "out": 10.0
     },
+    "gemini-nano-banana-2.1": {
+      "in": 1.5,
+      "out": 7.5
+    },
+    "claude-haiku-5-5": {
+      "in": 0.1,
+      "out": 0.5
+    },
+    "gpt-rosalind-discovery": {
+      "in": 5.0,
+      "out": 25.0
+    },
     "chatgpt-4o-latest": {
       "in": 5.0,
       "out": 15.0
@@ -1525,5 +1545,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-10-05T07:01:16Z"
+  "generated_at": "2026-10-12T07:02:48Z"
 }
