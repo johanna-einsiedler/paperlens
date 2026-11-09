@@ -937,12 +937,12 @@
       "out": 0.6
     },
     "mistral-large-4": {
-      "in": 1.36,
-      "out": 4.18
+      "in": 0.7,
+      "out": 2.1
     },
     "mistral-large-4-0": {
-      "in": 1.36,
-      "out": 4.18
+      "in": 0.7,
+      "out": 2.1
     },
     "mistral-large-latest": {
       "in": 0.5,
@@ -1127,10 +1127,6 @@
     "chatgpt-image-latest": {
       "in": 5.0,
       "out": 10.0
-    },
-    "gemini-2.0-flash-exp-image-generation": {
-      "in": 0.0,
-      "out": 0.0
     },
     "gemini-2.5-flash-native-audio-latest": {
       "in": 0.5,
@@ -1320,9 +1316,21 @@
       "in": 15.0,
       "out": 75.0
     },
+    "gpt-6-cyber": {
+      "in": 20.0,
+      "out": 100.0
+    },
     "gpt-6-astra-law": {
       "in": 10.0,
       "out": 50.0
+    },
+    "gemini-omni-1.2-flash": {
+      "in": 1.5,
+      "out": 9.0
+    },
+    "gemini-2.0-flash-exp-image-generation": {
+      "in": 0.0,
+      "out": 0.0
     },
     "chatgpt-4o-latest": {
       "in": 5.0,
@@ -1577,5 +1585,5 @@
       "out": 10.0
     }
   },
-  "generated_at": "2026-11-02T06:34:52Z"
+  "generated_at": "2026-11-09T06:35:13Z"
 }
